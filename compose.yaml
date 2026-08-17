@@ -46,8 +46,8 @@ services:
     restart: unless-stopped
 
   tunnel:
-    image: cloudflare/cloudflared:latest
-    command: ["tunnel", "--no-autoupdate", "--url", "http://bot:8090"]
+    image: node:22-alpine
+    command: ["npx", "--yes", "localtunnel", "--port", "8090", "--local-host", "bot"]
     depends_on:
       - bot
     restart: unless-stopped
