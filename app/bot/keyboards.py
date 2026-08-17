@@ -90,6 +90,21 @@ def admin_menu_keyboard(mini_app_url: str = "") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def cabinet_keyboard(mini_app_url: str = "") -> InlineKeyboardMarkup | None:
+    if not mini_app_url.startswith("https://"):
+        return None
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Открыть кабинет",
+                    web_app=WebAppInfo(url=mini_app_url),
+                )
+            ]
+        ]
+    )
+
+
 def admin_leads_keyboard(leads: list[tuple[str, str]]) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text=label, callback_data=f"admin:lead:{lead_id}")]

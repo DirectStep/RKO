@@ -4,12 +4,20 @@ from app.bot.handlers import parse_answer_callback
 from app.bot.keyboards import (
     admin_lead_keyboard,
     admin_leads_keyboard,
+    cabinet_keyboard,
     consent_document_keyboard,
     continue_keyboard,
     retry_submission_keyboard,
     yes_no_keyboard,
 )
 from app.domain.intake import QUESTIONS, QuestionKind, normalize_phone
+
+
+def test_cabinet_button_requires_https() -> None:
+    assert cabinet_keyboard("http://localhost:8090") is None
+    keyboard = cabinet_keyboard("https://example.test/cabinet")
+    assert keyboard is not None
+    assert keyboard.inline_keyboard[0][0].web_app.url == "https://example.test/cabinet"
 
 
 @pytest.mark.parametrize(

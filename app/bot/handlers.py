@@ -8,6 +8,7 @@ from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
 from app.bot.keyboards import (
     admin_menu_keyboard,
+    cabinet_keyboard,
     consent_document_keyboard,
     consent_keyboard,
     continue_keyboard,
@@ -50,6 +51,19 @@ async def start(
         await message.answer(
             "Кабинет администратора",
             reply_markup=admin_menu_keyboard(settings.mini_app_url),
+        )
+        return
+    if role is UserRole.MANAGER:
+        await message.answer(
+            "Кабинет менеджера. Здесь доступны все заявки, статусы, банки и доходы.",
+            reply_markup=cabinet_keyboard(settings.mini_app_url),
+        )
+        return
+    if role is UserRole.PARTNER:
+        await message.answer(
+            "Партнёрский кабинет. Здесь видны только подтверждённые заявки "
+            "твоего источника — без личных данных клиента.",
+            reply_markup=cabinet_keyboard(settings.mini_app_url),
         )
         return
     try:

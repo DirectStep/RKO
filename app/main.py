@@ -30,7 +30,7 @@ async def run() -> None:
     sheets_task = asyncio.create_task(run_sheets_sync(database, settings))
     web_server = uvicorn.Server(
         uvicorn.Config(
-            create_web_app(database, settings),
+            create_web_app(database, settings, bot),
             host=settings.mini_app_host,
             port=settings.mini_app_port,
             log_level=settings.log_level.lower(),

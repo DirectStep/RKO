@@ -1,6 +1,9 @@
+import csv
 import hashlib
 import hmac
+import io
 import json
+import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,8 +11,9 @@ from typing import Annotated
 from urllib.parse import parse_qsl
 from uuid import UUID
 
+from aiogram import Bot
 from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select, true
 from sqlalchemy.sql.elements import ColumnElement
@@ -41,6 +45,16 @@ from app.web_schemas import (
 )
 
 ASSETS_DIR = Path(__file__).parent / "web_assets"
+logger = logging.getLogger(__name__)
+EXTERNAL_STATUS_LABELS = {
+    "new": "Новая",
+    "in_progress": "В работе",
+    "opening_accounts": "Открытие счетов",
+    "partially_completed": "Частично завершена",
+    "completed": "Завершена",
+    "paused": "На паузе",
+    "closed_without_result": "Закрыта без результата",
+}
 
 
 @dataclass(frozen=True)
@@ -143,7 +157,7 @@ def serialize_lead_bank(
     return result
 
 
-def create_web_app(database: Database, settings: Settings) -> FastAPI:
+def create_web_app(database: Database, settings: Settings, bot: Bot | None = None) -> FastAPI:
     app = FastAPI(title="РКО", docs_url=None, redoc_url=None)
     app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
 
@@ -207,6 +221,28 @@ def create_web_app(database: Database, settings: Settings) -> FastAPI:
     def domain_error(error: DomainError) -> HTTPException:
         return HTTPException(status_code=400, detail=str(error))
 
+    async def notify_partner(lead_id: UUID, text: str) -> None:
+        if bot is None:
+            return
+        async with database.session() as db_session:
+            telegram_id = await db_session.scalar(
+                select(User.telegram_id)
+                .join(Partner, Partner.telegram_user_id == User.id)
+                .join(Lead, Lead.partner_id == Partner.id)
+                .where(
+                    Lead.id == lead_id,
+                    Lead.assignment_status == AssignmentStatus.CONFIRMED,
+                    Partner.active.is_(True),
+                    User.access_status == AccessStatus.ACTIVE,
+                )
+            )
+        if telegram_id is None:
+            return
+        try:
+            await bot.send_message(chat_id=int(telegram_id), text=text)
+        except Exception:
+            logger.exception("Failed to notify partner for lead %s", lead_id)
+
     @app.get("/", include_in_schema=False)
     async def index() -> FileResponse:
         return FileResponse(ASSETS_DIR / "index.html")
@@ -266,10 +302,14 @@ def create_web_app(database: Database, settings: Settings) -> FastAPI:
     @app.get("/api/leads")
     async def leads(
         user: Annotated[MiniAppUser, Depends(current_user)],
+        mine: bool = False,
     ) -> list[dict[str, object]]:
+        scope = lead_scope(user)
+        if mine and user.role is UserRole.MANAGER:
+            scope = scope & (Lead.manager_id == user.database_id)
         async with database.session() as db_session:
             result = await db_session.scalars(
-                select(Lead).where(lead_scope(user)).order_by(Lead.application_at.desc()).limit(50)
+                select(Lead).where(scope).order_by(Lead.application_at.desc()).limit(50)
             )
             items = list(result)
         response: list[dict[str, object]] = []
@@ -292,6 +332,105 @@ def create_web_app(database: Database, settings: Settings) -> FastAPI:
                 item["manager_id"] = str(lead.manager_id) if lead.manager_id else None
             response.append(item)
         return response
+
+    @app.get("/api/reports/leads.csv")
+    async def leads_report(
+        user: Annotated[MiniAppUser, Depends(current_user)],
+    ) -> StreamingResponse:
+        async with database.session() as db_session:
+            lead_items = list(
+                await db_session.scalars(
+                    select(Lead).where(lead_scope(user)).order_by(Lead.application_at.desc())
+                )
+            )
+            rows: list[list[object]] = []
+            for lead in lead_items:
+                channel = (
+                    await db_session.get(Channel, lead.channel_id) if lead.channel_id else None
+                )
+                lead_bank_items = list(
+                    await db_session.scalars(select(LeadBank).where(LeadBank.lead_id == lead.id))
+                )
+                lead_banks: list[LeadBank | None] = [*lead_bank_items]
+                if not lead_banks:
+                    lead_banks = [None]
+                for lead_bank in lead_banks:
+                    bank = await db_session.get(Bank, lead_bank.bank_id) if lead_bank else None
+                    payment = (
+                        await db_session.scalar(
+                            select(Payment).where(Payment.lead_bank_id == lead_bank.id)
+                        )
+                        if lead_bank
+                        else None
+                    )
+                    if user.role is UserRole.PARTNER:
+                        rows.append(
+                            [
+                                lead.short_id,
+                                lead.application_at.date().isoformat(),
+                                lead.external_status.value,
+                                channel.name if channel else "Прямой",
+                                bank.name if bank else "",
+                                lead_bank.external_status.value if lead_bank else "",
+                                (lead_bank.partner_reward_fact or "") if lead_bank else "",
+                                (
+                                    payment.status.value
+                                    if payment
+                                    else PaymentStatus.NOT_CALCULATED.value
+                                ),
+                            ]
+                        )
+                    else:
+                        manager = (
+                            await db_session.get(User, lead.manager_id)
+                            if lead.manager_id
+                            else None
+                        )
+                        rows.append(
+                            [
+                                lead.short_id,
+                                lead.display_name,
+                                lead.phone,
+                                lead.application_at.date().isoformat(),
+                                lead.internal_status.value,
+                                channel.name if channel else "Прямой",
+                                format_user_name(manager),
+                                bank.name if bank else "",
+                                lead_bank.internal_status.value if lead_bank else "",
+                                (lead_bank.bank_income_fact or "") if lead_bank else "",
+                                (lead_bank.partner_reward_fact or "") if lead_bank else "",
+                                (
+                                    payment.status.value
+                                    if payment
+                                    else PaymentStatus.NOT_CALCULATED.value
+                                ),
+                            ]
+                        )
+        output = io.StringIO(newline="")
+        output.write("\ufeff")
+        writer = csv.writer(output, delimiter=";")
+        if user.role is UserRole.PARTNER:
+            writer.writerow(
+                [
+                    "Заявка", "Дата", "Статус", "Канал", "Банк", "Статус банка",
+                    "Вознаграждение", "Выплата",
+                ]
+            )
+        else:
+            writer.writerow(
+                [
+                    "Заявка", "Клиент", "Телефон", "Дата", "Статус", "Канал",
+                    "Менеджер", "Банк", "Статус банка", "Доход факт",
+                    "Вознаграждение", "Выплата",
+                ]
+            )
+        writer.writerows(rows)
+        headers = {"Content-Disposition": 'attachment; filename="rko-leads.csv"'}
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv; charset=utf-8",
+            headers=headers,
+        )
 
     @app.get("/api/leads/{lead_id}")
     async def lead_detail(
@@ -352,6 +491,12 @@ def create_web_app(database: Database, settings: Settings) -> FastAPI:
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> dict[str, str]:
         require_employee(user)
+        previous_external_status = None
+        if payload.internal_status is not None:
+            async with database.session() as db_session:
+                previous_external_status = await db_session.scalar(
+                    select(Lead.external_status).where(Lead.id == lead_id)
+                )
         try:
             lead = await WorkflowService(database).update_lead(
                 actor_role=user.role,
@@ -364,6 +509,16 @@ def create_web_app(database: Database, settings: Settings) -> FastAPI:
             )
         except DomainError as error:
             raise domain_error(error) from error
+        if (
+            previous_external_status is not None
+            and previous_external_status != lead.external_status
+        ):
+            await notify_partner(
+                lead.id,
+                "Статус заявки "
+                f"{lead.short_id} изменён: "
+                f"{EXTERNAL_STATUS_LABELS[lead.external_status.value]}",
+            )
         return {
             "id": str(lead.id),
             "status": lead.internal_status.value,
@@ -411,6 +566,7 @@ def create_web_app(database: Database, settings: Settings) -> FastAPI:
             )
         except DomainError as error:
             raise domain_error(error) from error
+        await notify_partner(lead.id, f"Новая подтверждённая заявка: {lead.short_id}")
         return {"id": str(lead.id), "assignment_status": lead.assignment_status.value}
 
     @app.post("/api/leads/{lead_id}/source/direct")
@@ -489,6 +645,14 @@ def create_web_app(database: Database, settings: Settings) -> FastAPI:
             )
         except DomainError as error:
             raise domain_error(error) from error
+        if bot is not None:
+            try:
+                await bot.send_message(
+                    chat_id=int(payload.telegram_id),
+                    text="Партнёрский кабинет РКО подключён. Отправь /start, чтобы открыть его.",
+                )
+            except Exception:
+                logger.exception("Failed to send partner access message for %s", partner.id)
         return {"id": str(partner.id), "status": "access_bound"}
 
     @app.get("/api/staff")
@@ -645,6 +809,12 @@ def create_web_app(database: Database, settings: Settings) -> FastAPI:
             )
         except DomainError as error:
             raise domain_error(error) from error
+        async with database.session() as db_session:
+            lead_id = await db_session.scalar(
+                select(LeadBank.lead_id).where(LeadBank.id == lead_bank_id)
+            )
+        if lead_id is not None:
+            await notify_partner(lead_id, "Вознаграждение по заявке подтверждено.")
         return {"id": str(payment.id), "status": payment.status.value}
 
     @app.patch("/api/payments/{payment_id}")
@@ -665,6 +835,15 @@ def create_web_app(database: Database, settings: Settings) -> FastAPI:
             )
         except DomainError as error:
             raise domain_error(error) from error
+        if payment.status is PaymentStatus.PAID:
+            async with database.session() as db_session:
+                lead_id = await db_session.scalar(
+                    select(LeadBank.lead_id)
+                    .join(Payment, Payment.lead_bank_id == LeadBank.id)
+                    .where(Payment.id == payment.id)
+                )
+            if lead_id is not None:
+                await notify_partner(lead_id, "Вознаграждение по заявке выплачено.")
         return {"id": str(payment.id), "status": payment.status.value}
 
     return app
