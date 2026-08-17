@@ -28,6 +28,7 @@ from app.models import (
     Payment,
     User,
 )
+from app.reports.partner_report import build_partner_report
 from app.services.admin_catalog import AdminCatalogService
 from app.services.admin_dashboard import AdminDashboardService
 from app.services.lead_assignment import LeadAssignmentService
@@ -320,6 +321,12 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
             paid_at=date(2026, 8, 17),
         )
         assert payment.status is PaymentStatus.PAID
+        report = (await build_partner_report(database, ids["partner"])).decode("utf-8-sig")
+        assert lead.short_id in report
+        assert "2000.00" in report
+        assert lead.phone not in report
+        assert "10000.00" not in report
+        assert "Первичный контакт" not in report
         with pytest.raises(DomainError, match="удалить нельзя"):
             await workflow.delete_lead(actor_role=UserRole.ADMIN, lead_id=lead.id)
     finally:
