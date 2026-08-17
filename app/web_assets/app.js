@@ -14,6 +14,7 @@ async function api(path, options={}) {
 function esc(value){ const n=document.createElement('span'); n.textContent=value??''; return n.innerHTML }
 function initials(name){ return String(name||'').split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase() }
 function date(value){ return value ? new Intl.DateTimeFormat('ru-RU').format(new Date(value)) : '—' }
+function localISODate(){ const now=new Date(),pad=value=>String(value).padStart(2,'0');return `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}` }
 function money(value){ return value===null||value===undefined||value==='' ? '—' : `${new Intl.NumberFormat('ru-RU').format(Number(value))} ₽` }
 function toast(message){ const el=document.querySelector('#toast'); el.textContent=message; el.hidden=false; clearTimeout(toast.timer); toast.timer=setTimeout(()=>el.hidden=true,2400) }
 function openSheet(title, eyebrow, html){ document.querySelector('#sheet-title').textContent=title; document.querySelector('#sheet-eyebrow').textContent=eyebrow; document.querySelector('#sheet-content').innerHTML=html; document.querySelector('#sheet-backdrop').hidden=false; document.querySelector('#bottom-sheet').hidden=false }
@@ -79,7 +80,7 @@ function bindLeadActions(lead,admin){
   document.querySelector('#add-lead-bank')?.addEventListener('click',()=>addLeadBank(lead))
   document.querySelectorAll('[data-save-bank]').forEach(btn=>btn.addEventListener('click',async()=>{ const c=btn.closest('[data-bank-card]'); await api(`/api/lead-banks/${btn.dataset.saveBank}`,{method:'PATCH',body:JSON.stringify({status:c.querySelector('[data-bank-status]').value,close_reason:c.querySelector('[data-reason]').value||null,income_estimate:c.querySelector('[data-estimate]').value||null,income_fact:c.querySelector('[data-fact]').value||null})}); toast('Банк сохранён'); await openLead(lead.id) }))
   document.querySelectorAll('[data-confirm-pay]').forEach(btn=>btn.addEventListener('click',async()=>{ await api(`/api/lead-banks/${btn.dataset.confirmPay}/payment/confirm`,{method:'POST',body:'{}'}); toast('Выплата подтверждена'); await openLead(lead.id) }))
-  document.querySelectorAll('[data-next-pay]').forEach(btn=>btn.addEventListener('click',async()=>{ const status=btn.dataset.current==='confirmed'?'in_registry':'paid'; await api(`/api/payments/${btn.dataset.nextPay}`,{method:'PATCH',body:JSON.stringify({status})}); toast(status==='paid'?'Выплата отмечена':'Добавлено в реестр'); await openLead(lead.id) }))
+  document.querySelectorAll('[data-next-pay]').forEach(btn=>btn.addEventListener('click',async()=>{ const status=btn.dataset.current==='confirmed'?'in_registry':'paid'; const payload={status}; if(status==='paid')payload.paid_at=localISODate(); await api(`/api/payments/${btn.dataset.nextPay}`,{method:'PATCH',body:JSON.stringify(payload)}); toast(status==='paid'?'Выплата отмечена':'Добавлено в реестр'); await openLead(lead.id) }))
 }
 function addLeadBank(lead){
   const used=new Set(lead.banks.map(x=>x.bank_id)), options=state.banks.filter(x=>x.active&&!used.has(x.id)).map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('')
