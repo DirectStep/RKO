@@ -27,6 +27,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       PROJECT_TIMEZONE: ${PROJECT_TIMEZONE:-Europe/Moscow}
       ADMIN_TELEGRAM_IDS: ${ADMIN_TELEGRAM_IDS:-}
+      ADMIN_TELEGRAM_USERNAMES: ${ADMIN_TELEGRAM_USERNAMES:-}
       MINI_APP_URL: ${MINI_APP_URL:-http://localhost:8090}
       MINI_APP_HOST: ${MINI_APP_HOST:-0.0.0.0}
       MINI_APP_PORT: ${MINI_APP_PORT:-8090}
@@ -43,6 +44,14 @@ services:
         condition: service_healthy
     command: ["sh", "-c", "alembic upgrade head && python3 -m app.main"]
     restart: unless-stopped
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    command: ["tunnel", "--no-autoupdate", "--url", "http://bot:8090"]
+    depends_on:
+      - bot
+    restart: unless-stopped
+    profiles: ["demo"]
 
   adminer:
     image: adminer:4

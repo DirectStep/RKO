@@ -26,3 +26,12 @@ def test_admin_ids_are_parsed_from_comma_separated_setting() -> None:
     )
 
     assert settings.admin_ids == frozenset({"123", "456"})
+
+
+def test_admin_usernames_are_normalized() -> None:
+    settings = Settings(
+        bot_token="123456:test-token",
+        admin_telegram_usernames=" @XirasS, manager ",
+    )
+
+    assert settings.admin_usernames == frozenset({"xirass", "manager"})

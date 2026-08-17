@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.config import Settings
 from app.database import Database
@@ -18,7 +18,18 @@ class UserAccessService:
             user = await session.scalar(
                 select(User).where(User.telegram_id == telegram_id).with_for_update()
             )
-            if telegram_id in self.settings.admin_ids:
+            normalized_username = (telegram_username or "").strip().lstrip("@").lower()
+            invited_by_username = normalized_username in self.settings.admin_usernames
+            if invited_by_username:
+                claimed_user = await session.scalar(
+                    select(User).where(
+                        func.lower(User.telegram_username) == normalized_username,
+                        User.role == UserRole.ADMIN,
+                    )
+                )
+                if claimed_user is not None and claimed_user.telegram_id != telegram_id:
+                    invited_by_username = False
+            if telegram_id in self.settings.admin_ids or invited_by_username:
                 if user is None:
                     user = User(
                         telegram_id=telegram_id,

@@ -130,6 +130,37 @@ async def test_configured_admin_is_created_and_resolved() -> None:
 
 
 @pytest.mark.asyncio
+async def test_invited_admin_username_is_claimed_by_first_telegram_account() -> None:
+    suffix = str(uuid4().int)[:10]
+    username = f"invited_{suffix}"
+    settings = Settings(
+        bot_token="123456:test-token",
+        app_env="test",
+        database_url=TEST_DATABASE_URL or "postgresql+asyncpg://unused",
+        admin_telegram_usernames=username,
+    )
+    database = Database(settings)
+    first_id = f"81{suffix}"
+    second_id = f"82{suffix}"
+    try:
+        role = await UserAccessService(database, settings).resolve_role(first_id, username)
+        repeated_role = await UserAccessService(database, settings).resolve_role(
+            first_id, username
+        )
+        rejected_role = await UserAccessService(database, settings).resolve_role(
+            second_id, username
+        )
+
+        assert role is UserRole.ADMIN
+        assert repeated_role is UserRole.ADMIN
+        assert rejected_role is None
+    finally:
+        async with database.session() as session, session.begin():
+            await session.execute(delete(User).where(User.telegram_id.in_({first_id, second_id})))
+        await database.close()
+
+
+@pytest.mark.asyncio
 async def test_admin_creates_referral_channel_and_confirms_source() -> None:
     database = Database(
         Settings(

@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     project_timezone: str = "Europe/Moscow"
     admin_telegram_ids: str = ""
+    admin_telegram_usernames: str = ""
     mini_app_url: str = "http://localhost:8090"
     mini_app_host: str = "0.0.0.0"
     mini_app_port: int = 8090
@@ -27,6 +28,14 @@ class Settings(BaseSettings):
     def admin_ids(self) -> frozenset[str]:
         return frozenset(
             item.strip() for item in self.admin_telegram_ids.split(",") if item.strip().isdigit()
+        )
+
+    @property
+    def admin_usernames(self) -> frozenset[str]:
+        return frozenset(
+            item.strip().lstrip("@").lower()
+            for item in self.admin_telegram_usernames.split(",")
+            if item.strip().lstrip("@")
         )
 
     @property
