@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f1f2f3" />
+    <meta name="description" content="Локальный рабочий кабинет РКО для заявок и партнёров" />
+    <title>РКО</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js?59"></script>
+    <script src="/assets/app.js" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Рабочий кабинет</p>
+          <h1>РКО</h1>
+        </div>
+        <div class="avatar" id="avatar" aria-hidden="true">Р</div>
+      </header>
+
+      <main>
+        <section class="screen is-active" id="summary-screen" aria-labelledby="summary-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow" id="greeting">Добрый день</p>
+              <h2 id="summary-title">Сводка</h2>
+            </div>
+            <span class="live-badge"><i></i> Сейчас</span>
+          </div>
+
+          <div class="summary-card">
+            <div class="primary-stat">
+              <span>Всего заявок</span>
+              <strong id="total-count">—</strong>
+            </div>
+            <div class="stat-grid">
+              <div><span>Новые</span><strong id="new-count">—</strong></div>
+              <div><span>В работе</span><strong id="active-count">—</strong></div>
+              <div><span>Без источника</span><strong id="unresolved-count">—</strong></div>
+            </div>
+          </div>
+
+          <div class="list-heading">
+            <h3>Последние заявки</h3>
+            <button type="button" data-go="leads">Все</button>
+          </div>
+          <div class="telegram-list" id="recent-leads"></div>
+        </section>
+
+        <section class="screen" id="leads-screen" aria-labelledby="leads-title">
+          <div class="section-heading compact">
+            <div><p class="eyebrow">До 50 записей</p><h2 id="leads-title">Заявки</h2></div>
+          </div>
+          <label class="search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.4-4.4m2.4-5.1A7.5 7.5 0 1 1 4 11.5a7.5 7.5 0 0 1 15 0Z"/></svg>
+            <input id="lead-search" type="search" placeholder="Имя, телефон или номер" />
+          </label>
+          <div class="telegram-list" id="all-leads"></div>
+        </section>
+
+        <section class="screen" id="partners-screen" aria-labelledby="partners-title">
+          <div class="section-heading compact">
+            <div><p class="eyebrow">Источники заявок</p><h2 id="partners-title">Партнёры</h2></div>
+          </div>
+          <div class="telegram-list" id="partners-list"></div>
+        </section>
+
+        <section class="error-state" id="error-state" hidden>
+          <div class="error-icon">!</div>
+          <h2>Кабинет не открылся</h2>
+          <p id="error-message">Перезапусти его из Telegram.</p>
+          <button type="button" id="retry-button">Повторить</button>
+        </section>
+      </main>
+
+      <nav class="tabbar" aria-label="Разделы">
+        <button class="is-active" type="button" data-screen="summary">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h6V4H4v9Zm0 7h6v-4H4v4Zm10 0h6v-9h-6v9Zm0-16v4h6V4h-6Z"/></svg>
+          <span>Сводка</span>
+        </button>
+        <button type="button" data-screen="leads">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>
+          <span>Заявки</span>
+        </button>
+        <button type="button" data-screen="partners" id="partners-tab">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2m7-10a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm13 10v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          <span>Партнёры</span>
+        </button>
+      </nav>
+    </div>
+  </body>
+</html>

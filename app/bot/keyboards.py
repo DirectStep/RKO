@@ -3,13 +3,19 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     KeyboardButton,
     ReplyKeyboardMarkup,
+    WebAppInfo,
 )
 
 
 def continue_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Продолжить", callback_data="application:begin")]
+            [InlineKeyboardButton(text="Продолжить", callback_data="application:begin")],
+            [
+                InlineKeyboardButton(
+                    text="Согласие на обработку данных", callback_data="privacy:show"
+                )
+            ],
         ]
     )
 
@@ -17,10 +23,22 @@ def continue_keyboard() -> InlineKeyboardMarkup:
 def consent_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="Прочитать согласие", callback_data="consent:show")],
             [InlineKeyboardButton(text="Согласен", callback_data="consent:accept")],
             [InlineKeyboardButton(text="Не согласен", callback_data="consent:decline")],
         ]
     )
+
+
+def consent_document_keyboard(*, application_started: bool) -> InlineKeyboardMarkup:
+    if application_started:
+        rows = [
+            [InlineKeyboardButton(text="Согласен", callback_data="consent:accept")],
+            [InlineKeyboardButton(text="Назад", callback_data="consent:back")],
+        ]
+    else:
+        rows = [[InlineKeyboardButton(text="К началу", callback_data="privacy:back")]]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def phone_keyboard() -> ReplyKeyboardMarkup:
@@ -50,17 +68,26 @@ def retry_submission_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def admin_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Сводка", callback_data="admin:stats")],
-            [InlineKeyboardButton(text="Последние заявки", callback_data="admin:leads")],
+def admin_menu_keyboard(mini_app_url: str = "") -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text="Сводка", callback_data="admin:stats")],
+        [InlineKeyboardButton(text="Последние заявки", callback_data="admin:leads")],
+        [
+            InlineKeyboardButton(text="Партнёры", callback_data="admin:partners"),
+            InlineKeyboardButton(text="Каналы", callback_data="admin:channels"),
+        ],
+    ]
+    if mini_app_url.startswith("https://"):
+        rows.insert(
+            0,
             [
-                InlineKeyboardButton(text="Партнёры", callback_data="admin:partners"),
-                InlineKeyboardButton(text="Каналы", callback_data="admin:channels"),
+                InlineKeyboardButton(
+                    text="Открыть мини-приложение",
+                    web_app=WebAppInfo(url=mini_app_url),
+                )
             ],
-        ]
-    )
+        )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def admin_leads_keyboard(leads: list[tuple[str, str]]) -> InlineKeyboardMarkup:

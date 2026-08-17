@@ -51,7 +51,9 @@ async def open_admin_menu(
         await message.answer("Этот раздел доступен только администратору.")
         return
     await state.clear()
-    await message.answer("Кабинет администратора", reply_markup=admin_menu_keyboard())
+    await message.answer(
+        "Кабинет администратора", reply_markup=admin_menu_keyboard(settings.mini_app_url)
+    )
 
 
 @router.callback_query(F.data == "admin:home")
@@ -64,7 +66,8 @@ async def admin_home(
     await state.clear()
     if isinstance(callback.message, Message):
         await callback.message.edit_text(
-            "Кабинет администратора", reply_markup=admin_menu_keyboard()
+            "Кабинет администратора",
+            reply_markup=admin_menu_keyboard(settings.mini_app_url),
         )
     await callback.answer()
 

@@ -8,6 +8,10 @@
 2. Запустить `docker compose up --build`.
 3. Проверить подключение к БД: `docker compose run --rm bot python3 -m app.healthcheck`.
 
+Локальный мини-апп открывается по адресу `http://localhost:8090`. В режиме разработки он
+использует первый Telegram ID из `ADMIN_TELEGRAM_IDS`. Для запуска внутри Telegram позже
+понадобится публичный HTTPS-адрес в `MINI_APP_URL`.
+
 ## Проверки
 
 ```powershell

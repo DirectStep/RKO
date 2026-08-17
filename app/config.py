@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     project_timezone: str = "Europe/Moscow"
     admin_telegram_ids: str = ""
+    mini_app_url: str = "http://localhost:8090"
+    mini_app_host: str = "0.0.0.0"
+    mini_app_port: int = 8090
+    mini_app_dev_telegram_id: str = ""
     google_sheet_id: str = ""
     google_service_account_file: str = ""
     sheets_sync_interval_seconds: int = 180
@@ -32,6 +36,12 @@ class Settings(BaseSettings):
             and self.google_service_account_file
             and Path(self.google_service_account_file).is_file()
         )
+
+    @property
+    def mini_app_local_user_id(self) -> str:
+        if self.app_env != "development":
+            return ""
+        return self.mini_app_dev_telegram_id or next(iter(self.admin_ids), "")
 
 
 @lru_cache

@@ -27,11 +27,17 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       PROJECT_TIMEZONE: ${PROJECT_TIMEZONE:-Europe/Moscow}
       ADMIN_TELEGRAM_IDS: ${ADMIN_TELEGRAM_IDS:-}
+      MINI_APP_URL: ${MINI_APP_URL:-http://localhost:8090}
+      MINI_APP_HOST: ${MINI_APP_HOST:-0.0.0.0}
+      MINI_APP_PORT: ${MINI_APP_PORT:-8090}
+      MINI_APP_DEV_TELEGRAM_ID: ${MINI_APP_DEV_TELEGRAM_ID:-}
       GOOGLE_SHEET_ID: ${GOOGLE_SHEET_ID:-}
       GOOGLE_SERVICE_ACCOUNT_FILE: ${GOOGLE_SERVICE_ACCOUNT_FILE:-}
       SHEETS_SYNC_INTERVAL_SECONDS: ${SHEETS_SYNC_INTERVAL_SECONDS:-180}
     volumes:
       - ./secrets:/run/secrets:ro
+    ports:
+      - "127.0.0.1:8090:8090"
     depends_on:
       db:
         condition: service_healthy

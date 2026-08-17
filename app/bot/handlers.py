@@ -8,6 +8,7 @@ from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
 from app.bot.keyboards import (
     admin_menu_keyboard,
+    consent_document_keyboard,
     consent_keyboard,
     continue_keyboard,
     phone_keyboard,
@@ -15,7 +16,7 @@ from app.bot.keyboards import (
     yes_no_keyboard,
 )
 from app.bot.states import LeadApplication
-from app.bot.texts import START_TEXT
+from app.bot.texts import CONSENT_PROMPT, CONSENT_TEXT, START_TEXT
 from app.config import Settings
 from app.database import Database
 from app.domain.enums import UserRole
@@ -46,7 +47,10 @@ async def start(
         telegram_id=str(user.id), telegram_username=user.username
     )
     if role is UserRole.ADMIN:
-        await message.answer("Кабинет администратора", reply_markup=admin_menu_keyboard())
+        await message.answer(
+            "Кабинет администратора",
+            reply_markup=admin_menu_keyboard(settings.mini_app_url),
+        )
         return
     try:
         first_click = await LeadIntakeService(database).record_first_click(
@@ -73,9 +77,43 @@ async def begin_application(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(LeadApplication.consent)
     if callback.message:
         await callback.message.answer(
-            "Для заявки нужно согласие на обработку персональных данных.",
+            CONSENT_PROMPT,
             reply_markup=consent_keyboard(),
         )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "privacy:show")
+async def show_privacy_before_application(callback: CallbackQuery) -> None:
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            CONSENT_TEXT,
+            reply_markup=consent_document_keyboard(application_started=False),
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "privacy:back")
+async def return_from_privacy(callback: CallbackQuery) -> None:
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(START_TEXT, reply_markup=continue_keyboard())
+    await callback.answer()
+
+
+@router.callback_query(LeadApplication.consent, F.data == "consent:show")
+async def show_privacy_during_application(callback: CallbackQuery) -> None:
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            CONSENT_TEXT,
+            reply_markup=consent_document_keyboard(application_started=True),
+        )
+    await callback.answer()
+
+
+@router.callback_query(LeadApplication.consent, F.data == "consent:back")
+async def return_to_consent(callback: CallbackQuery) -> None:
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(CONSENT_PROMPT, reply_markup=consent_keyboard())
     await callback.answer()
 
 

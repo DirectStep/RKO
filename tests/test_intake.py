@@ -4,6 +4,8 @@ from app.bot.handlers import parse_answer_callback
 from app.bot.keyboards import (
     admin_lead_keyboard,
     admin_leads_keyboard,
+    consent_document_keyboard,
+    continue_keyboard,
     retry_submission_keyboard,
     yes_no_keyboard,
 )
@@ -58,6 +60,15 @@ def test_answer_callback_parser_rejects_malformed_value() -> None:
 def test_retry_submission_button_has_stable_callback() -> None:
     keyboard = retry_submission_keyboard()
     assert keyboard.inline_keyboard[0][0].callback_data == "application:retry"
+
+
+def test_consent_can_be_opened_before_and_during_application() -> None:
+    welcome = continue_keyboard()
+    document = consent_document_keyboard(application_started=True)
+
+    assert welcome.inline_keyboard[1][0].callback_data == "privacy:show"
+    assert document.inline_keyboard[0][0].callback_data == "consent:accept"
+    assert document.inline_keyboard[1][0].callback_data == "consent:back"
 
 
 def test_admin_lead_button_contains_stable_id() -> None:
