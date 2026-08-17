@@ -1,6 +1,6 @@
 import asyncio
 import os
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -9,14 +9,32 @@ from sqlalchemy import delete, func, select
 
 from app.config import Settings
 from app.database import Database
-from app.domain.enums import AssignmentStatus, UserRole
-from app.models import Channel, DuplicateLeadReview, Lead, LeadDraft, Partner, User
+from app.domain.enums import (
+    AssignmentStatus,
+    BankInternalStatus,
+    LeadInternalStatus,
+    PaymentStatus,
+    UserRole,
+)
+from app.domain.operations import DomainError
+from app.models import (
+    Bank,
+    Channel,
+    DuplicateLeadReview,
+    Lead,
+    LeadBank,
+    LeadDraft,
+    Partner,
+    Payment,
+    User,
+)
 from app.services.admin_catalog import AdminCatalogService
 from app.services.admin_dashboard import AdminDashboardService
 from app.services.lead_assignment import LeadAssignmentService
 from app.services.lead_intake import LeadIntakeService, SubmissionStatus
 from app.services.sheets_snapshot import SheetsSnapshotService
 from app.services.user_access import UserAccessService
+from app.services.workflow import WorkflowService
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(
@@ -119,7 +137,7 @@ async def test_admin_creates_referral_channel_and_confirms_source() -> None:
             database_url=TEST_DATABASE_URL or "postgresql+asyncpg://unused",
         )
     )
-    suffix = uuid4().hex[:10]
+    suffix = str(uuid4().int)[:10]
     catalog = AdminCatalogService(database)
     assignments = LeadAssignmentService(database)
     partner_id = None
@@ -178,4 +196,147 @@ async def test_admin_creates_referral_channel_and_confirms_source() -> None:
                 await session.execute(delete(Channel).where(Channel.id == channel_id))
             if partner_id is not None:
                 await session.execute(delete(Partner).where(Partner.id == partner_id))
+        await database.close()
+
+
+@pytest.mark.asyncio
+async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
+    database = Database(
+        Settings(
+            bot_token="123456:test-token",
+            app_env="test",
+            database_url=TEST_DATABASE_URL or "postgresql+asyncpg://unused",
+        )
+    )
+    suffix = str(uuid4().int)[:10]
+    workflow = WorkflowService(database)
+    catalog = AdminCatalogService(database)
+    ids: dict[str, object] = {}
+    try:
+        manager = await workflow.create_staff(
+            actor_role=UserRole.ADMIN,
+            telegram_id=f"8{suffix}",
+            telegram_username=f"manager_{suffix}",
+            role=UserRole.MANAGER,
+        )
+        ids["manager"] = manager.id
+        partner = await catalog.create_partner(
+            actor_role=UserRole.ADMIN,
+            name=f"Партнёр workflow {suffix}",
+            commission_percent=Decimal("20.00"),
+        )
+        ids["partner"] = partner.id
+        partner = await workflow.bind_partner_access(
+            actor_role=UserRole.ADMIN,
+            partner_id=partner.id,
+            telegram_id=f"7{suffix}",
+            telegram_username=f"partner_{suffix}",
+        )
+        ids["partner_user"] = partner.telegram_user_id
+        channel = await catalog.create_channel(
+            actor_role=UserRole.ADMIN,
+            partner_id=partner.id,
+            name="Основной канал",
+            bot_username="RKOrko_bot",
+        )
+        ids["channel"] = channel.id
+        bank = await workflow.create_bank(
+            actor_role=UserRole.ADMIN,
+            name=f"Банк workflow {suffix}",
+            display_order=1,
+        )
+        ids["bank"] = bank.id
+
+        now = datetime.now(UTC)
+        async with database.session() as session, session.begin():
+            lead = Lead(
+                short_id=f"FLOW-{suffix}",
+                telegram_id=f"6{suffix}",
+                display_name="Рабочий лид",
+                phone=f"+7111{suffix}",
+                consent_status=True,
+                consent_at=now,
+                proposed_partner_id=partner.id,
+                proposed_channel_id=channel.id,
+                partner_id=partner.id,
+                channel_id=channel.id,
+                assignment_status=AssignmentStatus.CONFIRMED,
+                assignment_confirmed_at=now,
+                questionnaire_answers={"city": "Москва"},
+                first_click_at=now,
+                application_at=now,
+            )
+            session.add(lead)
+            await session.flush()
+            ids["lead"] = lead.id
+
+        lead = await workflow.update_lead(
+            actor_role=UserRole.ADMIN,
+            lead_id=ids["lead"],
+            manager_id=manager.id,
+            update_manager=True,
+            internal_comment="Первичный контакт",
+            update_comment=True,
+        )
+        assert lead.manager_id == manager.id
+        assert lead.internal_status is LeadInternalStatus.MANAGER_ASSIGNED
+
+        lead_bank = await workflow.add_bank_to_lead(
+            actor_role=UserRole.MANAGER,
+            lead_id=lead.id,
+            bank_id=bank.id,
+        )
+        ids["lead_bank"] = lead_bank.id
+        lead_bank = await workflow.update_lead_bank(
+            actor_role=UserRole.MANAGER,
+            lead_bank_id=lead_bank.id,
+            status=BankInternalStatus.ACCOUNT_OPENED,
+            income_estimate=Decimal("12000.00"),
+            income_fact=Decimal("10000.00"),
+        )
+        assert lead_bank.partner_reward_estimate == Decimal("2400.00")
+        assert lead_bank.partner_reward_fact == Decimal("2000.00")
+        assert lead_bank.opened_at is not None
+
+        payment = await workflow.confirm_lead_bank_payment(
+            actor_role=UserRole.ADMIN,
+            actor_user_id=manager.id,
+            lead_bank_id=lead_bank.id,
+            payment_period="2026-08",
+            registry_number="REG-1",
+        )
+        ids["payment"] = payment.id
+        assert payment.status is PaymentStatus.CONFIRMED
+        payment = await workflow.change_payment_status(
+            actor_role=UserRole.ADMIN,
+            payment_id=payment.id,
+            new_status=PaymentStatus.IN_REGISTRY,
+            registry_number="REG-1",
+        )
+        payment = await workflow.change_payment_status(
+            actor_role=UserRole.ADMIN,
+            payment_id=payment.id,
+            new_status=PaymentStatus.PAID,
+            paid_at=date(2026, 8, 17),
+        )
+        assert payment.status is PaymentStatus.PAID
+        with pytest.raises(DomainError, match="удалить нельзя"):
+            await workflow.delete_lead(actor_role=UserRole.ADMIN, lead_id=lead.id)
+    finally:
+        async with database.session() as session, session.begin():
+            if "payment" in ids:
+                await session.execute(delete(Payment).where(Payment.id == ids["payment"]))
+            if "lead_bank" in ids:
+                await session.execute(delete(LeadBank).where(LeadBank.id == ids["lead_bank"]))
+            if "lead" in ids:
+                await session.execute(delete(Lead).where(Lead.id == ids["lead"]))
+            if "channel" in ids:
+                await session.execute(delete(Channel).where(Channel.id == ids["channel"]))
+            if "partner" in ids:
+                await session.execute(delete(Partner).where(Partner.id == ids["partner"]))
+            if "bank" in ids:
+                await session.execute(delete(Bank).where(Bank.id == ids["bank"]))
+            user_ids = [ids[key] for key in ("manager", "partner_user") if ids.get(key)]
+            if user_ids:
+                await session.execute(delete(User).where(User.id.in_(user_ids)))
         await database.close()
