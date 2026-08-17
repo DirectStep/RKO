@@ -6,3 +6,13 @@ class LeadApplication(StatesGroup):
     phone = State()
     questionnaire = State()
     submitting = State()
+
+
+class PartnerCreation(StatesGroup):
+    name = State()
+    commission = State()
+
+
+class ChannelCreation(StatesGroup):
+    partner = State()
+    name = State()

@@ -1,7 +1,12 @@
 import pytest
 
 from app.bot.handlers import parse_answer_callback
-from app.bot.keyboards import admin_leads_keyboard, retry_submission_keyboard, yes_no_keyboard
+from app.bot.keyboards import (
+    admin_lead_keyboard,
+    admin_leads_keyboard,
+    retry_submission_keyboard,
+    yes_no_keyboard,
+)
 from app.domain.intake import QUESTIONS, QuestionKind, normalize_phone
 
 
@@ -62,3 +67,18 @@ def test_admin_lead_button_contains_stable_id() -> None:
         keyboard.inline_keyboard[0][0].callback_data
         == "admin:lead:8a124766-93ec-4e02-9c85-2260ebad0422"
     )
+
+
+def test_source_assignment_callbacks_fit_telegram_limit() -> None:
+    lead_id = "8a124766-93ec-4e02-9c85-2260ebad0422"
+    keyboard = admin_lead_keyboard(lead_id, "pending")
+    callback_values = [
+        button.callback_data
+        for row in keyboard.inline_keyboard
+        for button in row
+        if button.callback_data
+    ]
+
+    assert f"admin:source:confirm:{lead_id}" in callback_values
+    assert f"admin:source:direct:{lead_id}" in callback_values
+    assert all(len(value.encode()) <= 64 for value in callback_values)

@@ -55,6 +55,10 @@ def admin_menu_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="Сводка", callback_data="admin:stats")],
             [InlineKeyboardButton(text="Последние заявки", callback_data="admin:leads")],
+            [
+                InlineKeyboardButton(text="Партнёры", callback_data="admin:partners"),
+                InlineKeyboardButton(text="Каналы", callback_data="admin:channels"),
+            ],
         ]
     )
 
@@ -77,10 +81,100 @@ def admin_stats_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def admin_back_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+def admin_lead_keyboard(lead_id: str, assignment_status: str) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if assignment_status == "pending":
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="Подтвердить источник",
+                    callback_data=f"admin:source:confirm:{lead_id}",
+                )
+            ]
+        )
+    if assignment_status in {"pending", "unresolved"}:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="Это прямая заявка",
+                    callback_data=f"admin:source:direct:{lead_id}",
+                )
+            ]
+        )
+    rows.extend(
+        [
             [InlineKeyboardButton(text="К заявкам", callback_data="admin:leads")],
             [InlineKeyboardButton(text="В главное меню", callback_data="admin:home")],
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def admin_partners_keyboard(partners: list[tuple[str, str]]) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text=label, callback_data=f"admin:partner:{partner_id}")]
+        for partner_id, label in partners
+    ]
+    rows.extend(
+        [
+            [InlineKeyboardButton(text="Добавить партнёра", callback_data="admin:partner:new")],
+            [InlineKeyboardButton(text="В главное меню", callback_data="admin:home")],
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def admin_partner_keyboard(partner_id: str, active: bool) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Добавить канал", callback_data=f"admin:channel:new:{partner_id}"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Выключить" if active else "Включить",
+                    callback_data=f"admin:partner:toggle:{partner_id}",
+                )
+            ],
+            [InlineKeyboardButton(text="К партнёрам", callback_data="admin:partners")],
+        ]
+    )
+
+
+def admin_channels_keyboard(channels: list[tuple[str, str]]) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text=label, callback_data=f"admin:channel:{channel_id}")]
+        for channel_id, label in channels
+    ]
+    rows.extend(
+        [
+            [InlineKeyboardButton(text="Добавить канал", callback_data="admin:channel:new")],
+            [InlineKeyboardButton(text="В главное меню", callback_data="admin:home")],
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def admin_partner_choice_keyboard(partners: list[tuple[str, str]]) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text=label, callback_data=f"admin:channel:owner:{partner_id}")]
+        for partner_id, label in partners
+    ]
+    rows.append([InlineKeyboardButton(text="Отмена", callback_data="admin:channels")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def admin_channel_keyboard(channel_id: str, active: bool) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Выключить" if active else "Включить",
+                    callback_data=f"admin:channel:toggle:{channel_id}",
+                )
+            ],
+            [InlineKeyboardButton(text="К каналам", callback_data="admin:channels")],
         ]
     )

@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 
 from app.database import Database
 from app.domain.enums import AssignmentStatus, LeadInternalStatus
-from app.models import DuplicateLeadReview, Lead
+from app.models import Channel, DuplicateLeadReview, Lead, Partner
 
 
 @dataclass(frozen=True)
@@ -55,3 +55,29 @@ class AdminDashboardService:
     async def get_lead(self, lead_id: UUID) -> Lead | None:
         async with self.database.session() as session:
             return await session.get(Lead, lead_id)
+
+    async def get_assignment_label(self, lead: Lead) -> str:
+        if lead.assignment_status is AssignmentStatus.DIRECT:
+            return "Прямая заявка"
+        if lead.assignment_status is AssignmentStatus.UNRESOLVED:
+            return "Не определён"
+        partner_id = lead.partner_id or lead.proposed_partner_id
+        channel_id = lead.channel_id or lead.proposed_channel_id
+        if partner_id is None or channel_id is None:
+            return "Не определён"
+        async with self.database.session() as session:
+            row = (
+                await session.execute(
+                    select(Partner.name, Channel.name)
+                    .join(Channel, Channel.partner_id == Partner.id)
+                    .where(Partner.id == partner_id, Channel.id == channel_id)
+                )
+            ).one_or_none()
+        if row is None:
+            return "Источник не найден"
+        prefix = (
+            "Ожидает подтверждения"
+            if lead.assignment_status is AssignmentStatus.PENDING
+            else "Подтверждён"
+        )
+        return f"{prefix}: {row[0]} · {row[1]}"

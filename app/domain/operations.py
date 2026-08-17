@@ -58,6 +58,13 @@ def confirm_assignment(
     return AssignmentConfirmation(partner_id, channel_id, confirmed_at)
 
 
+def mark_assignment_direct(*, actor_role: UserRole, current_status: AssignmentStatus) -> None:
+    if actor_role is not UserRole.ADMIN:
+        raise DomainError("Источником заявки может управлять только администратор")
+    if current_status not in {AssignmentStatus.PENDING, AssignmentStatus.UNRESOLVED}:
+        raise DomainError("Подтверждённый источник заявки нельзя изменить")
+
+
 def confirm_payment(
     *,
     actor_role: UserRole,

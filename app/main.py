@@ -5,6 +5,7 @@ from contextlib import suppress
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import SimpleEventIsolation
 
+from app.bot.admin_catalog_handlers import router as admin_catalog_router
 from app.bot.admin_handlers import router as admin_router
 from app.bot.handlers import router
 from app.config import get_settings
@@ -22,6 +23,7 @@ async def run() -> None:
     bot = Bot(token=settings.bot_token.get_secret_value())
     dispatcher = Dispatcher(events_isolation=SimpleEventIsolation())
     dispatcher.include_router(admin_router)
+    dispatcher.include_router(admin_catalog_router)
     dispatcher.include_router(router)
     sheets_task = asyncio.create_task(run_sheets_sync(database, settings))
 

@@ -9,6 +9,7 @@ from app.domain.operations import (
     DomainError,
     confirm_assignment,
     confirm_payment,
+    mark_assignment_direct,
     validate_payment_transition,
 )
 
@@ -32,6 +33,27 @@ def test_confirmed_assignment_is_immutable() -> None:
             partner_id=uuid4(),
             channel_id=uuid4(),
             confirmed_at=datetime.now(UTC),
+        )
+
+
+def test_only_admin_can_mark_unresolved_or_pending_lead_direct() -> None:
+    mark_assignment_direct(
+        actor_role=UserRole.ADMIN,
+        current_status=AssignmentStatus.UNRESOLVED,
+    )
+    mark_assignment_direct(
+        actor_role=UserRole.ADMIN,
+        current_status=AssignmentStatus.PENDING,
+    )
+    with pytest.raises(DomainError, match="администратор"):
+        mark_assignment_direct(
+            actor_role=UserRole.MANAGER,
+            current_status=AssignmentStatus.UNRESOLVED,
+        )
+    with pytest.raises(DomainError, match="нельзя изменить"):
+        mark_assignment_direct(
+            actor_role=UserRole.ADMIN,
+            current_status=AssignmentStatus.CONFIRMED,
         )
 
 
