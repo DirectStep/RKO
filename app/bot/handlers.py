@@ -7,6 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
 from app.bot.keyboards import (
+    admin_menu_keyboard,
     consent_keyboard,
     continue_keyboard,
     phone_keyboard,
@@ -15,9 +16,12 @@ from app.bot.keyboards import (
 )
 from app.bot.states import LeadApplication
 from app.bot.texts import START_TEXT
+from app.config import Settings
 from app.database import Database
+from app.domain.enums import UserRole
 from app.domain.intake import QUESTIONS, QuestionKind, normalize_phone
 from app.services.lead_intake import LeadIntakeService, SubmissionStatus
+from app.services.user_access import UserAccessService
 
 router = Router(name="common")
 logger = logging.getLogger(__name__)
@@ -29,6 +33,7 @@ async def start(
     state: FSMContext,
     command: CommandObject,
     database: Database,
+    settings: Settings,
 ) -> None:
     await state.clear()
     user = message.from_user
@@ -36,6 +41,12 @@ async def start(
     referral_code = command.args
     if user is None:
         await message.answer("Не удалось определить Telegram-пользователя.")
+        return
+    role = await UserAccessService(database, settings).resolve_role(
+        telegram_id=str(user.id), telegram_username=user.username
+    )
+    if role is UserRole.ADMIN:
+        await message.answer("Кабинет администратора", reply_markup=admin_menu_keyboard())
         return
     try:
         first_click = await LeadIntakeService(database).record_first_click(

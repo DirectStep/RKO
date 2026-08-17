@@ -26,6 +26,7 @@ services:
       APP_ENV: ${APP_ENV:-development}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       PROJECT_TIMEZONE: ${PROJECT_TIMEZONE:-Europe/Moscow}
+      ADMIN_TELEGRAM_IDS: ${ADMIN_TELEGRAM_IDS:-}
     depends_on:
       db:
         condition: service_healthy

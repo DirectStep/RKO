@@ -48,3 +48,39 @@ def retry_submission_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="Повторить сохранение", callback_data="application:retry")]
         ]
     )
+
+
+def admin_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Сводка", callback_data="admin:stats")],
+            [InlineKeyboardButton(text="Последние заявки", callback_data="admin:leads")],
+        ]
+    )
+
+
+def admin_leads_keyboard(leads: list[tuple[str, str]]) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text=label, callback_data=f"admin:lead:{lead_id}")]
+        for lead_id, label in leads
+    ]
+    rows.append([InlineKeyboardButton(text="Назад", callback_data="admin:home")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def admin_stats_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Последние заявки", callback_data="admin:leads")],
+            [InlineKeyboardButton(text="В главное меню", callback_data="admin:home")],
+        ]
+    )
+
+
+def admin_back_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="К заявкам", callback_data="admin:leads")],
+            [InlineKeyboardButton(text="В главное меню", callback_data="admin:home")],
+        ]
+    )

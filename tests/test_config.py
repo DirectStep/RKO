@@ -17,3 +17,12 @@ def test_database_hides_query_parameters_in_errors() -> None:
     database = Database(settings)
 
     assert database.engine.sync_engine.hide_parameters is True
+
+
+def test_admin_ids_are_parsed_from_comma_separated_setting() -> None:
+    settings = Settings(
+        bot_token="123456:test-token",
+        admin_telegram_ids="123, 456,not-an-id",
+    )
+
+    assert settings.admin_ids == frozenset({"123", "456"})

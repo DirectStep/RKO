@@ -13,6 +13,13 @@ class Settings(BaseSettings):
     app_env: Literal["development", "test", "production"] = "development"
     log_level: str = "INFO"
     project_timezone: str = "Europe/Moscow"
+    admin_telegram_ids: str = ""
+
+    @property
+    def admin_ids(self) -> frozenset[str]:
+        return frozenset(
+            item.strip() for item in self.admin_telegram_ids.split(",") if item.strip().isdigit()
+        )
 
 
 @lru_cache

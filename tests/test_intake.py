@@ -1,7 +1,7 @@
 import pytest
 
 from app.bot.handlers import parse_answer_callback
-from app.bot.keyboards import retry_submission_keyboard, yes_no_keyboard
+from app.bot.keyboards import admin_leads_keyboard, retry_submission_keyboard, yes_no_keyboard
 from app.domain.intake import QUESTIONS, QuestionKind, normalize_phone
 
 
@@ -53,3 +53,12 @@ def test_answer_callback_parser_rejects_malformed_value() -> None:
 def test_retry_submission_button_has_stable_callback() -> None:
     keyboard = retry_submission_keyboard()
     assert keyboard.inline_keyboard[0][0].callback_data == "application:retry"
+
+
+def test_admin_lead_button_contains_stable_id() -> None:
+    keyboard = admin_leads_keyboard([("8a124766-93ec-4e02-9c85-2260ebad0422", "RKO-0001")])
+
+    assert (
+        keyboard.inline_keyboard[0][0].callback_data
+        == "admin:lead:8a124766-93ec-4e02-9c85-2260ebad0422"
+    )
