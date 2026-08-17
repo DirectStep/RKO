@@ -1,0 +1,1 @@
+"""РКО Telegram bot."""
