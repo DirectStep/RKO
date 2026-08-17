@@ -10,6 +10,7 @@ from app.database import Database
 from app.domain.enums import UserRole
 from app.models import DuplicateLeadReview, Lead, LeadDraft, User
 from app.services.lead_intake import LeadIntakeService, SubmissionStatus
+from app.services.sheets_snapshot import SheetsSnapshotService
 from app.services.user_access import UserAccessService
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
@@ -69,6 +70,11 @@ async def test_concurrent_same_phone_creates_lead_and_duplicate_review() -> None
         async with database.session() as session:
             assert await session.scalar(select(func.count()).select_from(Lead)) == 1
             assert await session.scalar(select(func.count()).select_from(DuplicateLeadReview)) == 1
+
+        sheets = await SheetsSnapshotService(database).build()
+        leads_sheet = next(sheet for sheet in sheets if sheet.title == "Leads")
+        assert len(leads_sheet.rows) == 1
+        assert "questionnaire_answers" in leads_sheet.headers
     finally:
         await database.close()
 

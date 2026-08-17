@@ -14,12 +14,19 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     project_timezone: str = "Europe/Moscow"
     admin_telegram_ids: str = ""
+    google_sheet_id: str = ""
+    google_service_account_file: str = ""
+    sheets_sync_interval_seconds: int = 180
 
     @property
     def admin_ids(self) -> frozenset[str]:
         return frozenset(
             item.strip() for item in self.admin_telegram_ids.split(",") if item.strip().isdigit()
         )
+
+    @property
+    def sheets_enabled(self) -> bool:
+        return bool(self.google_sheet_id and self.google_service_account_file)
 
 
 @lru_cache

@@ -27,6 +27,11 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       PROJECT_TIMEZONE: ${PROJECT_TIMEZONE:-Europe/Moscow}
       ADMIN_TELEGRAM_IDS: ${ADMIN_TELEGRAM_IDS:-}
+      GOOGLE_SHEET_ID: ${GOOGLE_SHEET_ID:-}
+      GOOGLE_SERVICE_ACCOUNT_FILE: ${GOOGLE_SERVICE_ACCOUNT_FILE:-}
+      SHEETS_SYNC_INTERVAL_SECONDS: ${SHEETS_SYNC_INTERVAL_SECONDS:-180}
+    volumes:
+      - ./secrets:/run/secrets:ro
     depends_on:
       db:
         condition: service_healthy
