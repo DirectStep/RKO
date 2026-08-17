@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import SecretStr
@@ -26,7 +27,11 @@ class Settings(BaseSettings):
 
     @property
     def sheets_enabled(self) -> bool:
-        return bool(self.google_sheet_id and self.google_service_account_file)
+        return bool(
+            self.google_sheet_id
+            and self.google_service_account_file
+            and Path(self.google_service_account_file).is_file()
+        )
 
 
 @lru_cache
