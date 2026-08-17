@@ -72,7 +72,7 @@ async def test_concurrent_same_phone_creates_lead_and_duplicate_review() -> None
             assert await session.scalar(select(func.count()).select_from(DuplicateLeadReview)) == 1
 
         sheets = await SheetsSnapshotService(database).build()
-        leads_sheet = next(sheet for sheet in sheets if sheet.title == "Leads")
+        leads_sheet = next(sheet for sheet in sheets if sheet.title == "Заявки")
         assert len(leads_sheet.rows) == 1
         assert "questionnaire_answers" in leads_sheet.headers
     finally:

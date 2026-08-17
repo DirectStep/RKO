@@ -26,14 +26,14 @@ def test_sheets_are_enabled_with_existing_credentials_file(tmp_path) -> None:
 
 def test_sheet_model_names_are_stable() -> None:
     assert [title for title, _ in SHEET_MODELS] == [
-        "Users",
-        "Partners",
-        "Channels",
-        "Leads",
-        "Banks",
-        "Lead_Banks",
-        "Payments",
-        "Duplicate_Reviews",
+        "Пользователи",
+        "Партнёры",
+        "Каналы",
+        "Заявки",
+        "Банки",
+        "Банки заявок",
+        "Выплаты",
+        "Проверка дублей",
     ]
 
 

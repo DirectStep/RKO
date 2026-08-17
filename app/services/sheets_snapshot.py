@@ -12,14 +12,14 @@ from app.integrations.google_sheets import SheetData
 from app.models import Bank, Channel, DuplicateLeadReview, Lead, LeadBank, Partner, Payment, User
 
 SHEET_MODELS = (
-    ("Users", User),
-    ("Partners", Partner),
-    ("Channels", Channel),
-    ("Leads", Lead),
-    ("Banks", Bank),
-    ("Lead_Banks", LeadBank),
-    ("Payments", Payment),
-    ("Duplicate_Reviews", DuplicateLeadReview),
+    ("Пользователи", User),
+    ("Партнёры", Partner),
+    ("Каналы", Channel),
+    ("Заявки", Lead),
+    ("Банки", Bank),
+    ("Банки заявок", LeadBank),
+    ("Выплаты", Payment),
+    ("Проверка дублей", DuplicateLeadReview),
 )
 
 
@@ -40,8 +40,8 @@ class SheetsSnapshotService:
                 sheets.append(SheetData(title=title, headers=columns, rows=rows))
         sheets.extend(
             [
-                SheetData("Dictionaries", ("group", "key", "value", "active"), []),
-                SheetData("Sync_Errors", ("created_at", "sheet", "row_id", "error"), []),
+                SheetData("Справочники", ("group", "key", "value", "active"), []),
+                SheetData("Ошибки синхронизации", ("created_at", "sheet", "row_id", "error"), []),
             ]
         )
         return sheets
