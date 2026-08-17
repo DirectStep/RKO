@@ -18,6 +18,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -174,10 +175,54 @@ class Lead(Base):
         enum_column(PaymentStatus), default=PaymentStatus.NOT_CALCULATED, nullable=False
     )
     internal_comment: Mapped[str | None] = mapped_column(Text)
+    questionnaire_answers: Mapped[dict[str, str]] = mapped_column(JSONB, nullable=False)
     first_click_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     application_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class LeadDraft(Base):
+    __tablename__ = "lead_drafts"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["proposed_channel_id", "proposed_partner_id"],
+            ["channels.id", "channels.partner_id"],
+            name="fk_draft_channel_partner",
+        ),
+        CheckConstraint(
+            "(proposed_partner_id IS NULL AND proposed_channel_id IS NULL) OR "
+            "(proposed_partner_id IS NOT NULL AND proposed_channel_id IS NOT NULL)",
+            name="ck_draft_proposed_source_pair",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    telegram_id: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
+    referral_code: Mapped[str | None] = mapped_column(String(64))
+    proposed_partner_id: Mapped[UUID | None] = mapped_column(ForeignKey("partners.id"))
+    proposed_channel_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    first_click_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class DuplicateLeadReview(Base):
+    __tablename__ = "duplicate_lead_reviews"
+
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    telegram_id: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
+    telegram_username: Mapped[str | None] = mapped_column(String(64))
+    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    phone: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    referral_code: Mapped[str | None] = mapped_column(String(64))
+    questionnaire_answers: Mapped[dict[str, str]] = mapped_column(JSONB, nullable=False)
+    consent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    first_click_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    review_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="pending", server_default="pending"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
 

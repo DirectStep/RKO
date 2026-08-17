@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.memory import SimpleEventIsolation
 
 from app.bot.handlers import router
 from app.config import get_settings
@@ -16,7 +17,7 @@ async def run() -> None:
     configure_logging(settings.log_level)
     database = Database(settings)
     bot = Bot(token=settings.bot_token.get_secret_value())
-    dispatcher = Dispatcher()
+    dispatcher = Dispatcher(events_isolation=SimpleEventIsolation())
     dispatcher.include_router(router)
 
     logger.info("Starting RKO bot in %s environment", settings.app_env)

@@ -24,6 +24,7 @@ jobs:
     env:
       BOT_TOKEN: 123456:test-token
       DATABASE_URL: postgresql+asyncpg://rko:rko@localhost:5432/rko
+      TEST_DATABASE_URL: postgresql+asyncpg://rko:rko@localhost:5432/rko
       APP_ENV: test
     steps:
       - uses: actions/checkout@v4
@@ -35,8 +36,8 @@ jobs:
       - run: ruff check .
       - run: ruff format --check .
       - run: mypy app
-      - run: pytest
       - run: alembic upgrade head
+      - run: pytest
       - run: python3 -m app.healthcheck
       - run: alembic downgrade base
       - run: alembic upgrade head

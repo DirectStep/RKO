@@ -9,7 +9,9 @@ from app.config import Settings
 
 class Database:
     def __init__(self, settings: Settings) -> None:
-        self.engine = create_async_engine(settings.database_url, pool_pre_ping=True)
+        self.engine = create_async_engine(
+            settings.database_url, pool_pre_ping=True, hide_parameters=True
+        )
         self.sessions = async_sessionmaker(self.engine, expire_on_commit=False)
 
     @asynccontextmanager
