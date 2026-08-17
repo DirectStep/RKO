@@ -19,9 +19,12 @@ QUESTIONS = (
     Question("adult", "Тебе уже исполнилось 18 лет?"),
     Question("has_ip", "У тебя открыто ИП?"),
     Question("city", "В каком городе ты сейчас находишься?", QuestionKind.TEXT),
-    Question("no_bankruptcy", "Нет банкротств или арестов на счетах?"),
-    Question("not_civil_servant", "Ты не являешься госслужащим?"),
-    Question("no_social_benefits", "Нет соцвыплат, пенсии, инвалидности или пособий?"),
+    Question("has_bankruptcy_or_arrests", "Были ли у тебя банкротства или аресты на счетах?"),
+    Question("is_civil_servant", "Ты являешься госслужащим?"),
+    Question(
+        "has_social_benefits",
+        "Получаешь ли ты социальные выплаты: пенсию, пособие по инвалидности или другие пособия?",
+    ),
 )
 
 

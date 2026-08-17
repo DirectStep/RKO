@@ -30,6 +30,14 @@ def test_business_questionnaire_contains_six_questions_and_city() -> None:
     )
 
 
+def test_yes_no_questions_do_not_use_negative_wording() -> None:
+    forbidden_fragments = ("нет ", "не являешься")
+
+    for question in QUESTIONS:
+        if question.kind is QuestionKind.YES_NO:
+            assert not any(fragment in question.text.lower() for fragment in forbidden_fragments)
+
+
 def test_answer_button_contains_question_index() -> None:
     keyboard = yes_no_keyboard(3)
     assert keyboard.inline_keyboard[0][0].callback_data == "answer:3:yes"

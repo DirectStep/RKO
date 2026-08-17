@@ -32,5 +32,16 @@ services:
     command: ["sh", "-c", "alembic upgrade head && python3 -m app.main"]
     restart: unless-stopped
 
+  adminer:
+    image: adminer:4
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+    restart: unless-stopped
+
 volumes:
   postgres_data:
