@@ -138,3 +138,11 @@ def test_partner_card_keeps_referral_link_available() -> None:
 
     assert keyboard.inline_keyboard[0][0].text == "Ссылка: Telegram"
     assert keyboard.inline_keyboard[0][0].url == "https://t.me/RKOrko_bot?start=ref-code"
+    callback_values = [
+        button.callback_data
+        for row in keyboard.inline_keyboard
+        for button in row
+        if button.callback_data
+    ]
+    assert any(value.startswith("admin:pd:a:") for value in callback_values)
+    assert all(len(value.encode()) <= 64 for value in callback_values)

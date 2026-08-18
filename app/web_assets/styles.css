@@ -259,6 +259,7 @@ button.list-row:active { background: color-mix(in srgb, var(--muted) 10%, transp
   background: transparent;
 }
 .field textarea { min-height: 5rem; padding-top: 0.5rem; resize: vertical; }
+.field-note { margin: 0; padding: 0.15rem 0.9rem 0.8rem; color: var(--muted); font-size: 0.74rem; line-height: 1.45; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; }
 .field-row .field + .field { border-left: 1px solid var(--separator); }
 .value-row { display: flex; justify-content: space-between; gap: 1rem; min-height: 2.9rem; padding: 0.75rem 0.9rem; border-top: 1px solid var(--separator); font-size: 0.85rem; }
@@ -322,6 +323,9 @@ button.list-row:active { background: color-mix(in srgb, var(--muted) 10%, transp
 .secondary-button { color: var(--accent); background: var(--surface); }
 .danger-button { color: #d64242; background: var(--surface); }
 .primary-button:disabled { opacity: 0.45; }
+.destructive-section { display: grid; gap: 0.65rem; padding: 0.2rem 0 0.8rem; }
+.destructive-section > .danger-button { width: 100%; }
+.destructive-section p { margin: 0; color: var(--muted); font-size: 0.8rem; line-height: 1.45; }
 
 .bank-card { margin-bottom: 0.65rem; padding: 0.8rem; border-radius: 0.8rem; background: var(--surface); }
 .bank-card header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.65rem; }

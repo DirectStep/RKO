@@ -9,6 +9,7 @@ from app.bot.keyboards import (
     admin_channel_keyboard,
     admin_channels_keyboard,
     admin_partner_choice_keyboard,
+    admin_partner_delete_keyboard,
     admin_partner_keyboard,
     admin_partners_keyboard,
 )
@@ -113,12 +114,18 @@ async def partner_toggle(callback: CallbackQuery, database: Database, settings: 
             actor_role=UserRole.ADMIN, partner_id=partner_id
         )
         channels = await service.list_partner_channels(partner.id)
+        access = await service.get_partner_access(partner.id)
     except (ValueError, DomainError) as error:
         await callback.answer(str(error), show_alert=True)
         return
     if isinstance(callback.message, Message):
         await callback.message.edit_text(
-            format_partner(partner, channels),
+            format_partner(
+                partner,
+                channels,
+                access.telegram_id if access else None,
+                access.telegram_username if access else None,
+            ),
             reply_markup=admin_partner_keyboard(
                 str(partner.id),
                 partner.active,
@@ -126,6 +133,59 @@ async def partner_toggle(callback: CallbackQuery, database: Database, settings: 
             ),
         )
     await callback.answer("Статус изменён")
+
+
+@router.callback_query(F.data.startswith("admin:pd:a:"))
+async def partner_delete_ask(
+    callback: CallbackQuery,
+    database: Database,
+    settings: Settings,
+) -> None:
+    if await deny_if_not_admin(callback, database, settings):
+        return
+    try:
+        partner_id = UUID((callback.data or "").removeprefix("admin:pd:a:"))
+    except ValueError:
+        await callback.answer("Некорректный партнёр", show_alert=True)
+        return
+    partner = await AdminCatalogService(database).get_partner(partner_id)
+    if partner is None:
+        await callback.answer("Партнёр не найден", show_alert=True)
+        return
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            f"Удалить партнёра «{partner.name}» и все его каналы?\n\n"
+            "Если у партнёра есть заявки, удаление будет запрещено.",
+            reply_markup=admin_partner_delete_keyboard(str(partner.id)),
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:pd:c:"))
+async def partner_delete_confirm(
+    callback: CallbackQuery,
+    database: Database,
+    settings: Settings,
+) -> None:
+    if await deny_if_not_admin(callback, database, settings):
+        return
+    try:
+        partner_id = UUID((callback.data or "").removeprefix("admin:pd:c:"))
+        await AdminCatalogService(database).delete_partner(
+            actor_role=UserRole.ADMIN,
+            partner_id=partner_id,
+        )
+    except (ValueError, DomainError) as error:
+        await callback.answer(str(error), show_alert=True)
+        return
+    partners = await AdminCatalogService(database).list_partners()
+    buttons = [(str(item.id), partner_button_text(item)) for item in partners]
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "Партнёр удалён." if not partners else "Партнёр удалён.\n\nПартнёры",
+            reply_markup=admin_partners_keyboard(buttons),
+        )
+    await callback.answer("Партнёр удалён")
 
 
 @router.callback_query(F.data.startswith("admin:partner:"))
@@ -143,9 +203,15 @@ async def partner_card(callback: CallbackQuery, database: Database, settings: Se
         await callback.answer("Партнёр не найден", show_alert=True)
         return
     channels = await service.list_partner_channels(partner.id)
+    access = await service.get_partner_access(partner.id)
     if isinstance(callback.message, Message):
         await callback.message.edit_text(
-            format_partner(partner, channels),
+            format_partner(
+                partner,
+                channels,
+                access.telegram_id if access else None,
+                access.telegram_username if access else None,
+            ),
             reply_markup=admin_partner_keyboard(
                 str(partner.id),
                 partner.active,
@@ -311,9 +377,22 @@ def channel_button_text(summary: ChannelSummary) -> str:
     return f"{'🟢' if channel.active else '⚪️'} {summary.partner_name} · {channel.name}"
 
 
-def format_partner(partner: Partner, channels: list[ChannelSummary]) -> str:
+def format_partner(
+    partner: Partner,
+    channels: list[ChannelSummary],
+    telegram_id: str | None = None,
+    telegram_username: str | None = None,
+) -> str:
     status = "работает" if partner.active else "выключен"
-    text = f"Партнёр: {partner.name}\n\nПроцент: {partner.commission_percent}%\nСтатус: {status}"
+    telegram = f"@{telegram_username}" if telegram_username else "не привязан"
+    if telegram_id:
+        telegram = f"{telegram} · ID {telegram_id}"
+    text = (
+        f"Партнёр: {partner.name}\n\n"
+        f"Процент: {partner.commission_percent}%\n"
+        f"Статус: {status}\n"
+        f"Telegram: {telegram}"
+    )
     if not channels:
         return f"{text}\n\nКаналов пока нет."
     links = "\n\n".join(

@@ -207,10 +207,35 @@ def admin_partner_keyboard(
                     callback_data=f"admin:partner:toggle:{partner_id}",
                 )
             ],
+            [
+                InlineKeyboardButton(
+                    text="Удалить партнёра",
+                    callback_data=f"admin:pd:a:{partner_id}",
+                )
+            ],
             [InlineKeyboardButton(text="К партнёрам", callback_data="admin:partners")],
         ]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def admin_partner_delete_keyboard(partner_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Да, удалить",
+                    callback_data=f"admin:pd:c:{partner_id}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Отмена",
+                    callback_data=f"admin:partner:{partner_id}",
+                )
+            ],
+        ]
+    )
 
 
 def admin_channels_keyboard(channels: list[tuple[str, str]]) -> InlineKeyboardMarkup:

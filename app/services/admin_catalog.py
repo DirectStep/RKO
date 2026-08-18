@@ -3,18 +3,25 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, or_, select
 
 from app.database import Database
-from app.domain.enums import UserRole
+from app.domain.enums import AccessStatus, UserRole
 from app.domain.operations import DomainError
-from app.models import Channel, Partner
+from app.models import Channel, Lead, LeadDraft, Partner, User
 
 
 @dataclass(frozen=True)
 class ChannelSummary:
     channel: Channel
     partner_name: str
+
+
+@dataclass(frozen=True)
+class PartnerAccessSummary:
+    partner: Partner
+    telegram_id: str | None
+    telegram_username: str | None
 
 
 class AdminCatalogService:
@@ -39,6 +46,19 @@ class AdminCatalogService:
     async def get_partner(self, partner_id: UUID) -> Partner | None:
         async with self.database.session() as session:
             return await session.get(Partner, partner_id)
+
+    async def get_partner_access(self, partner_id: UUID) -> PartnerAccessSummary | None:
+        async with self.database.session() as session:
+            row = (
+                await session.execute(
+                    select(Partner, User.telegram_id, User.telegram_username)
+                    .outerjoin(User, User.id == Partner.telegram_user_id)
+                    .where(Partner.id == partner_id)
+                )
+            ).one_or_none()
+            if row is None:
+                return None
+            return PartnerAccessSummary(row[0], row[1], row[2])
 
     async def create_partner(
         self, *, actor_role: UserRole, name: str, commission_percent: Decimal
@@ -72,6 +92,44 @@ class AdminCatalogService:
                 raise DomainError("Партнёр не найден")
             partner.active = not partner.active
             return partner
+
+    async def delete_partner(self, *, actor_role: UserRole, partner_id: UUID) -> None:
+        self._require_admin(actor_role)
+        async with self.database.session() as session, session.begin():
+            partner = await session.scalar(
+                select(Partner).where(Partner.id == partner_id).with_for_update()
+            )
+            if partner is None:
+                raise DomainError("Партнёр не найден")
+            has_leads = await session.scalar(
+                select(Lead.id)
+                .where(
+                    or_(
+                        Lead.partner_id == partner_id,
+                        Lead.proposed_partner_id == partner_id,
+                    )
+                )
+                .limit(1)
+            )
+            has_drafts = await session.scalar(
+                select(LeadDraft.id)
+                .where(LeadDraft.proposed_partner_id == partner_id)
+                .limit(1)
+            )
+            if has_leads is not None or has_drafts is not None:
+                raise DomainError(
+                    "Партнёра с заявками удалить нельзя. Выключи его, чтобы сохранить историю"
+                )
+            linked_user = (
+                await session.get(User, partner.telegram_user_id)
+                if partner.telegram_user_id
+                else None
+            )
+            await session.execute(delete(Channel).where(Channel.partner_id == partner_id))
+            await session.delete(partner)
+            if linked_user is not None:
+                linked_user.role = UserRole.LEAD
+                linked_user.access_status = AccessStatus.ACTIVE
 
     async def list_channels(self) -> list[ChannelSummary]:
         async with self.database.session() as session:

@@ -29,6 +29,7 @@ from app.domain.enums import (
 )
 from app.domain.operations import DomainError
 from app.models import Bank, Channel, Lead, LeadBank, Partner, Payment, User
+from app.services.admin_catalog import AdminCatalogService
 from app.services.lead_assignment import LeadAssignmentService
 from app.services.user_access import UserAccessService
 from app.services.workflow import WorkflowService
@@ -596,9 +597,15 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         require_admin(user)
         async with database.session() as db_session:
             rows = await db_session.execute(
-                select(Partner, func.count(Channel.id))
+                select(
+                    Partner,
+                    User.telegram_id,
+                    User.telegram_username,
+                    func.count(Channel.id),
+                )
+                .outerjoin(User, User.id == Partner.telegram_user_id)
                 .outerjoin(Channel, Channel.partner_id == Partner.id)
-                .group_by(Partner.id)
+                .group_by(Partner.id, User.telegram_id, User.telegram_username)
                 .order_by(Partner.name)
             )
         return [
@@ -607,9 +614,13 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 "name": partner.name,
                 "commission": str(partner.commission_percent),
                 "active": partner.active,
+                "telegram_id": telegram_id or "",
+                "telegram_username": (
+                    f"@{telegram_username}" if telegram_username else ""
+                ),
                 "channels": channel_count,
             }
-            for partner, channel_count in rows
+            for partner, telegram_id, telegram_username, channel_count in rows
         ]
 
     @app.get("/api/channels")
@@ -660,6 +671,20 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             except Exception:
                 logger.exception("Failed to send partner access message for %s", partner.id)
         return {"id": str(partner.id), "status": "access_bound"}
+
+    @app.delete("/api/partners/{partner_id}", status_code=204)
+    async def delete_partner(
+        partner_id: UUID,
+        user: Annotated[MiniAppUser, Depends(current_user)],
+    ) -> None:
+        require_admin(user)
+        try:
+            await AdminCatalogService(database).delete_partner(
+                actor_role=user.role,
+                partner_id=partner_id,
+            )
+        except DomainError as error:
+            raise domain_error(error) from error
 
     @app.get("/api/staff")
     async def staff(

@@ -236,6 +236,9 @@ async def test_admin_creates_referral_channel_and_confirms_source() -> None:
             await session.flush()
             lead_id = lead.id
 
+        with pytest.raises(DomainError, match="с заявками удалить нельзя"):
+            await catalog.delete_partner(actor_role=UserRole.ADMIN, partner_id=partner.id)
+
         confirmed = await assignments.confirm_proposed(actor_role=UserRole.ADMIN, lead_id=lead_id)
         assert confirmed.assignment_status is AssignmentStatus.CONFIRMED
         assert confirmed.partner_id == partner.id
@@ -251,6 +254,48 @@ async def test_admin_creates_referral_channel_and_confirms_source() -> None:
             await session.execute(
                 delete(LeadDraft).where(LeadDraft.telegram_id.in_(referral_test_ids))
             )
+            if channel_id is not None:
+                await session.execute(delete(Channel).where(Channel.id == channel_id))
+            if partner_id is not None:
+                await session.execute(delete(Partner).where(Partner.id == partner_id))
+        await database.close()
+
+
+@pytest.mark.asyncio
+async def test_admin_deletes_unused_partner_and_its_channels() -> None:
+    database = Database(
+        Settings(
+            bot_token="123456:test-token",
+            app_env="test",
+            database_url=TEST_DATABASE_URL or "postgresql+asyncpg://unused",
+        )
+    )
+    suffix = str(uuid4().int)[:10]
+    catalog = AdminCatalogService(database)
+    partner_id = None
+    channel_id = None
+    try:
+        partner = await catalog.create_partner(
+            actor_role=UserRole.ADMIN,
+            name=f"Удаляемый партнёр {suffix}",
+            commission_percent=Decimal("10"),
+        )
+        partner_id = partner.id
+        channel = await catalog.create_channel(
+            actor_role=UserRole.ADMIN,
+            partner_id=partner.id,
+            name="Тестовый канал",
+            bot_username="RKOrko_bot",
+        )
+        channel_id = channel.id
+
+        await catalog.delete_partner(actor_role=UserRole.ADMIN, partner_id=partner.id)
+
+        async with database.session() as session:
+            assert await session.get(Partner, partner.id) is None
+            assert await session.get(Channel, channel.id) is None
+    finally:
+        async with database.session() as session, session.begin():
             if channel_id is not None:
                 await session.execute(delete(Channel).where(Channel.id == channel_id))
             if partner_id is not None:
