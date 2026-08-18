@@ -309,7 +309,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             scope = scope & (Lead.manager_id == user.database_id)
         async with database.session() as db_session:
             result = await db_session.scalars(
-                select(Lead).where(scope).order_by(Lead.application_at.desc()).limit(50)
+                select(Lead).where(scope).order_by(Lead.application_at.desc()).limit(1000)
             )
             items = list(result)
         response: list[dict[str, object]] = []

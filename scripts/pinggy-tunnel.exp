@@ -9,7 +9,8 @@ spawn ssh -tt \
     -o ServerAliveCountMax=3 \
     -R0:bot:8090 \
     free.pinggy.io \
-    x:https
+    x:https \
+    x:passpreflight
 
 expect {
     -re {(?i)password:} {

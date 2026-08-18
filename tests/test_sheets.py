@@ -12,6 +12,12 @@ def test_sheets_are_disabled_without_id_and_credentials() -> None:
     assert settings.sheets_enabled is False
 
 
+def test_sheets_sync_checks_for_changes_every_ten_seconds() -> None:
+    settings = Settings(bot_token="123456:test-token")
+
+    assert settings.sheets_sync_interval_seconds == 10
+
+
 def test_sheets_are_enabled_with_existing_credentials_file(tmp_path) -> None:
     credentials_file = tmp_path / "service-account.json"
     credentials_file.write_text("{}", encoding="utf-8")

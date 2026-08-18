@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     mini_app_dev_telegram_id: str = ""
     google_sheet_id: str = ""
     google_service_account_file: str = ""
-    sheets_sync_interval_seconds: int = 180
+    sheets_sync_interval_seconds: int = 10
 
     @property
     def admin_ids(self) -> frozenset[str]:
