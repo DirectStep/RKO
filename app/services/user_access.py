@@ -1,9 +1,9 @@
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from app.config import Settings
 from app.database import Database
 from app.domain.enums import AccessStatus, UserRole
-from app.models import User
+from app.models import Partner, User
 
 
 class UserAccessService:
@@ -43,6 +43,40 @@ class UserAccessService:
                     user.role = UserRole.ADMIN
                     user.access_status = AccessStatus.ACTIVE
                 return UserRole.ADMIN
+
+            partner = None
+            if normalized_username:
+                partner = await session.scalar(
+                    select(Partner)
+                    .where(
+                        func.lower(Partner.telegram_username) == normalized_username,
+                        Partner.active.is_(True),
+                        or_(
+                            Partner.telegram_user_id.is_(None),
+                            Partner.telegram_user_id == (user.id if user else None),
+                        ),
+                    )
+                    .with_for_update()
+                    .limit(1)
+                )
+            if partner is not None and (
+                user is None or user.role in {UserRole.LEAD, UserRole.PARTNER}
+            ):
+                if user is None:
+                    user = User(
+                        telegram_id=telegram_id,
+                        telegram_username=telegram_username,
+                        role=UserRole.PARTNER,
+                        access_status=AccessStatus.ACTIVE,
+                    )
+                    session.add(user)
+                    await session.flush()
+                else:
+                    user.telegram_username = telegram_username
+                    user.role = UserRole.PARTNER
+                    user.access_status = AccessStatus.ACTIVE
+                partner.telegram_user_id = user.id
+                return UserRole.PARTNER
 
             if user is None or user.access_status == AccessStatus.BLOCKED:
                 return None

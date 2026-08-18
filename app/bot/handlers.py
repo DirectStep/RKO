@@ -24,6 +24,7 @@ from app.config import Settings
 from app.database import Database
 from app.domain.enums import UserRole
 from app.domain.intake import QUESTIONS, QuestionKind, normalize_phone
+from app.domain.operations import DomainError
 from app.services.lead_intake import LeadIntakeService, SubmissionStatus
 from app.services.user_access import UserAccessService
 
@@ -113,7 +114,25 @@ async def start(
 
 
 @router.callback_query(F.data == "application:begin")
-async def begin_application(callback: CallbackQuery, state: FSMContext) -> None:
+async def begin_application(
+    callback: CallbackQuery,
+    state: FSMContext,
+    database: Database,
+    settings: Settings,
+) -> None:
+    role = await UserAccessService(database, settings).resolve_role(
+        telegram_id=str(callback.from_user.id),
+        telegram_username=callback.from_user.username,
+    )
+    if role is UserRole.PARTNER:
+        await state.clear()
+        if callback.message:
+            await callback.message.answer(
+                "Это партнёрский аккаунт. Оставить с него заявку как клиент нельзя.",
+                reply_markup=cabinet_keyboard(settings.mini_app_url),
+            )
+        await callback.answer("Заявка недоступна партнёру", show_alert=True)
+        return
     await state.set_state(LeadApplication.consent)
     if callback.message:
         await callback.message.answer(
@@ -362,6 +381,10 @@ async def finish_application(message: Message, state: FSMContext, database: Data
             consent_at=datetime.fromisoformat(data["consent_at"]),
             answers=data["answers"],
         )
+    except DomainError as error:
+        await state.clear()
+        await message.answer(str(error), reply_markup=ReplyKeyboardRemove())
+        return
     except Exception:
         logger.error("Failed to submit lead application", exc_info=True)
         await message.answer(

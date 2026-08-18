@@ -8,8 +8,9 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import Database
-from app.domain.enums import AssignmentStatus
-from app.models import Channel, DuplicateLeadReview, Lead, LeadDraft, Partner
+from app.domain.enums import AssignmentStatus, UserRole
+from app.domain.operations import DomainError
+from app.models import Channel, DuplicateLeadReview, Lead, LeadDraft, Partner, User
 
 
 class SubmissionStatus(StrEnum):
@@ -100,6 +101,13 @@ class LeadIntakeService:
             await session.execute(
                 text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"phone:{phone}"}
             )
+            user_role = await session.scalar(
+                select(User.role).where(User.telegram_id == telegram_id)
+            )
+            if user_role is UserRole.PARTNER:
+                raise DomainError(
+                    "Партнёрский аккаунт не может оставить заявку как клиент"
+                )
             if await session.scalar(select(Lead.id).where(Lead.telegram_id == telegram_id)):
                 return SubmissionResult(SubmissionStatus.DUPLICATE_TELEGRAM)
             if await session.scalar(select(Lead.id).where(Lead.phone == phone)):

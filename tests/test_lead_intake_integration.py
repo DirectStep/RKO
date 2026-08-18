@@ -130,6 +130,94 @@ async def test_configured_admin_is_created_and_resolved() -> None:
 
 
 @pytest.mark.asyncio
+async def test_partner_cannot_submit_lead_application() -> None:
+    database = Database(
+        Settings(
+            bot_token="123456:test-token",
+            app_env="test",
+            database_url=TEST_DATABASE_URL or "postgresql+asyncpg://unused",
+        )
+    )
+    suffix = str(uuid4().int)[:10]
+    telegram_id = f"75{suffix}"
+    phone = f"+7222{suffix}"
+    now = datetime.now(UTC)
+    try:
+        async with database.session() as session, session.begin():
+            session.add(
+                User(
+                    telegram_id=telegram_id,
+                    telegram_username=f"partner_{suffix}",
+                    role=UserRole.PARTNER,
+                )
+            )
+
+        with pytest.raises(DomainError, match="Партнёрский аккаунт"):
+            await LeadIntakeService(database).submit(
+                telegram_id=telegram_id,
+                telegram_username=f"partner_{suffix}",
+                display_name="Партнёр",
+                phone=phone,
+                referral_code=None,
+                first_click_at=now,
+                consent_at=now,
+                answers={"adult": "yes"},
+            )
+
+        async with database.session() as session:
+            assert await session.scalar(
+                select(Lead.id).where(Lead.telegram_id == telegram_id)
+            ) is None
+    finally:
+        async with database.session() as session, session.begin():
+            await session.execute(delete(User).where(User.telegram_id == telegram_id))
+        await database.close()
+
+
+@pytest.mark.asyncio
+async def test_partner_username_is_claimed_by_first_telegram_account() -> None:
+    settings = Settings(
+        bot_token="123456:test-token",
+        app_env="test",
+        database_url=TEST_DATABASE_URL or "postgresql+asyncpg://unused",
+    )
+    database = Database(settings)
+    suffix = str(uuid4().int)[:10]
+    username = f"partner_{suffix}"
+    telegram_id = f"76{suffix}"
+    partner_id = None
+    user_id = None
+    try:
+        partner = await AdminCatalogService(database).create_partner(
+            actor_role=UserRole.ADMIN,
+            name=f"Партнёр username {suffix}",
+            commission_percent=Decimal("10"),
+            telegram_username=username,
+        )
+        partner_id = partner.id
+
+        role = await UserAccessService(database, settings).resolve_role(
+            telegram_id, username.upper()
+        )
+
+        assert role is UserRole.PARTNER
+        async with database.session() as session:
+            linked_partner = await session.get(Partner, partner_id)
+            user = await session.scalar(select(User).where(User.telegram_id == telegram_id))
+            assert linked_partner is not None
+            assert user is not None
+            assert linked_partner.telegram_user_id == user.id
+            user_id = user.id
+    finally:
+        async with database.session() as session, session.begin():
+            if partner_id is not None:
+                await session.execute(delete(Partner).where(Partner.id == partner_id))
+            if user_id is not None:
+                await session.execute(delete(User).where(User.id == user_id))
+        await database.close()
+
+
+@pytest.mark.asyncio
 async def test_invited_admin_username_is_claimed_by_first_telegram_account() -> None:
     suffix = str(uuid4().int)[:10]
     username = f"invited_{suffix}"
