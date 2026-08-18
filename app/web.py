@@ -40,6 +40,7 @@ from app.web_schemas import (
     LeadSourceUpdate,
     LeadUpdate,
     PartnerAccessUpdate,
+    PartnerUpdate,
     PaymentConfirm,
     PaymentStatusUpdate,
     StaffCreate,
@@ -673,6 +674,36 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             except Exception:
                 logger.exception("Failed to send partner access message for %s", partner.id)
         return {"id": str(partner.id), "status": "access_bound"}
+
+    @app.patch("/api/partners/{partner_id}")
+    async def update_partner(
+        partner_id: UUID,
+        payload: PartnerUpdate,
+        user: Annotated[MiniAppUser, Depends(current_user)],
+    ) -> dict[str, str]:
+        require_admin(user)
+        if payload.commission_percent is None and payload.telegram_username is None:
+            raise HTTPException(status_code=400, detail="Не указаны изменения")
+        service = AdminCatalogService(database)
+        try:
+            partner = None
+            if payload.commission_percent is not None:
+                partner = await service.update_partner_commission(
+                    actor_role=user.role,
+                    partner_id=partner_id,
+                    commission_percent=payload.commission_percent,
+                )
+            if payload.telegram_username is not None:
+                partner = await service.update_partner_username(
+                    actor_role=user.role,
+                    partner_id=partner_id,
+                    telegram_username=payload.telegram_username,
+                )
+        except DomainError as error:
+            raise domain_error(error) from error
+        if partner is None:
+            raise HTTPException(status_code=400, detail="Не указаны изменения")
+        return {"id": str(partner.id), "commission": str(partner.commission_percent)}
 
     @app.delete("/api/partners/{partner_id}", status_code=204)
     async def delete_partner(

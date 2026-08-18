@@ -156,9 +156,12 @@ class LeadIntakeService:
                     first_referral_code=draft.referral_code if draft else referral_code,
                     proposed_partner_id=channel.partner_id if channel else None,
                     proposed_channel_id=channel.id if channel else None,
+                    partner_id=channel.partner_id if channel else None,
+                    channel_id=channel.id if channel else None,
                     assignment_status=(
-                        AssignmentStatus.PENDING if channel else AssignmentStatus.UNRESOLVED
+                        AssignmentStatus.CONFIRMED if channel else AssignmentStatus.DIRECT
                     ),
+                    assignment_confirmed_at=now if channel else None,
                     questionnaire_answers=answers,
                     first_click_at=first_click_at,
                     application_at=now,

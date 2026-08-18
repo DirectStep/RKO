@@ -94,6 +94,9 @@ async def test_concurrent_same_phone_creates_lead_and_duplicate_review() -> None
         async with database.session() as session:
             assert await session.scalar(select(func.count()).select_from(Lead)) == 1
             assert await session.scalar(select(func.count()).select_from(DuplicateLeadReview)) == 1
+            direct_lead = await session.scalar(select(Lead))
+            assert direct_lead is not None
+            assert direct_lead.assignment_status is AssignmentStatus.DIRECT
 
         sheets = await SheetsSnapshotService(database).build()
         leads_sheet = next(sheet for sheet in sheets if sheet.title == "Заявки")
@@ -263,6 +266,7 @@ async def test_admin_creates_referral_channel_and_confirms_source() -> None:
     partner_id = None
     channel_id = None
     lead_id = None
+    auto_lead_id = None
     referral_test_ids = {f"ref-{suffix}", f"invalid-{suffix}"}
     try:
         partner = await catalog.create_partner(
@@ -304,6 +308,28 @@ async def test_admin_creates_referral_channel_and_confirms_source() -> None:
         assert repeated_click.is_new is False
         assert invalid_click.referral_code is None
 
+        result = await LeadIntakeService(database).submit(
+            telegram_id=f"ref-{suffix}",
+            telegram_username=f"ref_{suffix}",
+            display_name="Лид по ссылке",
+            phone=f"+7333{suffix}",
+            referral_code=channel.referral_code,
+            first_click_at=now,
+            consent_at=now,
+            answers={"city": "Москва"},
+        )
+        assert result.status is SubmissionStatus.CREATED
+        async with database.session() as session:
+            auto_lead = await session.scalar(
+                select(Lead).where(Lead.telegram_id == f"ref-{suffix}")
+            )
+            assert auto_lead is not None
+            assert auto_lead.assignment_status is AssignmentStatus.CONFIRMED
+            assert auto_lead.partner_id == partner.id
+            assert auto_lead.channel_id == channel.id
+            assert auto_lead.assignment_confirmed_at is not None
+            auto_lead_id = auto_lead.id
+
         async with database.session() as session, session.begin():
             lead = Lead(
                 short_id=f"TEST-{suffix}",
@@ -339,6 +365,8 @@ async def test_admin_creates_referral_channel_and_confirms_source() -> None:
         async with database.session() as session, session.begin():
             if lead_id is not None:
                 await session.execute(delete(Lead).where(Lead.id == lead_id))
+            if auto_lead_id is not None:
+                await session.execute(delete(Lead).where(Lead.id == auto_lead_id))
             await session.execute(
                 delete(LeadDraft).where(LeadDraft.telegram_id.in_(referral_test_ids))
             )
@@ -376,6 +404,19 @@ async def test_admin_deletes_unused_partner_and_its_channels() -> None:
             bot_username="RKOrko_bot",
         )
         channel_id = channel.id
+
+        updated = await catalog.update_partner_commission(
+            actor_role=UserRole.ADMIN,
+            partner_id=partner.id,
+            commission_percent=Decimal("12.50"),
+        )
+        assert updated.commission_percent == Decimal("12.50")
+        updated = await catalog.update_partner_username(
+            actor_role=UserRole.ADMIN,
+            partner_id=partner.id,
+            telegram_username=f"updated_{suffix}",
+        )
+        assert updated.telegram_username == f"updated_{suffix}"
 
         await catalog.delete_partner(actor_role=UserRole.ADMIN, partner_id=partner.id)
 

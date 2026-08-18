@@ -18,6 +18,11 @@ class PartnerAccessUpdate(BaseModel):
     telegram_username: str | None = None
 
 
+class PartnerUpdate(BaseModel):
+    commission_percent: Decimal | None = Field(default=None, ge=0, le=100)
+    telegram_username: str | None = None
+
+
 class LeadUpdate(BaseModel):
     internal_status: LeadInternalStatus | None = None
     manager_id: UUID | None = None

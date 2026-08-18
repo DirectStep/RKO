@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from uuid import UUID
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, func, or_, select
 
 from app.database import Database
 from app.domain.enums import AccessStatus, UserRole
@@ -95,6 +95,14 @@ class AdminCatalogService:
             existing = await session.scalar(select(Partner).where(Partner.name == clean_name))
             if existing is not None:
                 raise DomainError("Партнёр с таким названием уже существует")
+            if telegram_username is not None:
+                username_owner = await session.scalar(
+                    select(Partner).where(
+                        func.lower(Partner.telegram_username) == telegram_username.lower()
+                    )
+                )
+                if username_owner is not None:
+                    raise DomainError("Этот Telegram username уже указан у другого партнёра")
             partner = Partner(
                 name=clean_name,
                 telegram_username=telegram_username,
@@ -114,6 +122,51 @@ class AdminCatalogService:
             if partner is None:
                 raise DomainError("Партнёр не найден")
             partner.active = not partner.active
+            return partner
+
+    async def update_partner_commission(
+        self,
+        *,
+        actor_role: UserRole,
+        partner_id: UUID,
+        commission_percent: Decimal,
+    ) -> Partner:
+        self._require_admin(actor_role)
+        commission = self.parse_commission(str(commission_percent))
+        async with self.database.session() as session, session.begin():
+            partner = await session.scalar(
+                select(Partner).where(Partner.id == partner_id).with_for_update()
+            )
+            if partner is None:
+                raise DomainError("Партнёр не найден")
+            partner.commission_percent = commission
+            return partner
+
+    async def update_partner_username(
+        self,
+        *,
+        actor_role: UserRole,
+        partner_id: UUID,
+        telegram_username: str,
+    ) -> Partner:
+        self._require_admin(actor_role)
+        username = self.parse_telegram_username(telegram_username)
+        async with self.database.session() as session, session.begin():
+            partner = await session.scalar(
+                select(Partner).where(Partner.id == partner_id).with_for_update()
+            )
+            if partner is None:
+                raise DomainError("Партнёр не найден")
+            if username is not None:
+                username_owner = await session.scalar(
+                    select(Partner).where(
+                        func.lower(Partner.telegram_username) == username.lower(),
+                        Partner.id != partner_id,
+                    )
+                )
+                if username_owner is not None:
+                    raise DomainError("Этот Telegram username уже указан у другого партнёра")
+            partner.telegram_username = username
             return partner
 
     async def delete_partner(self, *, actor_role: UserRole, partner_id: UUID) -> None:
