@@ -133,6 +133,43 @@ async def test_configured_admin_is_created_and_resolved() -> None:
 
 
 @pytest.mark.asyncio
+async def test_staff_invite_is_claimed_by_username_without_telegram_id() -> None:
+    settings = Settings(
+        bot_token="123456:test-token",
+        app_env="test",
+        database_url=TEST_DATABASE_URL or "postgresql+asyncpg://unused",
+    )
+    database = Database(settings)
+    suffix = str(uuid4().int)[:10]
+    username = f"manager_{suffix}"
+    telegram_id = f"74{suffix}"
+    invited_user_id = None
+    try:
+        invited = await WorkflowService(database).create_staff(
+            actor_role=UserRole.ADMIN,
+            telegram_username=f"@{username}",
+            role=UserRole.MANAGER,
+        )
+        invited_user_id = invited.id
+        assert invited.telegram_id is None
+
+        role = await UserAccessService(database, settings).resolve_role(
+            telegram_id, username.upper()
+        )
+
+        assert role is UserRole.MANAGER
+        async with database.session() as session:
+            claimed = await session.get(User, invited.id)
+            assert claimed is not None
+            assert claimed.telegram_id == telegram_id
+    finally:
+        async with database.session() as session, session.begin():
+            if invited_user_id is not None:
+                await session.execute(delete(User).where(User.id == invited_user_id))
+        await database.close()
+
+
+@pytest.mark.asyncio
 async def test_partner_cannot_submit_lead_application() -> None:
     database = Database(
         Settings(

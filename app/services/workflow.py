@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
@@ -35,24 +36,48 @@ class WorkflowService:
         self,
         *,
         actor_role: UserRole,
-        telegram_id: str,
+        telegram_id: str | None = None,
         telegram_username: str | None,
         role: UserRole,
     ) -> User:
         self._require_admin(actor_role)
         if role not in {UserRole.MANAGER, UserRole.ADMIN}:
             raise DomainError("Можно создать только менеджера или администратора")
-        self._validate_telegram_id(telegram_id)
+        username = self._clean_username(telegram_username)
+        if username is None or not re.fullmatch(r"[A-Za-z0-9_]{5,32}", username):
+            raise DomainError(
+                "Username должен содержать 5–32 латинских символа, цифры или _"
+            )
+        if telegram_id is not None:
+            self._validate_telegram_id(telegram_id)
         async with self.database.session() as session, session.begin():
-            existing = await session.scalar(select(User).where(User.telegram_id == telegram_id))
+            existing = await session.scalar(
+                select(User).where(
+                    (User.telegram_id == telegram_id)
+                    if telegram_id is not None
+                    else func.lower(User.telegram_username) == username.lower()
+                )
+            )
             if existing is not None:
-                existing.telegram_username = self._clean_username(telegram_username)
+                linked_partner = await session.scalar(
+                    select(Partner.id).where(Partner.telegram_user_id == existing.id)
+                )
+                if linked_partner is not None:
+                    raise DomainError("Этот пользователь уже привязан как партнёр")
+                existing.telegram_username = username
                 existing.role = role
                 existing.access_status = AccessStatus.ACTIVE
                 return existing
+            partner_username = await session.scalar(
+                select(Partner.id).where(
+                    func.lower(Partner.telegram_username) == username.lower()
+                )
+            )
+            if partner_username is not None:
+                raise DomainError("Этот username уже указан у партнёра")
             user = User(
                 telegram_id=telegram_id,
-                telegram_username=self._clean_username(telegram_username),
+                telegram_username=username,
                 role=role,
                 access_status=AccessStatus.ACTIVE,
             )

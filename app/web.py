@@ -100,7 +100,7 @@ def format_user_name(user: User | None) -> str:
         return "Не назначен"
     if user.telegram_username:
         return f"@{user.telegram_username}"
-    return user.telegram_id
+    return user.telegram_id or "Ожидает входа"
 
 
 def serialize_lead_bank(
@@ -728,10 +728,15 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         return [
             {
                 "id": str(item.id),
-                "telegram_id": item.telegram_id,
+                "telegram_id": item.telegram_id or "",
                 "username": f"@{item.telegram_username}" if item.telegram_username else "",
                 "role": item.role.value,
-                "status": item.access_status.value,
+                "status": (
+                    "pending"
+                    if item.telegram_id is None
+                    and item.access_status is AccessStatus.ACTIVE
+                    else item.access_status.value
+                ),
             }
             for item in items
         ]
@@ -745,7 +750,6 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         try:
             created = await WorkflowService(database).create_staff(
                 actor_role=user.role,
-                telegram_id=payload.telegram_id,
                 telegram_username=payload.telegram_username,
                 role=payload.role,
             )

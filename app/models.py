@@ -53,7 +53,7 @@ class Base(DeclarativeBase):
 class User(Base):
     __tablename__ = "users"
     id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
-    telegram_id: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
+    telegram_id: Mapped[str | None] = mapped_column(String(20), unique=True)
     telegram_username: Mapped[str | None] = mapped_column(String(64))
     role: Mapped[UserRole] = mapped_column(
         enum_column(UserRole),

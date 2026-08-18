@@ -8,8 +8,7 @@ from app.domain.enums import BankInternalStatus, LeadInternalStatus, PaymentStat
 
 
 class StaffCreate(BaseModel):
-    telegram_id: str
-    telegram_username: str | None = None
+    telegram_username: str
     role: UserRole = UserRole.MANAGER
 
 

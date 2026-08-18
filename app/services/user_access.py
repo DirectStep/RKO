@@ -19,6 +19,29 @@ class UserAccessService:
                 select(User).where(User.telegram_id == telegram_id).with_for_update()
             )
             normalized_username = (telegram_username or "").strip().lstrip("@").lower()
+            pending_staff = None
+            if normalized_username:
+                pending_staff = await session.scalar(
+                    select(User)
+                    .where(
+                        User.telegram_id.is_(None),
+                        func.lower(User.telegram_username) == normalized_username,
+                        User.role.in_({UserRole.ADMIN, UserRole.MANAGER}),
+                        User.access_status == AccessStatus.ACTIVE,
+                    )
+                    .with_for_update()
+                    .limit(1)
+                )
+            if pending_staff is not None and (
+                user is None or user.role is UserRole.LEAD
+            ):
+                if user is not None:
+                    await session.delete(user)
+                    await session.flush()
+                pending_staff.telegram_id = telegram_id
+                pending_staff.telegram_username = telegram_username
+                return pending_staff.role
+
             invited_by_username = normalized_username in self.settings.admin_usernames
             if invited_by_username:
                 claimed_user = await session.scalar(
