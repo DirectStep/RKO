@@ -193,6 +193,12 @@ def admin_partner_keyboard(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
+                    text="Ссылка активации кабинета",
+                    callback_data=f"admin:pa:{partner_id}",
+                )
+            ],
+            [
+                InlineKeyboardButton(
                     text="Изменить процент",
                     callback_data=f"admin:pc:{partner_id}",
                 )

@@ -183,6 +183,39 @@ async def partner_commission_edit(
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("admin:pa:"))
+async def partner_activation_link(
+    callback: CallbackQuery,
+    database: Database,
+    settings: Settings,
+) -> None:
+    if await deny_if_not_admin(callback, database, settings):
+        return
+    try:
+        partner_id = UUID((callback.data or "").removeprefix("admin:pa:"))
+        bot = callback.bot
+        if bot is None:
+            raise DomainError("Бот временно недоступен")
+        bot_user = await bot.get_me()
+        if not bot_user.username:
+            raise DomainError("У бота не настроен username")
+        link = await AdminCatalogService(database).create_partner_activation_link(
+            actor_role=UserRole.ADMIN,
+            partner_id=partner_id,
+            bot_username=bot_user.username,
+        )
+    except (ValueError, DomainError) as error:
+        await callback.answer(str(error), show_alert=True)
+        return
+    if isinstance(callback.message, Message):
+        await callback.message.answer(
+            "Одноразовая ссылка активации партнёрского кабинета:\n\n"
+            f"{link}\n\n"
+            "Перешли её партнёру. После первого использования ссылка перестанет работать."
+        )
+    await callback.answer("Ссылка создана")
+
+
 @router.message(PartnerEditing.commission)
 async def partner_commission_save(
     message: Message,

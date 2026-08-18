@@ -135,7 +135,7 @@ def test_partner_card_uses_actions_instead_of_opening_referral_links() -> None:
         True,
     )
 
-    assert keyboard.inline_keyboard[0][0].text == "Изменить процент"
+    assert keyboard.inline_keyboard[0][0].text == "Ссылка активации кабинета"
     assert all(button.url is None for row in keyboard.inline_keyboard for button in row)
     callback_values = [
         button.callback_data
@@ -143,6 +143,7 @@ def test_partner_card_uses_actions_instead_of_opening_referral_links() -> None:
         for button in row
         if button.callback_data
     ]
+    assert any(value.startswith("admin:pa:") for value in callback_values)
     assert any(value.startswith("admin:pc:") for value in callback_values)
     assert any(value.startswith("admin:pd:a:") for value in callback_values)
     assert all(len(value.encode()) <= 64 for value in callback_values)

@@ -1,3 +1,4 @@
+import hashlib
 import re
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -142,6 +143,67 @@ class WorkflowService:
                 user.access_status = AccessStatus.ACTIVE
             partner.telegram_user_id = user.id
             partner.telegram_username = user.telegram_username
+            return partner
+
+    async def activate_partner_with_token(
+        self,
+        *,
+        telegram_id: str,
+        telegram_username: str | None,
+        token: str,
+    ) -> Partner:
+        self._validate_telegram_id(telegram_id)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        async with self.database.session() as session, session.begin():
+            partner = await session.scalar(
+                select(Partner)
+                .where(
+                    Partner.activation_token_hash == token_hash,
+                    Partner.active.is_(True),
+                )
+                .with_for_update()
+            )
+            if partner is None:
+                raise DomainError("Ссылка активации недействительна или уже использована")
+            user = await session.scalar(
+                select(User).where(User.telegram_id == telegram_id).with_for_update()
+            )
+            if partner.telegram_user_id is not None:
+                linked_user = await session.get(User, partner.telegram_user_id)
+                if linked_user is None or linked_user.telegram_id != telegram_id:
+                    raise DomainError("Партнёрский кабинет уже активирован")
+                partner.activation_token_hash = None
+                partner.activation_created_at = None
+                return partner
+            if user is not None and user.role in {UserRole.ADMIN, UserRole.MANAGER}:
+                raise DomainError("Сотрудника нельзя активировать как партнёра")
+            if user is not None:
+                other_partner = await session.scalar(
+                    select(Partner.id).where(
+                        Partner.telegram_user_id == user.id,
+                        Partner.id != partner.id,
+                    )
+                )
+                if other_partner is not None:
+                    raise DomainError("Этот Telegram уже связан с другим партнёром")
+            if user is None:
+                user = User(
+                    telegram_id=telegram_id,
+                    telegram_username=self._clean_username(telegram_username),
+                    role=UserRole.PARTNER,
+                    access_status=AccessStatus.ACTIVE,
+                )
+                session.add(user)
+                await session.flush()
+            else:
+                user.telegram_username = self._clean_username(telegram_username)
+                user.role = UserRole.PARTNER
+                user.access_status = AccessStatus.ACTIVE
+            partner.telegram_user_id = user.id
+            if user.telegram_username:
+                partner.telegram_username = user.telegram_username
+            partner.activation_token_hash = None
+            partner.activation_created_at = None
             return partner
 
     async def update_lead(

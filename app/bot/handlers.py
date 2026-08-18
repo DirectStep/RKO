@@ -27,6 +27,7 @@ from app.domain.intake import QUESTIONS, QuestionKind, normalize_phone
 from app.domain.operations import DomainError
 from app.services.lead_intake import LeadIntakeService, SubmissionStatus
 from app.services.user_access import UserAccessService
+from app.services.workflow import WorkflowService
 
 router = Router(name="common")
 logger = logging.getLogger(__name__)
@@ -59,6 +60,24 @@ async def start(
     role = await UserAccessService(database, settings).resolve_role(
         telegram_id=str(user.id), telegram_username=user.username
     )
+    if requested_referral_code and requested_referral_code.startswith("partner_"):
+        if role in {UserRole.ADMIN, UserRole.MANAGER}:
+            await message.answer("Сотрудника нельзя активировать как партнёра.")
+            return
+        try:
+            partner = await WorkflowService(database).activate_partner_with_token(
+                telegram_id=str(user.id),
+                telegram_username=user.username,
+                token=requested_referral_code.removeprefix("partner_"),
+            )
+        except DomainError as error:
+            await message.answer(str(error))
+            return
+        await message.answer(
+            f"Партнёрский кабинет «{partner.name}» активирован.",
+            reply_markup=cabinet_keyboard(settings.mini_app_url),
+        )
+        return
     if role is UserRole.ADMIN:
         await message.answer(
             "Кабинет администратора",

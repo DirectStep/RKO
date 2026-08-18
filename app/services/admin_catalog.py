@@ -1,6 +1,8 @@
+import hashlib
 import re
 import secrets
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from uuid import UUID
 
@@ -168,6 +170,28 @@ class AdminCatalogService:
                     raise DomainError("Этот Telegram username уже указан у другого партнёра")
             partner.telegram_username = username
             return partner
+
+    async def create_partner_activation_link(
+        self,
+        *,
+        actor_role: UserRole,
+        partner_id: UUID,
+        bot_username: str,
+    ) -> str:
+        self._require_admin(actor_role)
+        token = secrets.token_urlsafe(18)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        async with self.database.session() as session, session.begin():
+            partner = await session.scalar(
+                select(Partner).where(Partner.id == partner_id).with_for_update()
+            )
+            if partner is None:
+                raise DomainError("Партнёр не найден")
+            if partner.telegram_user_id is not None:
+                raise DomainError("Партнёрский кабинет уже активирован")
+            partner.activation_token_hash = token_hash
+            partner.activation_created_at = datetime.now(UTC)
+        return f"https://t.me/{bot_username.lstrip('@')}?start=partner_{token}"
 
     async def delete_partner(self, *, actor_role: UserRole, partner_id: UUID) -> None:
         self._require_admin(actor_role)

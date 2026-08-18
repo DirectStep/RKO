@@ -258,6 +258,57 @@ async def test_partner_username_is_claimed_by_first_telegram_account() -> None:
 
 
 @pytest.mark.asyncio
+async def test_partner_activation_link_works_only_once() -> None:
+    settings = Settings(
+        bot_token="123456:test-token",
+        app_env="test",
+        database_url=TEST_DATABASE_URL or "postgresql+asyncpg://unused",
+    )
+    database = Database(settings)
+    suffix = str(uuid4().int)[:10]
+    telegram_id = f"77{suffix}"
+    partner_id = None
+    user_id = None
+    try:
+        catalog = AdminCatalogService(database)
+        partner = await catalog.create_partner(
+            actor_role=UserRole.ADMIN,
+            name=f"Партнёр activation {suffix}",
+            commission_percent=Decimal("10"),
+        )
+        partner_id = partner.id
+        link = await catalog.create_partner_activation_link(
+            actor_role=UserRole.ADMIN,
+            partner_id=partner.id,
+            bot_username="RKOrko_bot",
+        )
+        token = link.split("partner_", maxsplit=1)[1]
+
+        activated = await WorkflowService(database).activate_partner_with_token(
+            telegram_id=telegram_id,
+            telegram_username=f"activated_{suffix}",
+            token=token,
+        )
+        user_id = activated.telegram_user_id
+        assert user_id is not None
+        assert activated.activation_token_hash is None
+
+        with pytest.raises(DomainError, match="уже использована"):
+            await WorkflowService(database).activate_partner_with_token(
+                telegram_id=f"78{suffix}",
+                telegram_username=f"second_{suffix}",
+                token=token,
+            )
+    finally:
+        async with database.session() as session, session.begin():
+            if partner_id is not None:
+                await session.execute(delete(Partner).where(Partner.id == partner_id))
+            if user_id is not None:
+                await session.execute(delete(User).where(User.id == user_id))
+        await database.close()
+
+
+@pytest.mark.asyncio
 async def test_invited_admin_username_is_claimed_by_first_telegram_account() -> None:
     suffix = str(uuid4().int)[:10]
     username = f"invited_{suffix}"
