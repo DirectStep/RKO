@@ -51,7 +51,7 @@ async def start(
     await state.clear()
     user = message.from_user
     clicked_at = datetime.now(UTC)
-    referral_code = command.args
+    requested_referral_code = command.args
     if user is None:
         await message.answer("Не удалось определить Telegram-пользователя.")
         return
@@ -79,7 +79,9 @@ async def start(
         return
     try:
         first_click = await LeadIntakeService(database).record_first_click(
-            telegram_id=str(user.id), referral_code=referral_code, clicked_at=clicked_at
+            telegram_id=str(user.id),
+            referral_code=requested_referral_code,
+            clicked_at=clicked_at,
         )
     except Exception:
         logger.exception("Failed to record first click")
@@ -94,7 +96,20 @@ async def start(
         telegram_username=user.username if user else None,
         display_name=user.full_name if user else "Пользователь Telegram",
     )
-    await message.answer(START_TEXT, reply_markup=continue_keyboard())
+    start_text = START_TEXT
+    if first_click.partner_name and first_click.channel_name:
+        start_text = (
+            f"Партнёрская ссылка применена: {first_click.partner_name}, "
+            f"канал «{first_click.channel_name}».\n\n{START_TEXT}"
+        )
+    elif requested_referral_code and not first_click.is_new:
+        start_text = (
+            "Партнёрская ссылка не изменила источник: он фиксируется при первом входе "
+            f"в бот. Для проверки используй новый Telegram-аккаунт.\n\n{START_TEXT}"
+        )
+    elif requested_referral_code:
+        start_text = f"Эта партнёрская ссылка недействительна или отключена.\n\n{START_TEXT}"
+    await message.answer(start_text, reply_markup=continue_keyboard())
 
 
 @router.callback_query(F.data == "application:begin")

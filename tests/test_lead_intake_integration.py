@@ -175,6 +175,7 @@ async def test_admin_creates_referral_channel_and_confirms_source() -> None:
     partner_id = None
     channel_id = None
     lead_id = None
+    referral_test_ids = {f"ref-{suffix}", f"invalid-{suffix}"}
     try:
         partner = await catalog.create_partner(
             actor_role=UserRole.ADMIN,
@@ -192,6 +193,29 @@ async def test_admin_creates_referral_channel_and_confirms_source() -> None:
         assert channel.referral_link.startswith("https://t.me/RKOrko_bot?start=")
 
         now = datetime.now(UTC)
+        first_click = await LeadIntakeService(database).record_first_click(
+            telegram_id=f"ref-{suffix}",
+            referral_code=channel.referral_code,
+            clicked_at=now,
+        )
+        repeated_click = await LeadIntakeService(database).record_first_click(
+            telegram_id=f"ref-{suffix}",
+            referral_code=None,
+            clicked_at=now,
+        )
+        invalid_click = await LeadIntakeService(database).record_first_click(
+            telegram_id=f"invalid-{suffix}",
+            referral_code="missing-code",
+            clicked_at=now,
+        )
+        assert first_click.referral_code == channel.referral_code
+        assert first_click.partner_name == partner.name
+        assert first_click.channel_name == channel.name
+        assert first_click.is_new is True
+        assert repeated_click.referral_code == channel.referral_code
+        assert repeated_click.is_new is False
+        assert invalid_click.referral_code is None
+
         async with database.session() as session, session.begin():
             lead = Lead(
                 short_id=f"TEST-{suffix}",
@@ -224,6 +248,9 @@ async def test_admin_creates_referral_channel_and_confirms_source() -> None:
         async with database.session() as session, session.begin():
             if lead_id is not None:
                 await session.execute(delete(Lead).where(Lead.id == lead_id))
+            await session.execute(
+                delete(LeadDraft).where(LeadDraft.telegram_id.in_(referral_test_ids))
+            )
             if channel_id is not None:
                 await session.execute(delete(Channel).where(Channel.id == channel_id))
             if partner_id is not None:

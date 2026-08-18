@@ -2,13 +2,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from typing import cast
+from uuid import UUID
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import Database
 from app.domain.enums import AssignmentStatus
-from app.models import Channel, DuplicateLeadReview, Lead, LeadDraft
+from app.models import Channel, DuplicateLeadReview, Lead, LeadDraft, Partner
 
 
 class SubmissionStatus(StrEnum):
@@ -27,6 +28,9 @@ class SubmissionResult:
 class FirstClick:
     referral_code: str | None
     first_click_at: datetime
+    partner_name: str | None = None
+    channel_name: str | None = None
+    is_new: bool = False
 
 
 class LeadIntakeService:
@@ -45,18 +49,36 @@ class LeadIntakeService:
                 select(LeadDraft).where(LeadDraft.telegram_id == telegram_id).with_for_update()
             )
             if draft:
-                return FirstClick(draft.referral_code, draft.first_click_at)
+                partner_name, channel_name = await self._source_names(
+                    session, draft.proposed_channel_id
+                )
+                return FirstClick(
+                    draft.referral_code,
+                    draft.first_click_at,
+                    partner_name,
+                    channel_name,
+                )
             channel = await self._find_channel(session, referral_code)
+            stored_referral_code = channel.referral_code if channel else None
+            partner_name, channel_name = await self._source_names(
+                session, channel.id if channel else None
+            )
             session.add(
                 LeadDraft(
                     telegram_id=telegram_id,
-                    referral_code=referral_code,
+                    referral_code=stored_referral_code,
                     proposed_partner_id=channel.partner_id if channel else None,
                     proposed_channel_id=channel.id if channel else None,
                     first_click_at=clicked_at,
                 )
             )
-        return FirstClick(referral_code, clicked_at)
+        return FirstClick(
+            stored_referral_code,
+            clicked_at,
+            partner_name,
+            channel_name,
+            is_new=True,
+        )
 
     async def submit(
         self,
@@ -145,9 +167,28 @@ class LeadIntakeService:
         return cast(
             Channel | None,
             await session.scalar(
-                select(Channel).where(
+                select(Channel)
+                .join(Partner, Partner.id == Channel.partner_id)
+                .where(
                     Channel.referral_code == referral_code,
                     Channel.active.is_(True),
+                    Partner.active.is_(True),
                 )
             ),
         )
+
+    @staticmethod
+    async def _source_names(
+        session: AsyncSession,
+        channel_id: UUID | None,
+    ) -> tuple[str | None, str | None]:
+        if channel_id is None:
+            return None, None
+        row = (
+            await session.execute(
+                select(Partner.name, Channel.name)
+                .join(Channel, Channel.partner_id == Partner.id)
+                .where(Channel.id == channel_id)
+            )
+        ).one_or_none()
+        return (str(row[0]), str(row[1])) if row else (None, None)
