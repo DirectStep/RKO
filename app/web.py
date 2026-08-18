@@ -616,7 +616,9 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 "active": partner.active,
                 "telegram_id": telegram_id or "",
                 "telegram_username": (
-                    f"@{telegram_username}" if telegram_username else ""
+                    f"@{telegram_username or partner.telegram_username}"
+                    if telegram_username or partner.telegram_username
+                    else ""
                 ),
                 "channels": channel_count,
             }

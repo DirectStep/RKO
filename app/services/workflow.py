@@ -116,6 +116,7 @@ class WorkflowService:
                 user.role = UserRole.PARTNER
                 user.access_status = AccessStatus.ACTIVE
             partner.telegram_user_id = user.id
+            partner.telegram_username = user.telegram_username
             return partner
 
     async def update_lead(

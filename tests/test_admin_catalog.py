@@ -18,3 +18,17 @@ def test_parse_commission(value: str, expected: Decimal) -> None:
 def test_parse_commission_rejects_invalid_values(value: str) -> None:
     with pytest.raises(DomainError):
         AdminCatalogService.parse_commission(value)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("@gerasimov", "gerasimov"), (" partner_01 ", "partner_01"), ("нет", None), ("-", None)],
+)
+def test_parse_telegram_username(value: str, expected: str | None) -> None:
+    assert AdminCatalogService.parse_telegram_username(value) == expected
+
+
+@pytest.mark.parametrize("value", ["", "abc", "@партнер", "name with space", "a" * 33])
+def test_parse_telegram_username_rejects_invalid_values(value: str) -> None:
+    with pytest.raises(DomainError):
+        AdminCatalogService.parse_telegram_username(value)

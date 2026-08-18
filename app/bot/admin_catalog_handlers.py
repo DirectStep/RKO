@@ -87,18 +87,39 @@ async def partner_commission(
     service = AdminCatalogService(database)
     try:
         commission = service.parse_commission(message.text or "")
+    except DomainError as error:
+        await message.answer(str(error))
+        return
+    await state.update_data(partner_commission=str(commission))
+    await state.set_state(PartnerCreation.telegram_username)
+    await message.answer(
+        "Какой Telegram username у партнёра?\n\n"
+        "Например: @gerasimov. Если username нет — напиши «нет»."
+    )
+
+
+@router.message(PartnerCreation.telegram_username)
+async def partner_telegram_username(
+    message: Message, state: FSMContext, database: Database, settings: Settings
+) -> None:
+    if await deny_if_not_admin(message, database, settings):
+        return
+    service = AdminCatalogService(database)
+    try:
+        username = service.parse_telegram_username(message.text or "")
         data = await state.get_data()
         partner = await service.create_partner(
             actor_role=UserRole.ADMIN,
             name=str(data["partner_name"]),
-            commission_percent=commission,
+            commission_percent=service.parse_commission(str(data["partner_commission"])),
+            telegram_username=username,
         )
     except DomainError as error:
         await message.answer(str(error))
         return
     await state.clear()
     await message.answer(
-        format_partner(partner, []),
+        format_partner(partner, [], telegram_username=username),
         reply_markup=admin_partner_keyboard(str(partner.id), partner.active),
     )
 

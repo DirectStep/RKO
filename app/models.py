@@ -85,6 +85,7 @@ class Partner(Base):
     )
     id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     name: Mapped[str] = mapped_column(String(160), nullable=False, unique=True)
+    telegram_username: Mapped[str | None] = mapped_column(String(64))
     partner_type: Mapped[str] = mapped_column(String(32), nullable=False, default="other")
     commission_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
     telegram_user_id: Mapped[UUID | None] = mapped_column(

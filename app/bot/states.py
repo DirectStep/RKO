@@ -12,6 +12,7 @@ class LeadApplication(StatesGroup):
 class PartnerCreation(StatesGroup):
     name = State()
     commission = State()
+    telegram_username = State()
 
 
 class ChannelCreation(StatesGroup):

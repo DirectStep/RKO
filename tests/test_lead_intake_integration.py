@@ -328,7 +328,9 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
             actor_role=UserRole.ADMIN,
             name=f"Партнёр workflow {suffix}",
             commission_percent=Decimal("20.00"),
+            telegram_username=f"partner_{suffix}",
         )
+        assert partner.telegram_username == f"partner_{suffix}"
         ids["partner"] = partner.id
         partner = await workflow.bind_partner_access(
             actor_role=UserRole.ADMIN,

@@ -1,3 +1,4 @@
+import re
 import secrets
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -38,6 +39,17 @@ class AdminCatalogService:
             raise DomainError("Процент должен быть от 0 до 100")
         return commission.quantize(Decimal("0.01"))
 
+    @staticmethod
+    def parse_telegram_username(value: str) -> str | None:
+        username = value.strip().removeprefix("@").strip()
+        if username.lower() in {"нет", "пропустить", "-"}:
+            return None
+        if not re.fullmatch(r"[A-Za-z0-9_]{5,32}", username):
+            raise DomainError(
+                "Username должен содержать 5–32 латинских символа, цифры или _. Например: gerasimov"
+            )
+        return username
+
     async def list_partners(self) -> list[Partner]:
         async with self.database.session() as session:
             result = await session.scalars(select(Partner).order_by(Partner.name))
@@ -58,10 +70,20 @@ class AdminCatalogService:
             ).one_or_none()
             if row is None:
                 return None
-            return PartnerAccessSummary(row[0], row[1], row[2])
+            partner = row[0]
+            return PartnerAccessSummary(
+                partner,
+                row[1],
+                row[2] or partner.telegram_username,
+            )
 
     async def create_partner(
-        self, *, actor_role: UserRole, name: str, commission_percent: Decimal
+        self,
+        *,
+        actor_role: UserRole,
+        name: str,
+        commission_percent: Decimal,
+        telegram_username: str | None = None,
     ) -> Partner:
         self._require_admin(actor_role)
         clean_name = name.strip()
@@ -75,6 +97,7 @@ class AdminCatalogService:
                 raise DomainError("Партнёр с таким названием уже существует")
             partner = Partner(
                 name=clean_name,
+                telegram_username=telegram_username,
                 partner_type="other",
                 commission_percent=commission_percent,
             )
