@@ -28,6 +28,7 @@ body {
 
 button, input { font: inherit; }
 button { color: inherit; }
+[hidden] { display: none; }
 
 .app-shell {
   width: min(100%, 48rem);
@@ -204,6 +205,7 @@ button.list-row:active { background: color-mix(in srgb, var(--muted) 10%, transp
 }
 
 .tabbar button { display: grid; min-height: 3.45rem; place-content: center; gap: 0.12rem; border: 0; color: var(--muted); background: transparent; font-size: 0.67rem; }
+.tabbar button[hidden] { display: none; }
 .tabbar button.is-active { color: var(--accent); }
 .tabbar svg { width: 1.42rem; height: 1.42rem; margin: auto; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
 .tabbar button:first-child svg { fill: currentColor; stroke: none; }

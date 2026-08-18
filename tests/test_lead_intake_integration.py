@@ -2,7 +2,7 @@ import asyncio
 import os
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import delete, func, select
@@ -462,6 +462,59 @@ async def test_admin_creates_referral_channel_and_confirms_source() -> None:
                 await session.execute(delete(Channel).where(Channel.id == channel_id))
             if partner_id is not None:
                 await session.execute(delete(Partner).where(Partner.id == partner_id))
+        await database.close()
+
+
+@pytest.mark.asyncio
+async def test_partner_creates_channel_only_for_own_cabinet() -> None:
+    settings = Settings(
+        bot_token="123456:test-token",
+        app_env="test",
+        database_url=TEST_DATABASE_URL or "postgresql+asyncpg://unused",
+    )
+    database = Database(settings)
+    suffix = str(uuid4().int)[:10]
+    partner_ids: list[UUID] = []
+    channel_id = None
+    try:
+        catalog = AdminCatalogService(database)
+        owner = await catalog.create_partner(
+            actor_role=UserRole.ADMIN,
+            name=f"Владелец канала {suffix}",
+            commission_percent=Decimal("10"),
+        )
+        stranger = await catalog.create_partner(
+            actor_role=UserRole.ADMIN,
+            name=f"Чужой партнёр {suffix}",
+            commission_percent=Decimal("10"),
+        )
+        partner_ids.extend([owner.id, stranger.id])
+
+        channel = await catalog.create_channel(
+            actor_role=UserRole.PARTNER,
+            actor_partner_id=owner.id,
+            partner_id=owner.id,
+            name="Собственный источник",
+            bot_username="RKOrko_bot",
+        )
+        channel_id = channel.id
+        assert channel.partner_id == owner.id
+        assert channel.referral_link.startswith("https://t.me/RKOrko_bot?start=")
+
+        with pytest.raises(DomainError, match="только своему"):
+            await catalog.create_channel(
+                actor_role=UserRole.PARTNER,
+                actor_partner_id=owner.id,
+                partner_id=stranger.id,
+                name="Чужой источник",
+                bot_username="RKOrko_bot",
+            )
+    finally:
+        async with database.session() as session, session.begin():
+            if channel_id is not None:
+                await session.execute(delete(Channel).where(Channel.id == channel_id))
+            if partner_ids:
+                await session.execute(delete(Partner).where(Partner.id.in_(partner_ids)))
         await database.close()
 
 

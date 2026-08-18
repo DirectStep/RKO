@@ -35,6 +35,7 @@ from app.services.user_access import UserAccessService
 from app.services.workflow import WorkflowService
 from app.web_schemas import (
     BankCreate,
+    ChannelCreate,
     LeadBankCreate,
     LeadBankUpdate,
     LeadSourceUpdate,
@@ -630,11 +631,17 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
     async def channels(
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> list[dict[str, object]]:
-        require_admin(user)
+        if user.role not in {UserRole.ADMIN, UserRole.PARTNER}:
+            raise HTTPException(
+                status_code=403,
+                detail="Каналы доступны партнёру или администратору",
+            )
         async with database.session() as db_session:
+            scope = true() if user.role is UserRole.ADMIN else Channel.partner_id == user.partner_id
             rows = await db_session.execute(
                 select(Channel, Partner.name)
                 .join(Partner, Partner.id == Channel.partner_id)
+                .where(scope)
                 .order_by(Partner.name, Channel.name)
             )
         return [
@@ -648,6 +655,39 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             }
             for channel, partner_name in rows
         ]
+
+    @app.post("/api/channels")
+    async def create_channel(
+        payload: ChannelCreate,
+        user: Annotated[MiniAppUser, Depends(current_user)],
+    ) -> dict[str, object]:
+        if user.role not in {UserRole.ADMIN, UserRole.PARTNER}:
+            raise HTTPException(status_code=403, detail="Добавление каналов недоступно")
+        partner_id = user.partner_id if user.role is UserRole.PARTNER else payload.partner_id
+        if partner_id is None:
+            raise HTTPException(status_code=400, detail="Не указан партнёр")
+        if bot is None:
+            raise HTTPException(status_code=503, detail="Бот временно недоступен")
+        bot_user = await bot.get_me()
+        if not bot_user.username:
+            raise HTTPException(status_code=503, detail="У бота не настроен username")
+        try:
+            channel = await AdminCatalogService(database).create_channel(
+                actor_role=user.role,
+                actor_partner_id=user.partner_id,
+                partner_id=partner_id,
+                name=payload.name,
+                bot_username=bot_user.username,
+            )
+        except DomainError as error:
+            raise domain_error(error) from error
+        return {
+            "id": str(channel.id),
+            "partner_id": str(channel.partner_id),
+            "name": channel.name,
+            "active": channel.active,
+            "link": channel.referral_link,
+        }
 
     @app.put("/api/partners/{partner_id}/access")
     async def bind_partner_access(

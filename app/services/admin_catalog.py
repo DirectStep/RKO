@@ -268,8 +268,12 @@ class AdminCatalogService:
         partner_id: UUID,
         name: str,
         bot_username: str,
+        actor_partner_id: UUID | None = None,
     ) -> Channel:
-        self._require_admin(actor_role)
+        if actor_role is not UserRole.ADMIN and not (
+            actor_role is UserRole.PARTNER and actor_partner_id == partner_id
+        ):
+            raise DomainError("Можно добавлять каналы только своему партнёрскому кабинету")
         clean_name = name.strip()
         if len(clean_name) < 2 or len(clean_name) > 160:
             raise DomainError("Название канала должно быть от 2 до 160 символов")

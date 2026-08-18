@@ -2,11 +2,14 @@ import hashlib
 import hmac
 import json
 import time
+from pathlib import Path
 from urllib.parse import urlencode
 
 import pytest
 
 from app.web import validate_telegram_init_data
+
+ASSETS_DIR = Path(__file__).parents[1] / "app" / "web_assets"
 
 
 def signed_init_data(bot_token: str, user_id: int, auth_date: int) -> str:
@@ -44,3 +47,19 @@ def test_expired_telegram_init_data_is_rejected() -> None:
 
     with pytest.raises(ValueError, match="устарела"):
         validate_telegram_init_data(raw_data, "123456:test-token")
+
+
+def test_hidden_navigation_tabs_stay_hidden() -> None:
+    styles = (ASSETS_DIR / "styles.css").read_text(encoding="utf-8")
+
+    assert ".tabbar button[hidden] { display: none; }" in styles
+
+
+def test_partner_channel_controls_are_present() -> None:
+    markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert 'id="add-channel-button"' in markup
+    assert "state.session.role==='partner'?api('/api/channels')" not in script
+    assert "['admin','partner'].includes(state.session.role)?api('/api/channels')" in script
+    assert "method:'POST'" in script and "api('/api/channels'" in script

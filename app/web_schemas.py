@@ -22,6 +22,11 @@ class PartnerUpdate(BaseModel):
     telegram_username: str | None = None
 
 
+class ChannelCreate(BaseModel):
+    name: str
+    partner_id: UUID | None = None
+
+
 class LeadUpdate(BaseModel):
     internal_status: LeadInternalStatus | None = None
     manager_id: UUID | None = None

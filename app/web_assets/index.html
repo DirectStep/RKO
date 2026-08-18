@@ -6,9 +6,9 @@
     <meta name="theme-color" content="#f1f2f3" />
     <meta name="description" content="Локальный рабочий кабинет РКО для заявок и партнёров" />
     <title>РКО</title>
-    <link rel="stylesheet" href="/assets/styles.css" />
+    <link rel="stylesheet" href="/assets/styles.css?v=20260818-07" />
     <script src="https://telegram.org/js/telegram-web-app.js?59"></script>
-    <script src="/assets/app.js" defer></script>
+    <script src="/assets/app.js?v=20260818-07" defer></script>
   </head>
   <body>
     <div class="app-shell">
@@ -70,7 +70,8 @@
 
         <section class="screen" id="partners-screen" aria-labelledby="partners-title">
           <div class="section-heading compact">
-            <div><p class="eyebrow">Источники заявок</p><h2 id="partners-title">Партнёры</h2></div>
+            <div><p class="eyebrow" id="partners-eyebrow">Источники заявок</p><h2 id="partners-title">Партнёры</h2></div>
+            <button class="round-action" type="button" id="add-channel-button" aria-label="Добавить канал" hidden>+</button>
           </div>
           <div class="telegram-list" id="partners-list"></div>
         </section>
@@ -110,7 +111,7 @@
         </button>
         <button type="button" data-screen="partners" id="partners-tab">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2m7-10a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm13 10v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-          <span>Партнёры</span>
+          <span id="partners-tab-label">Партнёры</span>
         </button>
         <button type="button" data-screen="banks" id="banks-tab">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10h18M5 10v8m4-8v8m6-8v8m4-8v8M2 21h20M12 3 2 8h20L12 3Z"/></svg>
