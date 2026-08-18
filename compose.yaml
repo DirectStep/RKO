@@ -46,19 +46,9 @@ services:
     restart: unless-stopped
 
   tunnel:
-    image: node:22-alpine
-    command:
-      [
-        "npx",
-        "--yes",
-        "localtunnel",
-        "--port",
-        "8090",
-        "--local-host",
-        "bot",
-        "--subdomain",
-        "directstep-rko-8875322603",
-      ]
+    build:
+      context: .
+      dockerfile: Dockerfile.tunnel
     depends_on:
       - bot
     restart: unless-stopped

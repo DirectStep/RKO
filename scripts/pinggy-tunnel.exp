@@ -1,0 +1,20 @@
+#!/usr/bin/expect -f
+
+set timeout -1
+spawn ssh -tt \
+    -p 443 \
+    -o StrictHostKeyChecking=accept-new \
+    -o ConnectTimeout=15 \
+    -o ServerAliveInterval=30 \
+    -o ServerAliveCountMax=3 \
+    -R0:bot:8090 \
+    free.pinggy.io \
+    x:https
+
+expect {
+    -re {(?i)password:} {
+        send "\r"
+        exp_continue
+    }
+    eof
+}
