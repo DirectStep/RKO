@@ -97,7 +97,7 @@ async def partner_commission(
         return
     await state.clear()
     await message.answer(
-        format_partner(partner),
+        format_partner(partner, []),
         reply_markup=admin_partner_keyboard(str(partner.id), partner.active),
     )
 
@@ -108,16 +108,22 @@ async def partner_toggle(callback: CallbackQuery, database: Database, settings: 
         return
     try:
         partner_id = UUID((callback.data or "").removeprefix("admin:partner:toggle:"))
-        partner = await AdminCatalogService(database).toggle_partner(
+        service = AdminCatalogService(database)
+        partner = await service.toggle_partner(
             actor_role=UserRole.ADMIN, partner_id=partner_id
         )
+        channels = await service.list_partner_channels(partner.id)
     except (ValueError, DomainError) as error:
         await callback.answer(str(error), show_alert=True)
         return
     if isinstance(callback.message, Message):
         await callback.message.edit_text(
-            format_partner(partner),
-            reply_markup=admin_partner_keyboard(str(partner.id), partner.active),
+            format_partner(partner, channels),
+            reply_markup=admin_partner_keyboard(
+                str(partner.id),
+                partner.active,
+                [(item.channel.name, item.channel.referral_link) for item in channels],
+            ),
         )
     await callback.answer("Статус изменён")
 
@@ -131,14 +137,20 @@ async def partner_card(callback: CallbackQuery, database: Database, settings: Se
     except ValueError:
         await callback.answer("Некорректный партнёр", show_alert=True)
         return
-    partner = await AdminCatalogService(database).get_partner(partner_id)
+    service = AdminCatalogService(database)
+    partner = await service.get_partner(partner_id)
     if partner is None:
         await callback.answer("Партнёр не найден", show_alert=True)
         return
+    channels = await service.list_partner_channels(partner.id)
     if isinstance(callback.message, Message):
         await callback.message.edit_text(
-            format_partner(partner),
-            reply_markup=admin_partner_keyboard(str(partner.id), partner.active),
+            format_partner(partner, channels),
+            reply_markup=admin_partner_keyboard(
+                str(partner.id),
+                partner.active,
+                [(item.channel.name, item.channel.referral_link) for item in channels],
+            ),
         )
     await callback.answer()
 
@@ -299,9 +311,15 @@ def channel_button_text(summary: ChannelSummary) -> str:
     return f"{'🟢' if channel.active else '⚪️'} {summary.partner_name} · {channel.name}"
 
 
-def format_partner(partner: Partner) -> str:
+def format_partner(partner: Partner, channels: list[ChannelSummary]) -> str:
     status = "работает" if partner.active else "выключен"
-    return f"Партнёр: {partner.name}\n\nПроцент: {partner.commission_percent}%\nСтатус: {status}"
+    text = f"Партнёр: {partner.name}\n\nПроцент: {partner.commission_percent}%\nСтатус: {status}"
+    if not channels:
+        return f"{text}\n\nКаналов пока нет."
+    links = "\n\n".join(
+        f"{item.channel.name}:\n{item.channel.referral_link}" for item in channels
+    )
+    return f"{text}\n\nРеферальные ссылки:\n\n{links}"
 
 
 def format_channel(summary: ChannelSummary) -> str:

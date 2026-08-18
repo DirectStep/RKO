@@ -8,6 +8,8 @@ from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
 from app.bot.keyboards import (
     admin_menu_keyboard,
+    application_edit_keyboard,
+    application_review_keyboard,
     cabinet_keyboard,
     consent_document_keyboard,
     consent_keyboard,
@@ -27,6 +29,15 @@ from app.services.user_access import UserAccessService
 
 router = Router(name="common")
 logger = logging.getLogger(__name__)
+
+QUESTION_REVIEW_LABELS = (
+    "Возраст",
+    "ИП",
+    "Город",
+    "Банкротства и аресты",
+    "Госслужба",
+    "Социальные выплаты",
+)
 
 
 @router.message(CommandStart())
@@ -161,6 +172,12 @@ async def receive_phone(message: Message, state: FSMContext, database: Database)
     except ValueError as error:
         await message.answer(str(error))
         return
+    data = await state.get_data()
+    if data.get("review_edit"):
+        await state.update_data(phone=phone, review_edit=False)
+        await message.answer("Номер обновлён.", reply_markup=ReplyKeyboardRemove())
+        await show_application_review(message, state)
+        return
     await state.update_data(phone=phone, answers={}, question_index=0)
     await state.set_state(LeadApplication.questionnaire)
     await message.answer(
@@ -194,6 +211,10 @@ async def receive_yes_no(callback: CallbackQuery, state: FSMContext, database: D
     await callback.answer()
     if isinstance(callback.message, Message):
         await callback.message.edit_reply_markup(reply_markup=None)
+        if data.get("review_edit"):
+            await state.update_data(review_edit=False)
+            await show_application_review(callback.message, state)
+            return
         await ask_current_question(callback.message, state, database)
 
 
@@ -219,6 +240,10 @@ async def receive_text_answer(message: Message, state: FSMContext, database: Dat
     answers = dict(data["answers"])
     answers[question.key] = value
     await state.update_data(answers=answers, question_index=index + 1)
+    if data.get("review_edit"):
+        await state.update_data(review_edit=False)
+        await show_application_review(message, state)
+        return
     await ask_current_question(message, state, database)
 
 
@@ -226,11 +251,83 @@ async def ask_current_question(message: Message, state: FSMContext, database: Da
     data = await state.get_data()
     index = int(data["question_index"])
     if index >= len(QUESTIONS):
-        await finish_application(message, state, database)
+        await show_application_review(message, state)
         return
     question = QUESTIONS[index]
     keyboard = yes_no_keyboard(index) if question.kind is QuestionKind.YES_NO else None
     await message.answer(question.text, reply_markup=keyboard)
+
+
+async def show_application_review(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    await state.set_state(LeadApplication.review)
+    await message.answer(
+        format_application_review(data),
+        reply_markup=application_review_keyboard(),
+    )
+
+
+@router.callback_query(LeadApplication.review, F.data == "application:edit")
+async def choose_application_field(callback: CallbackQuery) -> None:
+    if isinstance(callback.message, Message):
+        items = list(enumerate(QUESTION_REVIEW_LABELS))
+        await callback.message.edit_reply_markup(reply_markup=application_edit_keyboard(items))
+    await callback.answer("Что изменить?")
+
+
+@router.callback_query(LeadApplication.review, F.data == "application:edit:back")
+async def return_to_application_review(callback: CallbackQuery) -> None:
+    if isinstance(callback.message, Message):
+        await callback.message.edit_reply_markup(reply_markup=application_review_keyboard())
+    await callback.answer()
+
+
+@router.callback_query(LeadApplication.review, F.data == "application:edit:phone")
+async def edit_application_phone(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.update_data(review_edit=True)
+    await state.set_state(LeadApplication.phone)
+    if isinstance(callback.message, Message):
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.message.answer(
+            "Отправь исправленный номер.",
+            reply_markup=phone_keyboard(),
+        )
+    await callback.answer()
+
+
+@router.callback_query(
+    LeadApplication.review,
+    F.data.startswith("application:edit:question:"),
+)
+async def edit_application_answer(callback: CallbackQuery, state: FSMContext) -> None:
+    try:
+        index = int((callback.data or "").removeprefix("application:edit:question:"))
+        if index < 0:
+            raise IndexError
+        question = QUESTIONS[index]
+    except (ValueError, IndexError):
+        await callback.answer("Не удалось открыть вопрос", show_alert=True)
+        return
+    await state.update_data(question_index=index, review_edit=True)
+    await state.set_state(LeadApplication.questionnaire)
+    if isinstance(callback.message, Message):
+        await callback.message.edit_reply_markup(reply_markup=None)
+        keyboard = yes_no_keyboard(index) if question.kind is QuestionKind.YES_NO else None
+        await callback.message.answer(question.text, reply_markup=keyboard)
+    await callback.answer()
+
+
+@router.callback_query(LeadApplication.review, F.data == "application:confirm")
+async def confirm_application(
+    callback: CallbackQuery,
+    state: FSMContext,
+    database: Database,
+) -> None:
+    await state.set_state(LeadApplication.submitting)
+    await callback.answer()
+    if isinstance(callback.message, Message):
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await finish_application(callback.message, state, database)
 
 
 async def finish_application(message: Message, state: FSMContext, database: Database) -> None:
@@ -283,3 +380,18 @@ def parse_answer_callback(value: str) -> tuple[int, str]:
         return int(raw_index), answer
     except ValueError as error:
         raise ValueError("Некорректный ответ анкеты") from error
+
+
+def format_application_review(data: dict[str, object]) -> str:
+    answers = data.get("answers")
+    answer_values = answers if isinstance(answers, dict) else {}
+    lines = ["Проверь данные перед отправкой:", "", f"Телефон: {data.get('phone', '—')}"]
+    for index, question in enumerate(QUESTIONS):
+        value = answer_values.get(question.key, "—")
+        if value == "yes":
+            value = "Да"
+        elif value == "no":
+            value = "Нет"
+        lines.append(f"{QUESTION_REVIEW_LABELS[index]}: {value}")
+    lines.extend(["", "Если всё правильно, нажми «Да, всё верно»."])
+    return "\n".join(lines)

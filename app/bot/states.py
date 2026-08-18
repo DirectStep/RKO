@@ -5,6 +5,7 @@ class LeadApplication(StatesGroup):
     consent = State()
     phone = State()
     questionnaire = State()
+    review = State()
     submitting = State()
 
 

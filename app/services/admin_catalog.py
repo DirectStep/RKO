@@ -82,6 +82,16 @@ class AdminCatalogService:
             )
             return [ChannelSummary(channel=row[0], partner_name=row[1]) for row in rows]
 
+    async def list_partner_channels(self, partner_id: UUID) -> list[ChannelSummary]:
+        async with self.database.session() as session:
+            rows = await session.execute(
+                select(Channel, Partner.name)
+                .join(Partner, Partner.id == Channel.partner_id)
+                .where(Channel.partner_id == partner_id)
+                .order_by(Channel.name)
+            )
+            return [ChannelSummary(channel=row[0], partner_name=row[1]) for row in rows]
+
     async def get_channel(self, channel_id: UUID) -> ChannelSummary | None:
         async with self.database.session() as session:
             row = (

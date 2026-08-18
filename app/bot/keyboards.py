@@ -60,6 +60,25 @@ def yes_no_keyboard(question_index: int) -> InlineKeyboardMarkup:
     )
 
 
+def application_review_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Да, всё верно", callback_data="application:confirm")],
+            [InlineKeyboardButton(text="Изменить данные", callback_data="application:edit")],
+        ]
+    )
+
+
+def application_edit_keyboard(items: list[tuple[int, str]]) -> InlineKeyboardMarkup:
+    rows = [[InlineKeyboardButton(text="Телефон", callback_data="application:edit:phone")]]
+    rows.extend(
+        [InlineKeyboardButton(text=label, callback_data=f"application:edit:question:{index}")]
+        for index, label in items
+    )
+    rows.append([InlineKeyboardButton(text="Назад", callback_data="application:edit:back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def retry_submission_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -166,9 +185,17 @@ def admin_partners_keyboard(partners: list[tuple[str, str]]) -> InlineKeyboardMa
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def admin_partner_keyboard(partner_id: str, active: bool) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+def admin_partner_keyboard(
+    partner_id: str,
+    active: bool,
+    referral_links: list[tuple[str, str]] | None = None,
+) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text=f"Ссылка: {name}", url=url)]
+        for name, url in referral_links or []
+    ]
+    rows.extend(
+        [
             [
                 InlineKeyboardButton(
                     text="Добавить канал", callback_data=f"admin:channel:new:{partner_id}"
@@ -183,6 +210,7 @@ def admin_partner_keyboard(partner_id: str, active: bool) -> InlineKeyboardMarku
             [InlineKeyboardButton(text="К партнёрам", callback_data="admin:partners")],
         ]
     )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def admin_channels_keyboard(channels: list[tuple[str, str]]) -> InlineKeyboardMarkup:

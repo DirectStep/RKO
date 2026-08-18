@@ -251,10 +251,16 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
     async def session(
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> dict[str, str]:
+        google_sheet_url = ""
+        if user.role is UserRole.ADMIN and settings.google_sheet_id:
+            google_sheet_url = (
+                f"https://docs.google.com/spreadsheets/d/{settings.google_sheet_id}/edit"
+            )
         return {
             "name": user.name,
             "role": user.role.value,
             "telegram_id": user.id,
+            "google_sheet_url": google_sheet_url,
         }
 
     @app.get("/api/dashboard")
