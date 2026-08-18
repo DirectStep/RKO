@@ -129,20 +129,20 @@ def test_source_assignment_callbacks_fit_telegram_limit() -> None:
     assert all(len(value.encode()) <= 64 for value in callback_values)
 
 
-def test_partner_card_keeps_referral_link_available() -> None:
+def test_partner_card_uses_actions_instead_of_opening_referral_links() -> None:
     keyboard = admin_partner_keyboard(
         "8a124766-93ec-4e02-9c85-2260ebad0422",
         True,
-        [("Telegram", "https://t.me/RKOrko_bot?start=ref-code")],
     )
 
-    assert keyboard.inline_keyboard[0][0].text == "Ссылка: Telegram"
-    assert keyboard.inline_keyboard[0][0].url == "https://t.me/RKOrko_bot?start=ref-code"
+    assert keyboard.inline_keyboard[0][0].text == "Изменить процент"
+    assert all(button.url is None for row in keyboard.inline_keyboard for button in row)
     callback_values = [
         button.callback_data
         for row in keyboard.inline_keyboard
         for button in row
         if button.callback_data
     ]
+    assert any(value.startswith("admin:pc:") for value in callback_values)
     assert any(value.startswith("admin:pd:a:") for value in callback_values)
     assert all(len(value.encode()) <= 64 for value in callback_values)

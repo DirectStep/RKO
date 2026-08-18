@@ -188,14 +188,15 @@ def admin_partners_keyboard(partners: list[tuple[str, str]]) -> InlineKeyboardMa
 def admin_partner_keyboard(
     partner_id: str,
     active: bool,
-    referral_links: list[tuple[str, str]] | None = None,
 ) -> InlineKeyboardMarkup:
-    rows = [
-        [InlineKeyboardButton(text=f"Ссылка: {name}", url=url)]
-        for name, url in referral_links or []
-    ]
-    rows.extend(
-        [
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Изменить процент",
+                    callback_data=f"admin:pc:{partner_id}",
+                )
+            ],
             [
                 InlineKeyboardButton(
                     text="Добавить канал", callback_data=f"admin:channel:new:{partner_id}"
@@ -216,7 +217,6 @@ def admin_partner_keyboard(
             [InlineKeyboardButton(text="К партнёрам", callback_data="admin:partners")],
         ]
     )
-    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def admin_partner_delete_keyboard(partner_id: str) -> InlineKeyboardMarkup:

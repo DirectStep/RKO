@@ -13,7 +13,7 @@ from app.bot.keyboards import (
     admin_partner_keyboard,
     admin_partners_keyboard,
 )
-from app.bot.states import ChannelCreation, PartnerCreation
+from app.bot.states import ChannelCreation, PartnerCreation, PartnerEditing
 from app.config import Settings
 from app.database import Database
 from app.domain.enums import UserRole
@@ -150,10 +150,72 @@ async def partner_toggle(callback: CallbackQuery, database: Database, settings: 
             reply_markup=admin_partner_keyboard(
                 str(partner.id),
                 partner.active,
-                [(item.channel.name, item.channel.referral_link) for item in channels],
             ),
         )
     await callback.answer("Статус изменён")
+
+
+@router.callback_query(F.data.startswith("admin:pc:"))
+async def partner_commission_edit(
+    callback: CallbackQuery,
+    state: FSMContext,
+    database: Database,
+    settings: Settings,
+) -> None:
+    if await deny_if_not_admin(callback, database, settings):
+        return
+    try:
+        partner_id = UUID((callback.data or "").removeprefix("admin:pc:"))
+    except ValueError:
+        await callback.answer("Некорректный партнёр", show_alert=True)
+        return
+    partner = await AdminCatalogService(database).get_partner(partner_id)
+    if partner is None:
+        await callback.answer("Партнёр не найден", show_alert=True)
+        return
+    await state.update_data(edit_partner_id=str(partner.id))
+    await state.set_state(PartnerEditing.commission)
+    if isinstance(callback.message, Message):
+        await callback.message.answer(
+            f"Сейчас у партнёра «{partner.name}» {partner.commission_percent}%.\n"
+            "Отправь новый процент, например: 7,5"
+        )
+    await callback.answer()
+
+
+@router.message(PartnerEditing.commission)
+async def partner_commission_save(
+    message: Message,
+    state: FSMContext,
+    database: Database,
+    settings: Settings,
+) -> None:
+    if await deny_if_not_admin(message, database, settings):
+        return
+    service = AdminCatalogService(database)
+    try:
+        data = await state.get_data()
+        partner = await service.update_partner_commission(
+            actor_role=UserRole.ADMIN,
+            partner_id=UUID(str(data["edit_partner_id"])),
+            commission_percent=service.parse_commission(message.text or ""),
+        )
+        channels = await service.list_partner_channels(partner.id)
+        access = await service.get_partner_access(partner.id)
+    except (KeyError, ValueError, DomainError) as error:
+        await message.answer(str(error))
+        return
+    await state.clear()
+    await message.answer(
+        "Процент изменён.\n\n"
+        + format_partner(
+            partner,
+            channels,
+            access.telegram_id if access else None,
+            access.telegram_username if access else None,
+        ),
+        reply_markup=admin_partner_keyboard(str(partner.id), partner.active),
+    )
 
 
 @router.callback_query(F.data.startswith("admin:pd:a:"))
@@ -236,7 +298,6 @@ async def partner_card(callback: CallbackQuery, database: Database, settings: Se
             reply_markup=admin_partner_keyboard(
                 str(partner.id),
                 partner.active,
-                [(item.channel.name, item.channel.referral_link) for item in channels],
             ),
         )
     await callback.answer()

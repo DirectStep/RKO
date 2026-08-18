@@ -15,6 +15,10 @@ class PartnerCreation(StatesGroup):
     telegram_username = State()
 
 
+class PartnerEditing(StatesGroup):
+    commission = State()
+
+
 class ChannelCreation(StatesGroup):
     partner = State()
     name = State()
