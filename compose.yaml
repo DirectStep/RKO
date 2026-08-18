@@ -47,7 +47,18 @@ services:
 
   tunnel:
     image: node:22-alpine
-    command: ["npx", "--yes", "localtunnel", "--port", "8090", "--local-host", "bot"]
+    command:
+      [
+        "npx",
+        "--yes",
+        "localtunnel",
+        "--port",
+        "8090",
+        "--local-host",
+        "bot",
+        "--subdomain",
+        "directstep-rko-8875322603",
+      ]
     depends_on:
       - bot
     restart: unless-stopped
