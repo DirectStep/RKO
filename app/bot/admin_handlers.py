@@ -24,7 +24,7 @@ from app.services.user_access import UserAccessService
 router = Router(name="admin")
 
 QUESTION_LABELS = {
-    "adult": "Есть 18 лет",
+    "adult": "Совершеннолетие",
     "has_ip": "Открыто ИП",
     "city": "Город",
     "has_bankruptcy_or_arrests": "Были банкротства или аресты",

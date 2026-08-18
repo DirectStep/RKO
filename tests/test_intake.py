@@ -70,7 +70,7 @@ def test_answer_callback_parser_rejects_malformed_value() -> None:
 
 def test_application_review_allows_confirmation_and_field_selection() -> None:
     review = application_review_keyboard()
-    edit = application_edit_keyboard([(0, "Возраст"), (2, "Город")])
+    edit = application_edit_keyboard([(0, "Совершеннолетие"), (2, "Город")])
 
     assert review.inline_keyboard[0][0].text == "Да, всё верно"
     assert review.inline_keyboard[0][0].callback_data == "application:confirm"
@@ -86,7 +86,7 @@ def test_application_review_formats_phone_and_answers() -> None:
     text = format_application_review({"phone": "+79991234567", "answers": answers})
 
     assert "Телефон: +79991234567" in text
-    assert "Возраст: Да" in text
+    assert "Совершеннолетие: Да" in text
     assert "Город: Москва" in text
     assert "Да, всё верно" in text
 

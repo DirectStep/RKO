@@ -31,7 +31,7 @@ router = Router(name="common")
 logger = logging.getLogger(__name__)
 
 QUESTION_REVIEW_LABELS = (
-    "Возраст",
+    "Совершеннолетие",
     "ИП",
     "Город",
     "Банкротства и аресты",
