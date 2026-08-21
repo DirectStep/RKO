@@ -7,7 +7,7 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 from urllib.parse import parse_qsl
 from uuid import UUID
 
@@ -28,8 +28,18 @@ from app.domain.enums import (
     UserRole,
 )
 from app.domain.operations import DomainError
-from app.models import Bank, Channel, Lead, LeadBank, Partner, Payment, User
+from app.models import (
+    Bank,
+    BankActivationCondition,
+    Channel,
+    Lead,
+    LeadBank,
+    Partner,
+    Payment,
+    User,
+)
 from app.services.admin_catalog import AdminCatalogService
+from app.services.bank_conditions import normalize_bank_name
 from app.services.lead_assignment import LeadAssignmentService
 from app.services.user_access import UserAccessService
 from app.services.workflow import WorkflowService
@@ -63,10 +73,11 @@ EXTERNAL_STATUS_LABELS = {
 @dataclass(frozen=True)
 class MiniAppUser:
     id: str
-    database_id: UUID
+    database_id: UUID | None
     name: str
     role: UserRole
     partner_id: UUID | None = None
+    lead_id: UUID | None = None
 
 
 def validate_telegram_init_data(
@@ -185,12 +196,23 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             raise HTTPException(status_code=401, detail="Открой кабинет через Telegram")
 
         role = await UserAccessService(database, settings).resolve_role(telegram_id, username)
-        if role not in {UserRole.ADMIN, UserRole.MANAGER, UserRole.PARTNER}:
-            raise HTTPException(status_code=403, detail="Для этого пользователя нет кабинета")
         async with database.session() as session:
             user = await session.scalar(select(User).where(User.telegram_id == telegram_id))
-        if user is None or user.access_status is not AccessStatus.ACTIVE:
+            lead = await session.scalar(select(Lead).where(Lead.telegram_id == telegram_id))
+        if user is not None and user.access_status is not AccessStatus.ACTIVE:
             raise HTTPException(status_code=403, detail="Доступ отключён")
+        if role in {None, UserRole.LEAD}:
+            if lead is None:
+                raise HTTPException(status_code=403, detail="Для этого пользователя нет кабинета")
+            return MiniAppUser(
+                telegram_id,
+                None,
+                lead.display_name,
+                UserRole.LEAD,
+                lead_id=lead.id,
+            )
+        if role not in {UserRole.ADMIN, UserRole.MANAGER, UserRole.PARTNER} or user is None:
+            raise HTTPException(status_code=403, detail="Для этого пользователя нет кабинета")
         partner_id = None
         if role is UserRole.PARTNER:
             async with database.session() as session:
@@ -213,13 +235,24 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             )
         return true()
 
-    def require_admin(user: MiniAppUser) -> None:
-        if user.role is not UserRole.ADMIN:
-            raise HTTPException(status_code=403, detail="Раздел доступен администратору")
+    def require_operational_user(user: MiniAppUser) -> None:
+        if user.role is UserRole.LEAD:
+            raise HTTPException(status_code=403, detail="Раздел недоступен клиенту")
 
-    def require_employee(user: MiniAppUser) -> None:
-        if user.role not in {UserRole.ADMIN, UserRole.MANAGER}:
+    def require_lead(user: MiniAppUser) -> UUID:
+        if user.role is not UserRole.LEAD or user.lead_id is None:
+            raise HTTPException(status_code=403, detail="Раздел доступен клиенту")
+        return user.lead_id
+
+    def require_admin(user: MiniAppUser) -> UUID:
+        if user.role is not UserRole.ADMIN or user.database_id is None:
+            raise HTTPException(status_code=403, detail="Раздел доступен администратору")
+        return user.database_id
+
+    def require_employee(user: MiniAppUser) -> UUID:
+        if user.role not in {UserRole.ADMIN, UserRole.MANAGER} or user.database_id is None:
             raise HTTPException(status_code=403, detail="Раздел доступен сотруднику")
+        return user.database_id
 
     def domain_error(error: DomainError) -> HTTPException:
         return HTTPException(status_code=400, detail=str(error))
@@ -266,10 +299,91 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             "google_sheet_url": google_sheet_url,
         }
 
+    @app.get("/api/lead/session")
+    async def lead_session(
+        user: Annotated[MiniAppUser, Depends(current_user)],
+    ) -> dict[str, str]:
+        lead_id = require_lead(user)
+        async with database.session() as db_session:
+            lead = await db_session.get(Lead, lead_id)
+        if lead is None:
+            raise HTTPException(status_code=404, detail="Заявка не найдена")
+        return {
+            "name": lead.display_name,
+            "role": UserRole.LEAD.value,
+            "short_id": lead.short_id,
+        }
+
+    @app.get("/api/lead/application")
+    async def lead_application(
+        user: Annotated[MiniAppUser, Depends(current_user)],
+    ) -> dict[str, object]:
+        lead_id = require_lead(user)
+        async with database.session() as db_session:
+            lead = await db_session.get(Lead, lead_id)
+            manager = await db_session.get(User, lead.manager_id) if lead else None
+        if lead is None:
+            raise HTTPException(status_code=404, detail="Заявка не найдена")
+        manager_username = manager.telegram_username if manager else None
+        return {
+            "short_id": lead.short_id,
+            "name": lead.display_name,
+            "date": lead.application_at.isoformat(),
+            "updated": lead.last_updated_at.isoformat(),
+            "status": lead.external_status.value,
+            "manager": format_user_name(manager),
+            "manager_url": (
+                f"https://t.me/{manager_username}" if manager_username else ""
+            ),
+        }
+
+    @app.get("/api/lead/banks")
+    async def lead_banks(
+        user: Annotated[MiniAppUser, Depends(current_user)],
+    ) -> list[dict[str, object]]:
+        lead_id = require_lead(user)
+        async with database.session() as db_session:
+            bank_rows = list(
+                await db_session.execute(
+                    select(LeadBank, Bank)
+                    .join(Bank, Bank.id == LeadBank.bank_id)
+                    .where(LeadBank.lead_id == lead_id)
+                    .order_by(Bank.display_order, LeadBank.planned_at)
+                )
+            )
+            conditions = list(await db_session.scalars(select(BankActivationCondition)))
+        conditions_by_name = {
+            condition.normalized_bank_name: condition for condition in conditions
+        }
+        result: list[dict[str, object]] = []
+        for lead_bank, bank in bank_rows:
+            condition = conditions_by_name.get(normalize_bank_name(bank.name))
+            result.append(
+                {
+                    "bank": bank.name,
+                    "status": lead_bank.external_status.value,
+                    "action_text": (
+                        condition.action_text if condition is not None and condition.active else ""
+                    ),
+                    "order": (
+                        condition.display_order if condition is not None else bank.display_order
+                    ),
+                    "updated": lead_bank.last_updated_at.isoformat(),
+                }
+            )
+        result.sort(
+            key=lambda item: (
+                cast(int, item["order"]),
+                cast(str, item["bank"]),
+            )
+        )
+        return result
+
     @app.get("/api/dashboard")
     async def dashboard(
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> dict[str, int]:
+        require_operational_user(user)
         scope = lead_scope(user)
         active_statuses = {
             LeadInternalStatus.NEW,
@@ -313,9 +427,10 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         user: Annotated[MiniAppUser, Depends(current_user)],
         mine: bool = False,
     ) -> list[dict[str, object]]:
+        require_operational_user(user)
         scope = lead_scope(user)
         if mine and user.role is UserRole.MANAGER:
-            scope = scope & (Lead.manager_id == user.database_id)
+            scope = scope & (Lead.manager_id == require_employee(user))
         async with database.session() as db_session:
             result = await db_session.scalars(
                 select(Lead).where(scope).order_by(Lead.application_at.desc()).limit(1000)
@@ -346,6 +461,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
     async def leads_report(
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> StreamingResponse:
+        require_operational_user(user)
         async with database.session() as db_session:
             lead_items = list(
                 await db_session.scalars(
@@ -446,6 +562,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         lead_id: UUID,
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> dict[str, object]:
+        require_operational_user(user)
         async with database.session() as db_session:
             lead = await db_session.scalar(select(Lead).where(Lead.id == lead_id, lead_scope(user)))
             if lead is None:
@@ -906,11 +1023,11 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         payload: PaymentConfirm,
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> dict[str, str]:
-        require_admin(user)
+        actor_user_id = require_admin(user)
         try:
             payment = await WorkflowService(database).confirm_lead_bank_payment(
                 actor_role=user.role,
-                actor_user_id=user.database_id,
+                actor_user_id=actor_user_id,
                 lead_bank_id=lead_bank_id,
                 payment_period=payload.payment_period,
                 registry_number=payload.registry_number,

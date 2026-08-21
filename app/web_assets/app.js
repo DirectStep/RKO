@@ -1,7 +1,7 @@
 const tg = window.Telegram?.WebApp
 tg?.ready(); tg?.expand()
 
-const state = { session: null, dashboard: {}, leads: [], partners: [], channels: [], banks: [], staff: [], leadScope: 'all' }
+const state = { session: null, dashboard: {}, leads: [], partners: [], channels: [], banks: [], staff: [], leadApplication: null, leadBanks: [], leadScope: 'all' }
 const leadLabels = { new:'Новая',manager_assigned:'Менеджер назначен',awaiting_first_contact:'Ждёт звонка',contacted:'Связались',awaiting_data:'Ждём данные',data_received:'Данные получены',selecting_banks:'Подбираем банки',preparing_applications:'Готовим заявки',applications_sent:'Заявки отправлены',opening_accounts:'Открытие счетов',partially_opened:'Часть счетов открыта',all_planned_opened:'Счета открыты',paused:'На паузе',no_response:'Нет ответа',lead_refused:'Отказ клиента',not_eligible:'Не подходит',completed:'Завершена',in_progress:'В работе',partially_completed:'Частично завершена',closed_without_result:'Закрыта без результата' }
 const internalLeadStatuses = ['new','manager_assigned','awaiting_first_contact','contacted','awaiting_data','data_received','selecting_banks','preparing_applications','applications_sent','opening_accounts','partially_opened','all_planned_opened','paused','no_response','lead_refused','not_eligible','completed']
 const questionLabels = { adult:'Совершеннолетие',has_ip:'ИП',city:'Город',has_bankruptcy_or_arrests:'Банкротства или аресты',is_civil_servant:'Госслужащий',has_social_benefits:'Социальные выплаты',no_bankruptcy:'Нет банкротств или арестов',not_civil_servant:'Не госслужащий',no_social_benefits:'Нет социальных выплат' }
@@ -37,6 +37,8 @@ function renderLeads(items,target){ target.innerHTML=items.length?items.map(lead
 function updateLeadCount(count){ document.querySelector('#lead-count').textContent=`Показано: ${count}` }
 function render(){
   const admin=state.session.role==='admin', partnerRole=state.session.role==='partner', employee=admin||state.session.role==='manager'
+  document.querySelector('#loading-state').hidden=true
+  document.querySelectorAll('#client-application-tab, #client-banks-tab').forEach(item=>item.hidden=true)
   document.querySelector('#greeting').textContent=state.session.name
   document.querySelector('#avatar').textContent=initials(state.session.name)||'Р'
   for(const key of ['total','new','active','unresolved']) document.querySelector(`#${key}-count`).textContent=state.dashboard[key]
@@ -50,14 +52,39 @@ function render(){
   document.querySelector('#partners-list').innerHTML=partnerRole?(state.channels.length?state.channels.map(channel=>`<button class="list-row" type="button" data-copy-channel="${esc(channel.link)}"><span class="row-icon partner">${initials(channel.name)||'К'}</span><span class="row-content"><span class="row-title"><strong>${esc(channel.name)}</strong></span><span class="row-subtitle">${esc(channel.link)}</span></span><b>Скопировать</b></button>`).join(''):'<p class="empty">Добавь первый канал и получи ссылку для лидов</p>'):(state.partners.length?state.partners.map(p=>`<button class="list-row" type="button" data-partner="${p.id}"><span class="row-icon partner">${initials(p.name)||'П'}</span><span class="row-content"><span class="row-title"><strong>${esc(p.name)}</strong></span><span class="row-subtitle">${esc(p.commission)}% · каналов: ${p.channels}</span></span><i class="status-dot ${p.active?'':'off'}"></i></button>`).join(''):'<p class="empty">Партнёров пока нет</p>')
   document.querySelector('#banks-list').innerHTML=state.banks.length?state.banks.map(b=>`<button class="list-row" type="button" data-bank="${b.id}"><span class="row-icon">Б</span><span class="row-content"><span class="row-title"><strong>${esc(b.name)}</strong></span><span class="row-subtitle">${b.active?'Можно добавлять в заявки':'Отключён'}</span></span><i class="status-dot ${b.active?'':'off'}"></i></button>`).join(''):'<p class="empty">Добавьте первый банк</p>'
   document.querySelector('#staff-list').innerHTML=state.staff.length?state.staff.map(p=>`<button class="list-row" type="button" data-staff="${p.id}"><span class="row-icon partner">${p.role==='admin'?'А':'М'}</span><span class="row-content"><span class="row-title"><strong>${esc(p.username||p.telegram_id)}</strong></span><span class="row-subtitle">${p.role==='admin'?'Администратор':'Менеджер'} · ${p.status==='pending'?'ожидает первого входа':p.status==='active'?'доступ включён':'доступ отключён'}</span></span><i class="status-dot ${p.status==='active'?'':'off'}"></i></button>`).join(''):'<p class="empty">Сотрудников пока нет</p>'
+  if(!document.querySelector('.screen.is-active'))showScreen('summary')
+}
+function renderLeadCabinet(){
+  const application=state.leadApplication
+  document.querySelector('#loading-state').hidden=true
+  document.querySelector('#greeting').textContent='Кабинет клиента'
+  document.querySelector('#avatar').textContent=initials(state.session.name)||'К'
+  document.querySelectorAll('.tabbar button').forEach(item=>item.hidden=true)
+  document.querySelector('#client-application-tab').hidden=false
+  document.querySelector('#client-banks-tab').hidden=false
+  document.querySelector('.tabbar').style.setProperty('--tab-count',2)
+  document.querySelector('#client-application-id').textContent=application.short_id
+  const manager=application.manager_url
+    ? `<a class="contact-row" href="${esc(application.manager_url)}" target="_blank" rel="noopener"><span><small>Менеджер</small><strong>${esc(application.manager)}</strong></span><b>Написать</b></a>`
+    : `<div class="value-row"><span>Менеджер</span><strong>${esc(application.manager||'Ещё не назначен')}</strong></div>`
+  document.querySelector('#client-application-card').innerHTML=`<section class="client-hero"><span>Текущий статус</span><strong>${esc(leadLabels[application.status]||application.status)}</strong><small>Обновлено ${dateTime(application.updated)}</small></section><section class="detail-section"><h3>Данные заявки</h3><div class="value-row"><span>Номер</span><strong>${esc(application.short_id)}</strong></div><div class="value-row"><span>Создана</span><strong>${date(application.date)}</strong></div>${manager}</section><p class="client-note">Здесь отображается актуальный статус. Если появятся вопросы, напиши своему менеджеру.</p>`
+  document.querySelector('#client-banks-list').innerHTML=state.leadBanks.length?state.leadBanks.map(item=>`<article class="client-bank-card"><header><span class="client-bank-icon">Б</span><div><h3>${esc(item.bank)}</h3><p>${esc(bankLabels[item.status]||item.status)}</p></div></header><section class="activation-action"><span>Что нужно сделать</span><p>${esc(item.action_text||'Уточняем целевое действие — менеджер сообщит его отдельно.')}</p></section><small>Обновлено ${dateTime(item.updated)}</small></article>`).join(''):'<section class="empty-card"><span class="client-bank-icon">Б</span><h3>Банки ещё не назначены</h3><p>Когда менеджер подберёт банки, они появятся здесь вместе с условиями активации.</p></section>'
+  showScreen('client-application')
 }
 async function load(){
+  document.querySelectorAll('.screen').forEach(x=>x.classList.remove('is-active'))
+  document.querySelector('#loading-state').hidden=false
   document.querySelector('#error-state').hidden=true
   try{
-    state.session=await api('/api/session'); const employee=['admin','manager'].includes(state.session.role)
+    state.session=await api('/api/session')
+    if(state.session.role==='lead'){
+      const [leadApplication,leadBanks]=await Promise.all([api('/api/lead/application'),api('/api/lead/banks')])
+      Object.assign(state,{leadApplication,leadBanks});renderLeadCabinet();return
+    }
+    const employee=['admin','manager'].includes(state.session.role)
     const jobs=[api('/api/dashboard'),api(`/api/leads${state.leadScope==='mine'?'?mine=true':''}`),state.session.role==='admin'?api('/api/partners'):[],['admin','partner'].includes(state.session.role)?api('/api/channels'):[],employee?api('/api/banks'):[],employee?api('/api/staff'):[]]
     const [dashboard,leads,partners,channels,banks,staff]=await Promise.all(jobs); Object.assign(state,{dashboard,leads,partners,channels,banks,staff}); render()
-  }catch(error){ document.querySelectorAll('.screen').forEach(x=>x.classList.remove('is-active')); document.querySelector('#error-message').textContent=error.message; document.querySelector('#error-state').hidden=false }
+  }catch(error){ document.querySelector('#loading-state').hidden=true; document.querySelectorAll('.screen').forEach(x=>x.classList.remove('is-active')); document.querySelector('#error-message').textContent=error.message; document.querySelector('#error-state').hidden=false }
 }
 
 function sourceCard(lead){

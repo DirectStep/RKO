@@ -63,3 +63,23 @@ def test_partner_channel_controls_are_present() -> None:
     assert "state.session.role==='partner'?api('/api/channels')" not in script
     assert "['admin','partner'].includes(state.session.role)?api('/api/channels')" in script
     assert "method:'POST'" in script and "api('/api/channels'" in script
+
+
+def test_lead_cabinet_has_separate_read_only_sections() -> None:
+    markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert 'id="client-application-screen"' in markup
+    assert 'id="client-banks-screen"' in markup
+    assert "state.session.role==='lead'" in script
+    assert "api('/api/lead/application')" in script
+    assert "api('/api/lead/banks')" in script
+    assert "renderLeadCabinet();return" in script
+
+
+def test_mini_app_has_visible_loading_state() -> None:
+    markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
+    styles = (ASSETS_DIR / "styles.css").read_text(encoding="utf-8")
+
+    assert 'id="loading-state"' in markup
+    assert ".loading-spinner" in styles
