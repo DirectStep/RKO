@@ -29,6 +29,7 @@ from app.domain.enums import (
     BankInternalStatus,
     LeadExternalStatus,
     LeadInternalStatus,
+    LeadWorkflowStage,
     PaymentStatus,
     UserRole,
 )
@@ -156,6 +157,7 @@ class Lead(Base):
     telegram_username: Mapped[str | None] = mapped_column(String(64))
     display_name: Mapped[str] = mapped_column(String(200), nullable=False)
     phone: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    email: Mapped[str | None] = mapped_column(String(254))
     consent_status: Mapped[bool] = mapped_column(Boolean, nullable=False)
     consent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     first_referral_code: Mapped[str | None] = mapped_column(String(64))
@@ -168,6 +170,16 @@ class Lead(Base):
     )
     assignment_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     manager_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"))
+    primary_admin_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"))
+    workflow_stage: Mapped[LeadWorkflowStage] = mapped_column(
+        enum_column(LeadWorkflowStage),
+        default=LeadWorkflowStage.AWAITING_ADMIN,
+        nullable=False,
+    )
+    banks_published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    bank_selection_submitted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     internal_status: Mapped[LeadInternalStatus] = mapped_column(
         enum_column(LeadInternalStatus), default=LeadInternalStatus.NEW, nullable=False
     )
@@ -285,6 +297,10 @@ class LeadBank(Base):
         enum_column(BankExternalStatus), default=BankExternalStatus.PLANNED, nullable=False
     )
     planned_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    offered_to_lead: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    selected_by_lead: Mapped[bool | None] = mapped_column(Boolean)
     data_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     preparation_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     application_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

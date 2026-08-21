@@ -8,7 +8,14 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import Database
-from app.domain.enums import AssignmentStatus, UserRole
+from app.domain.enums import (
+    AssignmentStatus,
+    LeadExternalStatus,
+    LeadInternalStatus,
+    LeadWorkflowStage,
+    UserRole,
+)
+from app.domain.intake import is_eligible
 from app.domain.operations import DomainError
 from app.models import Channel, DuplicateLeadReview, Lead, LeadDraft, Partner, User
 
@@ -23,6 +30,7 @@ class SubmissionStatus(StrEnum):
 class SubmissionResult:
     status: SubmissionStatus
     short_id: str | None = None
+    eligible: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -144,13 +152,15 @@ class LeadIntakeService:
                 raise RuntimeError("Не удалось получить номер заявки")
             short_id = f"RKO-{number:04d}"
             now = datetime.now(first_click_at.tzinfo)
+            eligible = is_eligible(answers)
             session.add(
                 Lead(
                     short_id=short_id,
                     telegram_id=telegram_id,
                     telegram_username=telegram_username,
-                    display_name=display_name,
+                    display_name=answers.get("full_name") or display_name,
                     phone=phone,
+                    email=answers.get("email"),
                     consent_status=True,
                     consent_at=consent_at,
                     first_referral_code=draft.referral_code if draft else referral_code,
@@ -162,6 +172,21 @@ class LeadIntakeService:
                         AssignmentStatus.CONFIRMED if channel else AssignmentStatus.DIRECT
                     ),
                     assignment_confirmed_at=now if channel else None,
+                    workflow_stage=(
+                        LeadWorkflowStage.AWAITING_ADMIN
+                        if eligible
+                        else LeadWorkflowStage.NOT_ELIGIBLE
+                    ),
+                    internal_status=(
+                        LeadInternalStatus.NEW
+                        if eligible
+                        else LeadInternalStatus.NOT_ELIGIBLE
+                    ),
+                    external_status=(
+                        LeadExternalStatus.NEW
+                        if eligible
+                        else LeadExternalStatus.CLOSED_WITHOUT_RESULT
+                    ),
                     questionnaire_answers=answers,
                     first_click_at=first_click_at,
                     application_at=now,
@@ -169,7 +194,7 @@ class LeadIntakeService:
             )
             if draft:
                 await session.delete(draft)
-        return SubmissionResult(SubmissionStatus.CREATED, short_id)
+        return SubmissionResult(SubmissionStatus.CREATED, short_id, eligible)
 
     @staticmethod
     async def _find_channel(session: AsyncSession, referral_code: str | None) -> Channel | None:

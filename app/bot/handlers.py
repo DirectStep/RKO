@@ -24,7 +24,13 @@ from app.bot.texts import CONSENT_PROMPT, CONSENT_TEXT, START_TEXT
 from app.config import Settings
 from app.database import Database
 from app.domain.enums import UserRole
-from app.domain.intake import QUESTIONS, QuestionKind, normalize_phone
+from app.domain.intake import (
+    QUESTIONS,
+    QuestionKind,
+    normalize_email,
+    normalize_full_name,
+    normalize_phone,
+)
 from app.domain.operations import DomainError
 from app.models import Lead
 from app.services.lead_intake import LeadIntakeService, SubmissionStatus
@@ -34,14 +40,7 @@ from app.services.workflow import WorkflowService
 router = Router(name="common")
 logger = logging.getLogger(__name__)
 
-QUESTION_REVIEW_LABELS = (
-    "Совершеннолетие",
-    "ИП",
-    "Город",
-    "Банкротства и аресты",
-    "Госслужба",
-    "Социальные выплаты",
-)
+QUESTION_REVIEW_LABELS = tuple(question.review_label for question in QUESTIONS)
 
 
 async def has_registered_lead(database: Database, telegram_id: str) -> bool:
@@ -313,8 +312,15 @@ async def receive_text_answer(message: Message, state: FSMContext, database: Dat
         await message.answer("Выбери «Да» или «Нет» кнопкой под вопросом.")
         return
     value = (message.text or "").strip()
-    if len(value) < 2:
-        await message.answer("Напиши название города полностью.")
+    try:
+        if question.key == "full_name":
+            value = normalize_full_name(value)
+        elif question.key == "email":
+            value = normalize_email(value)
+        elif len(value) < 2:
+            raise ValueError("Напиши название города полностью")
+    except ValueError as error:
+        await message.answer(str(error))
         return
     answers = dict(data["answers"])
     answers[question.key] = value
@@ -442,9 +448,16 @@ async def finish_application(message: Message, state: FSMContext, database: Data
     elif result.status is SubmissionStatus.DUPLICATE_PHONE:
         await message.answer("Этот номер уже есть в системе. Менеджер проверит заявку вручную.")
     else:
-        await message.answer(
-            f"Отлично, заявка {result.short_id} зарегистрирована. Скоро свяжется менеджер."
-        )
+        if result.eligible:
+            await message.answer(
+                f"Отлично, заявка {result.short_id} зарегистрирована. "
+                "Скоро с тобой свяжется специалист."
+            )
+        else:
+            await message.answer(
+                f"Заявка {result.short_id} сохранена. К сожалению, по текущим "
+                "условиям мы пока не сможем помочь с открытием счетов."
+            )
 
 
 @router.callback_query(LeadApplication.submitting, F.data == "application:retry")

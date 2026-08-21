@@ -13,7 +13,14 @@ from app.bot.keyboards import (
     retry_submission_keyboard,
     yes_no_keyboard,
 )
-from app.domain.intake import QUESTIONS, QuestionKind, normalize_phone
+from app.domain.intake import (
+    QUESTIONS,
+    QuestionKind,
+    is_eligible,
+    normalize_email,
+    normalize_full_name,
+    normalize_phone,
+)
 
 
 def test_cabinet_button_requires_https() -> None:
@@ -41,11 +48,57 @@ def test_invalid_phone_is_rejected(raw: str) -> None:
         normalize_phone(raw)
 
 
-def test_business_questionnaire_contains_six_questions_and_city() -> None:
-    assert len(QUESTIONS) == 6
+def test_business_questionnaire_contains_contact_and_final_qualification_questions() -> None:
+    assert len(QUESTIONS) == 8
     assert (
         next(question for question in QUESTIONS if question.key == "city").kind is QuestionKind.TEXT
     )
+    assert [question.key for question in QUESTIONS][-4:] == [
+        "has_social_benefits",
+        "adult",
+        "has_bankruptcy_or_arrests",
+        "is_civil_servant",
+    ]
+
+
+def test_full_name_and_email_are_normalized() -> None:
+    assert normalize_full_name("  Иванов   Иван Иванович ") == "Иванов Иван Иванович"
+    assert normalize_email("USER@Example.COM") == "user@example.com"
+
+
+@pytest.mark.parametrize("value", ["Иван", "И И И", ""])
+def test_incomplete_full_name_is_rejected(value: str) -> None:
+    with pytest.raises(ValueError, match="фамилию"):
+        normalize_full_name(value)
+
+
+@pytest.mark.parametrize("value", ["mail", "a@b", "@example.com"])
+def test_invalid_email_is_rejected(value: str) -> None:
+    with pytest.raises(ValueError, match="e-mail"):
+        normalize_email(value)
+
+
+def test_social_benefits_require_review_but_do_not_reject_lead() -> None:
+    assert is_eligible(
+        {
+            "adult": "yes",
+            "has_social_benefits": "yes",
+            "has_bankruptcy_or_arrests": "no",
+            "is_civil_servant": "no",
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "answers",
+    [
+        {"adult": "no"},
+        {"adult": "yes", "has_bankruptcy_or_arrests": "yes"},
+        {"adult": "yes", "is_civil_servant": "yes"},
+    ],
+)
+def test_hard_stop_answers_reject_lead(answers: dict[str, str]) -> None:
+    assert not is_eligible(answers)
 
 
 def test_yes_no_questions_do_not_use_negative_wording() -> None:

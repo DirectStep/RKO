@@ -50,6 +50,15 @@ class LeadExternalStatus(StrEnum):
     CLOSED_WITHOUT_RESULT = "closed_without_result"
 
 
+class LeadWorkflowStage(StrEnum):
+    AWAITING_ADMIN = "awaiting_admin"
+    ADMIN_PROCESSING = "admin_processing"
+    AWAITING_CLIENT_SELECTION = "awaiting_client_selection"
+    AWAITING_MANAGER = "awaiting_manager"
+    MANAGER_PROCESSING = "manager_processing"
+    NOT_ELIGIBLE = "not_eligible"
+
+
 class BankInternalStatus(StrEnum):
     PLANNED = "planned"
     AWAITING_DATA = "awaiting_data"
