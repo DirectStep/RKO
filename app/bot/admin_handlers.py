@@ -150,7 +150,6 @@ def format_lead(lead: Lead, assignment_label: str | None = None) -> str:
     )
     return (
         f"Заявка {lead.short_id}\n\n"
-        f"Имя: {lead.display_name}\n"
         f"Telegram: {username}\n"
         f"Телефон: {lead.phone}\n"
         f"Статус: {lead.internal_status.value}\n"
