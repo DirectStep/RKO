@@ -38,6 +38,20 @@ QUESTION_LABELS = {
 }
 
 
+@router.message(Command("group_id"))
+async def show_admin_group_id(
+    message: Message, database: Database, settings: Settings
+) -> None:
+    user = message.from_user
+    if user is None or not await is_admin(user, database, settings):
+        await message.answer("Команда доступна только администратору.")
+        return
+    if message.chat.type == "private":
+        await message.answer("Отправь /group_id внутри админской Telegram-группы.")
+        return
+    await message.answer(f"ID этой группы: {message.chat.id}")
+
+
 async def is_admin(user: TelegramUser, database: Database, settings: Settings) -> bool:
     role = await UserAccessService(database, settings).resolve_role(
         telegram_id=str(user.id), telegram_username=user.username
