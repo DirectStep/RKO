@@ -21,8 +21,11 @@ class Settings(BaseSettings):
     mini_app_port: int = 8090
     mini_app_dev_telegram_id: str = ""
     google_sheet_id: str = ""
+    bank_conditions_sheet_id: str = ""
+    bank_conditions_worksheet: str = "Условия активации"
     google_service_account_file: str = ""
     sheets_sync_interval_seconds: int = 10
+    bank_conditions_sync_interval_seconds: int = 60
 
     @property
     def admin_ids(self) -> frozenset[str]:
@@ -42,6 +45,14 @@ class Settings(BaseSettings):
     def sheets_enabled(self) -> bool:
         return bool(
             self.google_sheet_id
+            and self.google_service_account_file
+            and Path(self.google_service_account_file).is_file()
+        )
+
+    @property
+    def bank_conditions_enabled(self) -> bool:
+        return bool(
+            self.bank_conditions_sheet_id
             and self.google_service_account_file
             and Path(self.google_service_account_file).is_file()
         )

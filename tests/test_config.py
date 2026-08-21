@@ -35,3 +35,17 @@ def test_admin_usernames_are_normalized() -> None:
     )
 
     assert settings.admin_usernames == frozenset({"xirass", "manager"})
+
+
+def test_bank_conditions_are_enabled_with_sheet_and_credentials(tmp_path) -> None:
+    credentials_file = tmp_path / "service-account.json"
+    credentials_file.write_text("{}", encoding="utf-8")
+    settings = Settings(
+        bot_token="123456:test-token",
+        bank_conditions_sheet_id="conditions-sheet",
+        google_service_account_file=str(credentials_file),
+    )
+
+    assert settings.bank_conditions_enabled is True
+    assert settings.bank_conditions_worksheet == "Условия активации"
+    assert settings.bank_conditions_sync_interval_seconds == 60

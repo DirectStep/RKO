@@ -241,6 +241,23 @@ class Bank(Base):
     )
 
 
+class BankActivationCondition(Base):
+    __tablename__ = "bank_activation_conditions"
+
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    bank_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    normalized_bank_name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    action_text: Mapped[str] = mapped_column(Text, nullable=False)
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    display_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    source_row: Mapped[int] = mapped_column(Integer, nullable=False)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class LeadBank(Base):
     __tablename__ = "lead_banks"
     __table_args__ = (

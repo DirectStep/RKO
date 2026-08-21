@@ -13,6 +13,7 @@ from app.config import get_settings
 from app.database import Database
 from app.logging import configure_logging
 from app.web import create_web_app
+from app.workers.bank_conditions_sync import run_bank_conditions_sync
 from app.workers.sheets_sync import run_sheets_sync
 from app.workers.weekly_reports import run_weekly_reports
 
@@ -29,6 +30,7 @@ async def run() -> None:
     dispatcher.include_router(admin_catalog_router)
     dispatcher.include_router(router)
     sheets_task = asyncio.create_task(run_sheets_sync(database, settings))
+    bank_conditions_task = asyncio.create_task(run_bank_conditions_sync(database, settings))
     reports_task = asyncio.create_task(
         run_weekly_reports(database, bot, settings.project_timezone)
     )
@@ -48,9 +50,12 @@ async def run() -> None:
         await dispatcher.start_polling(bot, database=database, settings=settings)
     finally:
         sheets_task.cancel()
+        bank_conditions_task.cancel()
         reports_task.cancel()
         with suppress(asyncio.CancelledError):
             await sheets_task
+        with suppress(asyncio.CancelledError):
+            await bank_conditions_task
         with suppress(asyncio.CancelledError):
             await reports_task
         web_server.should_exit = True
