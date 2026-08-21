@@ -49,6 +49,10 @@ class LeadBankCreate(BaseModel):
     bank_id: UUID
 
 
+class LeadBankSelection(BaseModel):
+    bank_ids: list[UUID] = Field(min_length=1)
+
+
 class LeadBankUpdate(BaseModel):
     status: BankInternalStatus | None = None
     close_reason: str | None = None

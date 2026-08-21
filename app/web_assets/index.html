@@ -6,9 +6,9 @@
     <meta name="theme-color" content="#f1f2f3" />
     <meta name="description" content="Локальный рабочий кабинет РКО для заявок и партнёров" />
     <title>РКО</title>
-    <link rel="stylesheet" href="/assets/styles.css?v=20260821-02" />
+    <link rel="stylesheet" href="/assets/styles.css?v=20260821-04" />
     <script src="https://telegram.org/js/telegram-web-app.js?59"></script>
-    <script src="/assets/app.js?v=20260821-02" defer></script>
+    <script src="/assets/app.js?v=20260821-04" defer></script>
   </head>
   <body>
     <div class="app-shell">
@@ -69,7 +69,7 @@
           </label>
           <label class="scope-filter" id="scope-filter" hidden>
             <span>Показывать</span>
-            <select id="lead-scope"><option value="all">Все заявки</option><option value="mine">Только мои</option></select>
+            <select id="lead-scope"><option value="queue">Ожидают менеджера</option><option value="mine">Только мои</option><option value="all">Все заявки</option></select>
           </label>
           <div class="telegram-list" id="all-leads"></div>
         </section>

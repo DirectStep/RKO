@@ -77,6 +77,16 @@ def test_lead_cabinet_has_separate_read_only_sections() -> None:
     assert "renderLeadCabinet();return" in script
 
 
+def test_two_stage_claim_and_client_bank_selection_controls_are_present() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "/claim-admin" in script
+    assert "/banks/publish" in script
+    assert "api('/api/lead/banks/selection'" in script
+    assert "/claim-manager" in script
+    assert "Отправить менеджеру" in script
+
+
 def test_mini_app_has_visible_loading_state() -> None:
     markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
     styles = (ASSETS_DIR / "styles.css").read_text(encoding="utf-8")

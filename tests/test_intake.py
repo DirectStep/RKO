@@ -4,6 +4,7 @@ from app.bot.handlers import format_application_review, parse_answer_callback
 from app.bot.keyboards import (
     admin_lead_keyboard,
     admin_leads_keyboard,
+    admin_new_lead_keyboard,
     admin_partner_keyboard,
     application_edit_keyboard,
     application_review_keyboard,
@@ -165,6 +166,14 @@ def test_admin_lead_button_contains_stable_id() -> None:
         keyboard.inline_keyboard[0][0].callback_data
         == "admin:lead:8a124766-93ec-4e02-9c85-2260ebad0422"
     )
+
+
+def test_new_lead_group_notification_opens_exact_application() -> None:
+    lead_id = "8a124766-93ec-4e02-9c85-2260ebad0422"
+    keyboard = admin_new_lead_keyboard(lead_id)
+
+    assert keyboard.inline_keyboard[0][0].text == "Открыть заявку"
+    assert keyboard.inline_keyboard[0][0].callback_data == f"admin:lead:{lead_id}"
 
 
 def test_source_assignment_callbacks_fit_telegram_limit() -> None:

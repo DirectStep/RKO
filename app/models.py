@@ -260,6 +260,9 @@ class BankActivationCondition(Base):
     bank_name: Mapped[str] = mapped_column(String(120), nullable=False)
     normalized_bank_name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
     action_text: Mapped[str] = mapped_column(Text, nullable=False)
+    payout_text: Mapped[str] = mapped_column(
+        Text, nullable=False, default="Уточняется", server_default="Уточняется"
+    )
     active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )

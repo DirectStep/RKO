@@ -221,17 +221,28 @@ button.list-row:active { background: color-mix(in srgb, var(--muted) 10%, transp
 .client-note { margin: 0; padding: 0 0.35rem; color: var(--muted); font-size: 0.8rem; line-height: 1.5; }
 .client-bank-list { display: grid; gap: 0.75rem; }
 .client-bank-card, .empty-card { overflow: hidden; border-radius: 0.9rem; background: var(--surface); }
+.client-bank-card { position: relative; display: block; }
+.client-bank-card > input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.client-bank-card.is-selectable { cursor: pointer; border: 0.12rem solid transparent; }
+.client-bank-card.is-selectable:has(input:checked) { border-color: var(--accent); }
 .client-bank-card > header { display: flex; align-items: center; gap: 0.75rem; padding: 0.9rem; }
 .client-bank-card h3, .empty-card h3 { margin: 0; font-size: 1rem; }
 .client-bank-card header p { margin: 0.15rem 0 0; color: var(--accent); font-size: 0.78rem; font-weight: 600; }
+.bank-payout { margin-left: auto; color: var(--positive); font-size: 0.82rem; white-space: nowrap; }
+.bank-payout + .choice-mark { margin-left: 0; }
 .client-bank-card > small { display: block; padding: 0 0.9rem 0.9rem; color: var(--muted); font-size: 0.7rem; }
 .client-bank-icon { display: grid; flex: none; width: 2.75rem; height: 2.75rem; place-items: center; border-radius: 0.75rem; color: #fff; background: var(--accent); font-weight: 750; }
+.choice-mark { display: grid; width: 1.7rem; height: 1.7rem; margin-left: auto; place-items: center; border: 0.1rem solid var(--separator); border-radius: 50%; color: transparent; }
+.client-bank-card input:checked ~ header .choice-mark { border-color: var(--accent); color: var(--accent-text); background: var(--accent); }
 .activation-action { margin: 0 0.9rem 0.75rem; padding: 0.85rem; border-radius: 0.7rem; background: var(--bg); }
 .activation-action span { color: var(--muted); font-size: 0.7rem; font-weight: 600; }
 .activation-action p { margin: 0.3rem 0 0; font-size: 0.88rem; line-height: 1.45; }
 .empty-card { display: grid; justify-items: center; padding: 2rem 1rem; text-align: center; }
 .empty-card h3 { margin-top: 0.8rem; }
 .empty-card p { max-width: 20rem; margin: 0.4rem 0 0; color: var(--muted); font-size: 0.82rem; line-height: 1.45; }
+.selection-intro { margin: 0 0 0.75rem; color: var(--muted); font-size: 0.85rem; line-height: 1.45; }
+.selection-submit { width: 100%; margin-top: 0.15rem; }
+.confirmation-note { margin: 0 0 0.8rem; color: var(--muted); font-size: 0.8rem; line-height: 1.45; }
 
 .tabbar {
   position: fixed;

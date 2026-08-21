@@ -37,6 +37,7 @@ class BankConditionsService:
                     session.add(condition)
                 condition.bank_name = row.bank_name
                 condition.action_text = row.action_text
+                condition.payout_text = row.payout_text
                 condition.active = row.active
                 condition.display_order = row.display_order
                 condition.source_row = row.source_row

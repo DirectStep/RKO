@@ -41,12 +41,14 @@ from app.models import (
 from app.services.admin_catalog import AdminCatalogService
 from app.services.bank_conditions import normalize_bank_name
 from app.services.lead_assignment import LeadAssignmentService
+from app.services.lead_workflow import LeadWorkflowService
 from app.services.user_access import UserAccessService
 from app.services.workflow import WorkflowService
 from app.web_schemas import (
     BankCreate,
     ChannelCreate,
     LeadBankCreate,
+    LeadBankSelection,
     LeadBankUpdate,
     LeadSourceUpdate,
     LeadUpdate,
@@ -166,6 +168,8 @@ def serialize_lead_bank(
                     else None
                 ),
                 "registry_number": payment.registry_number if payment else None,
+                "offered_to_lead": lead_bank.offered_to_lead,
+                "selected_by_lead": lead_bank.selected_by_lead,
             }
         )
     return result
@@ -335,6 +339,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             "date": lead.application_at.isoformat(),
             "updated": lead.last_updated_at.isoformat(),
             "status": lead.external_status.value,
+            "workflow_stage": lead.workflow_stage.value,
             "manager": format_user_name(manager),
             "manager_url": (
                 f"https://t.me/{manager_username}" if manager_username else ""
@@ -347,11 +352,20 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
     ) -> list[dict[str, object]]:
         lead_id = require_lead(user)
         async with database.session() as db_session:
+            lead = await db_session.get(Lead, lead_id)
+            if lead is None:
+                raise HTTPException(status_code=404, detail="Заявка не найдена")
+            bank_scope = [
+                LeadBank.lead_id == lead_id,
+                LeadBank.offered_to_lead.is_(True),
+            ]
+            if lead.bank_selection_submitted_at is not None:
+                bank_scope.append(LeadBank.selected_by_lead.is_(True))
             bank_rows = list(
                 await db_session.execute(
                     select(LeadBank, Bank)
                     .join(Bank, Bank.id == LeadBank.bank_id)
-                    .where(LeadBank.lead_id == lead_id)
+                    .where(*bank_scope)
                     .order_by(Bank.display_order, LeadBank.planned_at)
                 )
             )
@@ -365,9 +379,17 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             result.append(
                 {
                     "bank": bank.name,
+                    "bank_id": str(bank.id),
                     "status": lead_bank.external_status.value,
+                    "selected": lead_bank.selected_by_lead,
+                    "selection_locked": lead.bank_selection_submitted_at is not None,
                     "action_text": (
                         condition.action_text if condition is not None and condition.active else ""
+                    ),
+                    "payout_text": (
+                        condition.payout_text
+                        if condition is not None and condition.active
+                        else "Уточняется"
                     ),
                     "order": (
                         condition.display_order if condition is not None else bank.display_order
@@ -382,6 +404,21 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             )
         )
         return result
+
+    @app.post("/api/lead/banks/selection")
+    async def submit_lead_bank_selection(
+        payload: LeadBankSelection,
+        user: Annotated[MiniAppUser, Depends(current_user)],
+    ) -> dict[str, str]:
+        lead_id = require_lead(user)
+        try:
+            lead = await LeadWorkflowService(database).submit_bank_selection(
+                lead_id=lead_id,
+                selected_bank_ids=set(payload.bank_ids),
+            )
+        except DomainError as error:
+            raise domain_error(error) from error
+        return {"id": str(lead.id), "workflow_stage": lead.workflow_stage.value}
 
     @app.get("/api/dashboard")
     async def dashboard(
@@ -453,11 +490,15 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                     else lead.internal_status.value
                 ),
                 "date": lead.application_at.isoformat(),
+                "workflow_stage": lead.workflow_stage.value,
             }
             if user.role is not UserRole.PARTNER:
                 item["phone"] = lead.phone
                 item["source"] = lead.assignment_status.value
                 item["manager_id"] = str(lead.manager_id) if lead.manager_id else None
+                item["primary_admin_id"] = (
+                    str(lead.primary_admin_id) if lead.primary_admin_id else None
+                )
             response.append(item)
         return response
 
@@ -578,9 +619,29 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 .where(LeadBank.lead_id == lead.id)
                 .order_by(LeadBank.planned_at)
             )
+            conditions = list(
+                await db_session.scalars(select(BankActivationCondition))
+            )
             manager = await db_session.get(User, lead.manager_id) if lead.manager_id else None
+            primary_admin = (
+                await db_session.get(User, lead.primary_admin_id)
+                if lead.primary_admin_id
+                else None
+            )
             channel = await db_session.get(Channel, lead.channel_id) if lead.channel_id else None
-        banks = [serialize_lead_bank(row[0], row[1], row[2], user.role) for row in rows]
+        conditions_by_name = {
+            condition.normalized_bank_name: condition for condition in conditions
+        }
+        banks = []
+        for lead_bank, bank, payment in rows:
+            serialized = serialize_lead_bank(lead_bank, bank, payment, user.role)
+            if user.role is not UserRole.PARTNER:
+                condition = conditions_by_name.get(normalize_bank_name(bank.name))
+                serialized["action_text"] = condition.action_text if condition else ""
+                serialized["payout_text"] = (
+                    condition.payout_text if condition else "Уточняется"
+                )
+            banks.append(serialized)
         result: dict[str, object] = {
             "id": str(lead.id),
             "short_id": lead.short_id,
@@ -596,6 +657,18 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             "payment_status": lead.payment_status.value,
             "channel": channel.name if channel else "Прямой",
             "manager": format_user_name(manager),
+            "primary_admin": format_user_name(primary_admin),
+            "workflow_stage": lead.workflow_stage.value,
+            "banks_published_at": (
+                lead.banks_published_at.isoformat() if lead.banks_published_at else None
+            ),
+            "bank_selection_submitted_at": (
+                lead.bank_selection_submitted_at.isoformat()
+                if lead.bank_selection_submitted_at
+                else None
+            ),
+            "is_primary_admin": lead.primary_admin_id == user.database_id,
+            "is_assigned_manager": lead.manager_id == user.database_id,
             "banks": banks,
         }
         if user.role is not UserRole.PARTNER:
@@ -603,11 +676,15 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 {
                     "telegram_id": lead.telegram_id,
                     "phone": lead.phone,
+                    "email": lead.email or "",
                     "consent": lead.consent_status,
                     "consent_at": lead.consent_at.isoformat(),
                     "external_status": lead.external_status.value,
                     "assignment_status": lead.assignment_status.value,
                     "manager_id": str(lead.manager_id) if lead.manager_id else None,
+                    "primary_admin_id": (
+                        str(lead.primary_admin_id) if lead.primary_admin_id else None
+                    ),
                     "comment": lead.internal_comment or "",
                     "answers": lead.questionnaire_answers,
                 }
@@ -985,16 +1062,65 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         payload: LeadBankCreate,
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> dict[str, str]:
-        require_employee(user)
+        actor_user_id = require_employee(user)
         try:
             lead_bank = await WorkflowService(database).add_bank_to_lead(
                 actor_role=user.role,
                 lead_id=lead_id,
                 bank_id=payload.bank_id,
+                actor_user_id=actor_user_id,
             )
         except DomainError as error:
             raise domain_error(error) from error
         return {"id": str(lead_bank.id), "status": lead_bank.internal_status.value}
+
+    @app.post("/api/leads/{lead_id}/claim-admin")
+    async def claim_lead_by_admin(
+        lead_id: UUID,
+        user: Annotated[MiniAppUser, Depends(current_user)],
+    ) -> dict[str, str]:
+        actor_id = require_admin(user)
+        try:
+            lead = await LeadWorkflowService(database).claim_by_admin(
+                actor_role=user.role,
+                actor_id=actor_id,
+                lead_id=lead_id,
+            )
+        except DomainError as error:
+            raise domain_error(error) from error
+        return {"id": str(lead.id), "workflow_stage": lead.workflow_stage.value}
+
+    @app.post("/api/leads/{lead_id}/banks/publish")
+    async def publish_lead_banks(
+        lead_id: UUID,
+        user: Annotated[MiniAppUser, Depends(current_user)],
+    ) -> dict[str, str]:
+        actor_id = require_admin(user)
+        try:
+            lead = await LeadWorkflowService(database).publish_banks(
+                actor_role=user.role,
+                actor_id=actor_id,
+                lead_id=lead_id,
+            )
+        except DomainError as error:
+            raise domain_error(error) from error
+        return {"id": str(lead.id), "workflow_stage": lead.workflow_stage.value}
+
+    @app.post("/api/leads/{lead_id}/claim-manager")
+    async def claim_lead_by_manager(
+        lead_id: UUID,
+        user: Annotated[MiniAppUser, Depends(current_user)],
+    ) -> dict[str, str]:
+        actor_id = require_employee(user)
+        try:
+            lead = await LeadWorkflowService(database).claim_by_manager(
+                actor_role=user.role,
+                actor_id=actor_id,
+                lead_id=lead_id,
+            )
+        except DomainError as error:
+            raise domain_error(error) from error
+        return {"id": str(lead.id), "workflow_stage": lead.workflow_stage.value}
 
     @app.patch("/api/lead-banks/{lead_bank_id}")
     async def update_lead_bank(

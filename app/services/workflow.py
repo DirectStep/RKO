@@ -12,6 +12,7 @@ from app.domain.enums import (
     AccessStatus,
     BankInternalStatus,
     LeadInternalStatus,
+    LeadWorkflowStage,
     PaymentStatus,
     UserRole,
 )
@@ -279,7 +280,12 @@ class WorkflowService:
             return bank
 
     async def add_bank_to_lead(
-        self, *, actor_role: UserRole, lead_id: UUID, bank_id: UUID
+        self,
+        *,
+        actor_role: UserRole,
+        lead_id: UUID,
+        bank_id: UUID,
+        actor_user_id: UUID | None = None,
     ) -> LeadBank:
         self._require_employee(actor_role)
         async with self.database.session() as session, session.begin():
@@ -289,6 +295,17 @@ class WorkflowService:
                 raise DomainError("Заявка не найдена")
             if bank is None or not bank.active:
                 raise DomainError("Активный банк не найден")
+            if actor_user_id is not None:
+                if (
+                    actor_role is UserRole.ADMIN
+                    and lead.primary_admin_id != actor_user_id
+                ):
+                    raise DomainError("Сначала возьми заявку в работу")
+                if actor_role is UserRole.MANAGER and (
+                    lead.manager_id != actor_user_id
+                    or lead.workflow_stage is not LeadWorkflowStage.MANAGER_PROCESSING
+                ):
+                    raise DomainError("Этот лид не находится у тебя в работе")
             existing = await session.scalar(
                 select(LeadBank).where(LeadBank.lead_id == lead_id, LeadBank.bank_id == bank_id)
             )
@@ -304,6 +321,8 @@ class WorkflowService:
                 internal_status=BankInternalStatus.PLANNED,
                 external_status=external_bank_status(BankInternalStatus.PLANNED),
                 planned_at=datetime.now(UTC),
+                offered_to_lead=actor_role is UserRole.MANAGER,
+                selected_by_lead=True if actor_role is UserRole.MANAGER else None,
                 partner_percent_snapshot=percent,
             )
             session.add(lead_bank)

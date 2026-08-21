@@ -1,7 +1,8 @@
 import logging
 from datetime import UTC, datetime
+from uuid import UUID
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.filters import CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
@@ -9,6 +10,7 @@ from sqlalchemy import select
 
 from app.bot.keyboards import (
     admin_menu_keyboard,
+    admin_new_lead_keyboard,
     application_edit_keyboard,
     application_review_keyboard,
     cabinet_keyboard,
@@ -32,7 +34,7 @@ from app.domain.intake import (
     normalize_phone,
 )
 from app.domain.operations import DomainError
-from app.models import Lead
+from app.models import Channel, Lead
 from app.services.lead_intake import LeadIntakeService, SubmissionStatus
 from app.services.user_access import UserAccessService
 from app.services.workflow import WorkflowService
@@ -407,15 +409,23 @@ async def confirm_application(
     callback: CallbackQuery,
     state: FSMContext,
     database: Database,
+    bot: Bot,
+    settings: Settings,
 ) -> None:
     await state.set_state(LeadApplication.submitting)
     await callback.answer()
     if isinstance(callback.message, Message):
         await callback.message.edit_reply_markup(reply_markup=None)
-        await finish_application(callback.message, state, database)
+        await finish_application(callback.message, state, database, bot, settings)
 
 
-async def finish_application(message: Message, state: FSMContext, database: Database) -> None:
+async def finish_application(
+    message: Message,
+    state: FSMContext,
+    database: Database,
+    bot: Bot,
+    settings: Settings,
+) -> None:
     await state.set_state(LeadApplication.submitting)
     data = await state.get_data()
     if not data.get("telegram_id"):
@@ -453,6 +463,8 @@ async def finish_application(message: Message, state: FSMContext, database: Data
                 f"Отлично, заявка {result.short_id} зарегистрирована. "
                 "Скоро с тобой свяжется специалист."
             )
+            if result.lead_id is not None:
+                await notify_admin_group(bot, settings, database, result.lead_id)
         else:
             await message.answer(
                 f"Заявка {result.short_id} сохранена. К сожалению, по текущим "
@@ -461,11 +473,46 @@ async def finish_application(message: Message, state: FSMContext, database: Data
 
 
 @router.callback_query(LeadApplication.submitting, F.data == "application:retry")
-async def retry_submission(callback: CallbackQuery, state: FSMContext, database: Database) -> None:
+async def retry_submission(
+    callback: CallbackQuery,
+    state: FSMContext,
+    database: Database,
+    bot: Bot,
+    settings: Settings,
+) -> None:
     await callback.answer()
     if isinstance(callback.message, Message):
         await callback.message.edit_reply_markup(reply_markup=None)
-        await finish_application(callback.message, state, database)
+        await finish_application(callback.message, state, database, bot, settings)
+
+
+async def notify_admin_group(
+    bot: Bot, settings: Settings, database: Database, lead_id: UUID
+) -> None:
+    if settings.admin_group_id is None:
+        return
+    async with database.session() as session:
+        lead = await session.get(Lead, lead_id)
+        channel = (
+            await session.get(Channel, lead.channel_id)
+            if lead is not None and lead.channel_id is not None
+            else None
+        )
+    if lead is None:
+        return
+    city = lead.questionnaire_answers.get("city") or "Не указан"
+    try:
+        await bot.send_message(
+            chat_id=settings.admin_group_id,
+            text=(
+                f"Новая заявка {lead.short_id}\n\n"
+                f"Источник: {channel.name if channel else 'Прямой'}\n"
+                f"Город: {city}"
+            ),
+            reply_markup=admin_new_lead_keyboard(str(lead.id)),
+        )
+    except Exception:
+        logger.exception("Failed to notify admin group about lead %s", lead.id)
 
 
 def parse_answer_callback(value: str) -> tuple[int, str]:

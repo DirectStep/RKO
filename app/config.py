@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     project_timezone: str = "Europe/Moscow"
     admin_telegram_ids: str = ""
     admin_telegram_usernames: str = ""
+    admin_group_chat_id: str = ""
     mini_app_url: str = "http://localhost:8090"
     mini_app_host: str = "0.0.0.0"
     mini_app_port: int = 8090
@@ -40,6 +41,11 @@ class Settings(BaseSettings):
             for item in self.admin_telegram_usernames.split(",")
             if item.strip().lstrip("@")
         )
+
+    @property
+    def admin_group_id(self) -> int | None:
+        value = self.admin_group_chat_id.strip()
+        return int(value) if value.lstrip("-").isdigit() else None
 
     @property
     def sheets_enabled(self) -> bool:

@@ -37,6 +37,15 @@ def test_admin_usernames_are_normalized() -> None:
     assert settings.admin_usernames == frozenset({"xirass", "manager"})
 
 
+def test_admin_group_id_accepts_telegram_supergroup_id() -> None:
+    settings = Settings(
+        bot_token="123456:test-token",
+        admin_group_chat_id="-1001234567890",
+    )
+
+    assert settings.admin_group_id == -1001234567890
+
+
 def test_bank_conditions_are_enabled_with_sheet_and_credentials(tmp_path) -> None:
     credentials_file = tmp_path / "service-account.json"
     credentials_file.write_text("{}", encoding="utf-8")

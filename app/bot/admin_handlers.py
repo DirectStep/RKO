@@ -27,6 +27,8 @@ QUESTION_LABELS = {
     "adult": "Совершеннолетие",
     "has_ip": "Открыто ИП",
     "city": "Город",
+    "full_name": "ФИО",
+    "email": "E-mail",
     "has_bankruptcy_or_arrests": "Были банкротства или аресты",
     "is_civil_servant": "Госслужащий",
     "has_social_benefits": "Получает социальные выплаты",

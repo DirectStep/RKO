@@ -13,6 +13,7 @@ from app.domain.enums import (
     AssignmentStatus,
     BankInternalStatus,
     LeadInternalStatus,
+    LeadWorkflowStage,
     PaymentStatus,
     UserRole,
 )
@@ -33,6 +34,7 @@ from app.services.admin_catalog import AdminCatalogService
 from app.services.admin_dashboard import AdminDashboardService
 from app.services.lead_assignment import LeadAssignmentService
 from app.services.lead_intake import LeadIntakeService, SubmissionStatus
+from app.services.lead_workflow import LeadWorkflowService
 from app.services.sheets_snapshot import SheetsSnapshotService
 from app.services.user_access import UserAccessService
 from app.services.workflow import WorkflowService
@@ -211,6 +213,101 @@ async def test_partner_cannot_submit_lead_application() -> None:
     finally:
         async with database.session() as session, session.begin():
             await session.execute(delete(User).where(User.telegram_id == telegram_id))
+        await database.close()
+
+
+@pytest.mark.asyncio
+async def test_two_stage_lead_claim_and_bank_selection() -> None:
+    database = Database(
+        Settings(
+            bot_token="123456:test-token",
+            app_env="test",
+            database_url=TEST_DATABASE_URL or "postgresql+asyncpg://unused",
+        )
+    )
+    suffix = str(uuid4().int)[:10]
+    now = datetime.now(UTC)
+    lead_id = admin_id = manager_id = bank_id = None
+    try:
+        async with database.session() as session, session.begin():
+            admin = User(
+                telegram_id=f"81{suffix}",
+                telegram_username=f"admin_{suffix}",
+                role=UserRole.ADMIN,
+            )
+            manager = User(
+                telegram_id=f"82{suffix}",
+                telegram_username=f"manager_{suffix}",
+                role=UserRole.MANAGER,
+            )
+            session.add_all([admin, manager])
+            await session.flush()
+            admin_id, manager_id = admin.id, manager.id
+
+        result = await LeadIntakeService(database).submit(
+            telegram_id=f"83{suffix}",
+            telegram_username=f"lead_{suffix}",
+            display_name="Тестовый лид",
+            phone=f"+7333{suffix}",
+            referral_code=None,
+            first_click_at=now,
+            consent_at=now,
+            answers={
+                "adult": "yes",
+                "has_bankruptcy_or_arrests": "no",
+                "is_civil_servant": "no",
+                "full_name": "Иванов Иван Иванович",
+                "email": f"lead{suffix}@example.com",
+            },
+        )
+        assert result.eligible is True
+        async with database.session() as session:
+            lead = await session.scalar(
+                select(Lead).where(Lead.telegram_id == f"83{suffix}")
+            )
+            assert lead is not None
+            lead_id = lead.id
+            assert lead.workflow_stage is LeadWorkflowStage.AWAITING_ADMIN
+
+        workflow = LeadWorkflowService(database)
+        await workflow.claim_by_admin(
+            actor_role=UserRole.ADMIN, actor_id=admin_id, lead_id=lead_id
+        )
+        bank = await WorkflowService(database).create_bank(
+            actor_role=UserRole.ADMIN, name=f"Банк {suffix}"
+        )
+        bank_id = bank.id
+        await WorkflowService(database).add_bank_to_lead(
+            actor_role=UserRole.ADMIN,
+            actor_user_id=admin_id,
+            lead_id=lead_id,
+            bank_id=bank_id,
+        )
+        await workflow.publish_banks(
+            actor_role=UserRole.ADMIN, actor_id=admin_id, lead_id=lead_id
+        )
+        await workflow.submit_bank_selection(
+            lead_id=lead_id, selected_bank_ids={bank_id}
+        )
+        lead = await workflow.claim_by_manager(
+            actor_role=UserRole.MANAGER,
+            actor_id=manager_id,
+            lead_id=lead_id,
+        )
+
+        assert lead.workflow_stage is LeadWorkflowStage.MANAGER_PROCESSING
+        assert lead.primary_admin_id == admin_id
+        assert lead.manager_id == manager_id
+    finally:
+        async with database.session() as session, session.begin():
+            if lead_id is not None:
+                await session.execute(delete(LeadBank).where(LeadBank.lead_id == lead_id))
+                await session.execute(delete(Lead).where(Lead.id == lead_id))
+            if bank_id is not None:
+                await session.execute(delete(Bank).where(Bank.id == bank_id))
+            user_ids = [value for value in (admin_id, manager_id) if value is not None]
+            if user_ids:
+                await session.execute(delete(User).where(User.id.in_(user_ids)))
         await database.close()
 
 
