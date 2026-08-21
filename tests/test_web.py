@@ -83,3 +83,4 @@ def test_mini_app_has_visible_loading_state() -> None:
 
     assert 'id="loading-state"' in markup
     assert ".loading-spinner" in styles
+    assert ".loading-state[hidden], .tabbar[hidden] { display: none; }" in styles

@@ -38,6 +38,7 @@ function updateLeadCount(count){ document.querySelector('#lead-count').textConte
 function render(){
   const admin=state.session.role==='admin', partnerRole=state.session.role==='partner', employee=admin||state.session.role==='manager'
   document.querySelector('#loading-state').hidden=true
+  document.querySelector('.tabbar').hidden=false
   document.querySelectorAll('#client-application-tab, #client-banks-tab').forEach(item=>item.hidden=true)
   document.querySelector('#greeting').textContent=state.session.name
   document.querySelector('#avatar').textContent=initials(state.session.name)||'Р'
@@ -57,6 +58,7 @@ function render(){
 function renderLeadCabinet(){
   const application=state.leadApplication
   document.querySelector('#loading-state').hidden=true
+  document.querySelector('.tabbar').hidden=false
   document.querySelector('#greeting').textContent='Кабинет клиента'
   document.querySelector('#avatar').textContent=initials(state.session.name)||'К'
   document.querySelectorAll('.tabbar button').forEach(item=>item.hidden=true)
@@ -74,6 +76,7 @@ function renderLeadCabinet(){
 async function load(){
   document.querySelectorAll('.screen').forEach(x=>x.classList.remove('is-active'))
   document.querySelector('#loading-state').hidden=false
+  document.querySelector('.tabbar').hidden=true
   document.querySelector('#error-state').hidden=true
   try{
     state.session=await api('/api/session')
@@ -84,7 +87,7 @@ async function load(){
     const employee=['admin','manager'].includes(state.session.role)
     const jobs=[api('/api/dashboard'),api(`/api/leads${state.leadScope==='mine'?'?mine=true':''}`),state.session.role==='admin'?api('/api/partners'):[],['admin','partner'].includes(state.session.role)?api('/api/channels'):[],employee?api('/api/banks'):[],employee?api('/api/staff'):[]]
     const [dashboard,leads,partners,channels,banks,staff]=await Promise.all(jobs); Object.assign(state,{dashboard,leads,partners,channels,banks,staff}); render()
-  }catch(error){ document.querySelector('#loading-state').hidden=true; document.querySelectorAll('.screen').forEach(x=>x.classList.remove('is-active')); document.querySelector('#error-message').textContent=error.message; document.querySelector('#error-state').hidden=false }
+  }catch(error){ document.querySelector('#loading-state').hidden=true; document.querySelector('.tabbar').hidden=true; document.querySelectorAll('.screen').forEach(x=>x.classList.remove('is-active')); document.querySelector('#error-message').textContent=error.message; document.querySelector('#error-state').hidden=false }
 }
 
 function sourceCard(lead){

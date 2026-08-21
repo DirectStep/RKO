@@ -85,6 +85,7 @@ button { color: inherit; }
   justify-items: center;
   text-align: center;
 }
+.loading-state[hidden], .tabbar[hidden] { display: none; }
 .loading-state h2 { margin: 1rem 0 0.35rem; font-size: 1.25rem; }
 .loading-state p { margin: 0; color: var(--muted); font-size: 0.85rem; }
 .loading-spinner {
