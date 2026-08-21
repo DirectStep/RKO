@@ -30,16 +30,18 @@ class BankConditionsService:
         async with self.database.session() as session, session.begin():
             existing = list(await session.scalars(select(BankActivationCondition)))
             existing_by_name = {item.normalized_bank_name: item for item in existing}
-            for normalized_name, row in normalized_rows.items():
+            for display_order, (normalized_name, row) in enumerate(
+                normalized_rows.items(), start=1
+            ):
                 condition = existing_by_name.get(normalized_name)
                 if condition is None:
                     condition = BankActivationCondition(normalized_bank_name=normalized_name)
                     session.add(condition)
                 condition.bank_name = row.bank_name
                 condition.action_text = row.action_text
-                condition.payout_text = row.payout_text
-                condition.active = row.active
-                condition.display_order = row.display_order
+                condition.payout_text = "Уточняется"
+                condition.active = True
+                condition.display_order = display_order
                 condition.source_row = row.source_row
                 condition.synced_at = synced_at
             await session.execute(
