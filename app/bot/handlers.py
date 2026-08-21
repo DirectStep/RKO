@@ -5,6 +5,7 @@ from aiogram import F, Router
 from aiogram.filters import CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
+from sqlalchemy import select
 
 from app.bot.keyboards import (
     admin_menu_keyboard,
@@ -25,6 +26,7 @@ from app.database import Database
 from app.domain.enums import UserRole
 from app.domain.intake import QUESTIONS, QuestionKind, normalize_phone
 from app.domain.operations import DomainError
+from app.models import Lead
 from app.services.lead_intake import LeadIntakeService, SubmissionStatus
 from app.services.user_access import UserAccessService
 from app.services.workflow import WorkflowService
@@ -40,6 +42,14 @@ QUESTION_REVIEW_LABELS = (
     "Госслужба",
     "Социальные выплаты",
 )
+
+
+async def has_registered_lead(database: Database, telegram_id: str) -> bool:
+    async with database.session() as session:
+        lead_id = await session.scalar(
+            select(Lead.id).where(Lead.telegram_id == telegram_id).limit(1)
+        )
+    return lead_id is not None
 
 
 @router.message(CommandStart())
@@ -97,6 +107,13 @@ async def start(
             reply_markup=cabinet_keyboard(settings.mini_app_url),
         )
         return
+    if await has_registered_lead(database, str(user.id)):
+        await message.answer(
+            "Кабинет клиента. Здесь видны статус заявки, назначенные банки "
+            "и условия их активации.",
+            reply_markup=cabinet_keyboard(settings.mini_app_url),
+        )
+        return
     try:
         first_click = await LeadIntakeService(database).record_first_click(
             telegram_id=str(user.id),
@@ -151,6 +168,15 @@ async def begin_application(
                 reply_markup=cabinet_keyboard(settings.mini_app_url),
             )
         await callback.answer("Заявка недоступна партнёру", show_alert=True)
+        return
+    if await has_registered_lead(database, str(callback.from_user.id)):
+        await state.clear()
+        if callback.message:
+            await callback.message.answer(
+                "Заявка уже зарегистрирована. Открой кабинет клиента.",
+                reply_markup=cabinet_keyboard(settings.mini_app_url),
+            )
+        await callback.answer("Заявка уже существует", show_alert=True)
         return
     await state.set_state(LeadApplication.consent)
     if callback.message:
