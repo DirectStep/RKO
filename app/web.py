@@ -321,7 +321,11 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         lead_id = require_lead(user)
         async with database.session() as db_session:
             lead = await db_session.get(Lead, lead_id)
-            manager = await db_session.get(User, lead.manager_id) if lead else None
+            manager = (
+                await db_session.get(User, lead.manager_id)
+                if lead is not None and lead.manager_id is not None
+                else None
+            )
         if lead is None:
             raise HTTPException(status_code=404, detail="Заявка не найдена")
         manager_username = manager.telegram_username if manager else None
