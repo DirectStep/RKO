@@ -1,5 +1,6 @@
-const tg = window.Telegram?.WebApp
-tg?.ready(); tg?.expand()
+function telegramWebApp(){return window.Telegram?.WebApp}
+function telegramInitData(){return telegramWebApp()?.initData||new URLSearchParams(window.location.hash.slice(1)).get('tgWebAppData')||''}
+telegramWebApp()?.ready(); telegramWebApp()?.expand()
 
 const state = { session: null, dashboard: {}, leads: [], partners: [], channels: [], banks: [], staff: [], duplicates: [], leadApplication: null, leadBanks: [], leadScope: 'queue' }
 const leadLabels = { new:'Новая',manager_assigned:'Менеджер назначен',awaiting_first_contact:'Ждёт звонка',contacted:'Связались',awaiting_data:'Ждём данные',data_received:'Данные получены',selecting_banks:'Подбираем банки',preparing_applications:'Готовим заявки',applications_sent:'Заявки отправлены',opening_accounts:'Открытие счетов',partially_opened:'Часть счетов открыта',all_planned_opened:'Счета открыты',paused:'На паузе',no_response:'Нет ответа',lead_refused:'Отказ клиента',not_eligible:'Не подходит',completed:'Завершена',in_progress:'В работе',partially_completed:'Частично завершена',closed_without_result:'Закрыта без результата' }
@@ -12,7 +13,7 @@ const workflowLabels = { awaiting_admin:'Ожидает администрато
 async function api(path, options={}) {
   const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000)
   try{
-    const response = await fetch(path, { ...options, signal:controller.signal, headers:{ 'Content-Type':'application/json','X-Telegram-Init-Data':tg?.initData||'',...(options.headers||{}) } })
+    const response = await fetch(path, { ...options, signal:controller.signal, headers:{ 'Content-Type':'application/json','X-Telegram-Init-Data':telegramInitData(),...(options.headers||{}) } })
     if (!response.ok) { const body=await response.json().catch(()=>({})); throw new Error(body.detail||'Не удалось выполнить действие') }
     return response.status===204 ? null : response.json()
   }catch(error){
@@ -220,8 +221,8 @@ document.querySelectorAll('[data-go]').forEach(x=>x.addEventListener('click',()=
 document.querySelector('#close-sheet').addEventListener('click',closeSheet);document.querySelector('#sheet-backdrop').addEventListener('click',closeSheet);document.querySelector('#retry-button').addEventListener('click',load)
 document.querySelector('#lead-search').addEventListener('input',event=>{const q=event.target.value.trim().toLowerCase(),items=state.leads.filter(x=>`${x.name} ${x.phone||''} ${x.username||''} ${x.short_id}`.toLowerCase().includes(q));renderLeads(items,document.querySelector('#all-leads'));updateLeadCount(items.length)})
 document.querySelector('#lead-scope').addEventListener('change',async event=>{state.leadScope=event.target.value;await load()})
-document.querySelector('#download-report').addEventListener('click',async()=>{try{const response=await fetch('/api/reports/leads.csv',{headers:{'X-Telegram-Init-Data':tg?.initData||''}});if(!response.ok)throw new Error('Не удалось сформировать отчёт');const link=document.createElement('a');link.href=URL.createObjectURL(await response.blob());link.download='rko-leads.csv';link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);toast('Отчёт сформирован')}catch(error){toast(error.message)}})
-document.querySelector('#open-google-sheet').addEventListener('click',()=>{const url=state.session?.google_sheet_url;if(!url)return;tg?.openLink?tg.openLink(url):window.open(url,'_blank','noopener')})
+document.querySelector('#download-report').addEventListener('click',async()=>{try{const response=await fetch('/api/reports/leads.csv',{headers:{'X-Telegram-Init-Data':telegramInitData()}});if(!response.ok)throw new Error('Не удалось сформировать отчёт');const link=document.createElement('a');link.href=URL.createObjectURL(await response.blob());link.download='rko-leads.csv';link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);toast('Отчёт сформирован')}catch(error){toast(error.message)}})
+document.querySelector('#open-google-sheet').addEventListener('click',()=>{const url=state.session?.google_sheet_url;if(!url)return;const tg=telegramWebApp();tg?.openLink?tg.openLink(url):window.open(url,'_blank','noopener')})
 document.querySelector('#open-duplicate-reviews').addEventListener('click',openDuplicateQueue)
 document.querySelector('#add-bank-button').addEventListener('click',()=>{openSheet('Новый банк','Справочник','<section class="form-card"><label class="field"><span>Название</span><input id="new-bank"></label></section><button class="primary-button" id="create-bank">Добавить</button>');document.querySelector('#create-bank').addEventListener('click',async()=>{await api('/api/banks',{method:'POST',body:JSON.stringify({name:document.querySelector('#new-bank').value})});toast('Банк добавлен');closeSheet();await load()})})
 document.querySelector('#add-staff-button').addEventListener('click',()=>{openSheet('Новый сотрудник','Доступ','<section class="form-card"><label class="field"><span>Username без @</span><input id="staff-user" placeholder="Например, anutka_rko"></label><p class="field-note">Сотрудник получит доступ после первого запуска бота через /start.</p><label class="field"><span>Роль</span><select id="staff-role"><option value="manager">Менеджер</option><option value="admin">Администратор</option></select></label></section><button class="primary-button" id="create-staff">Добавить</button>');document.querySelector('#create-staff').addEventListener('click',async()=>{await api('/api/staff',{method:'POST',body:JSON.stringify({telegram_username:document.querySelector('#staff-user').value,role:document.querySelector('#staff-role').value})});toast('Приглашение добавлено');closeSheet();await load()})})

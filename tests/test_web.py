@@ -115,3 +115,13 @@ def test_mini_app_limits_initial_requests_and_times_out() -> None:
     assert "const [dashboard,loadedLeads]=await Promise.all" in script
     assert "Object.assign(state,{dashboard,leads});render()" in script
     assert "Promise.allSettled" in script
+
+
+def test_telegram_sdk_does_not_block_application_startup() -> None:
+    markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert 'telegram-web-app.js?59" async' in markup
+    assert markup.index("/assets/app.js") < markup.index("telegram-web-app.js")
+    assert "get('tgWebAppData')" in script
+    assert "'X-Telegram-Init-Data':telegramInitData()" in script
