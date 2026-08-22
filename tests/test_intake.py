@@ -61,6 +61,13 @@ def test_business_questionnaire_contains_contact_and_final_qualification_questio
         "has_bankruptcy_or_arrests",
         "is_civil_servant",
     ]
+    bankruptcy_question = next(
+        question for question in QUESTIONS if question.key == "has_bankruptcy_or_arrests"
+    )
+    assert (
+        bankruptcy_question.text
+        == "Есть ли у тебя на данный момент банкротства или аресты на счетах?"
+    )
 
 
 def test_full_name_and_email_are_normalized() -> None:

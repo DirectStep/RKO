@@ -1,6 +1,6 @@
 import logging
 from datetime import UTC, datetime
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 from aiogram import Bot, F, Router
@@ -398,18 +398,29 @@ async def resubmit_application(
         await callback.answer("Повторная подача для этой заявки недоступна", show_alert=True)
         return
     await state.clear()
-    await state.update_data(
-        referral_code=previous.first_referral_code,
-        first_click_at=previous.first_click_at.isoformat(),
-        telegram_id=telegram_id,
-        telegram_username=callback.from_user.username,
-        display_name=callback.from_user.full_name,
-        repeat_of_id=str(previous.id),
-    )
-    await state.set_state(LeadApplication.consent)
+    repeat_data: dict[str, Any] = {
+        "referral_code": previous.first_referral_code,
+        "first_click_at": previous.first_click_at.isoformat(),
+        "telegram_id": telegram_id,
+        "telegram_username": callback.from_user.username,
+        "display_name": callback.from_user.full_name,
+        "repeat_of_id": str(previous.id),
+    }
+    if previous.consent_status:
+        repeat_data["consent_at"] = previous.consent_at.isoformat()
+    await state.update_data(repeat_data)
+    has_valid_consent = previous.consent_status
+    await state.set_state(LeadApplication.phone if has_valid_consent else LeadApplication.consent)
     if isinstance(callback.message, Message):
         await callback.message.edit_reply_markup(reply_markup=None)
-        await callback.message.answer(CONSENT_PROMPT, reply_markup=consent_keyboard())
+        if has_valid_consent:
+            await callback.message.answer(
+                "Используем согласие, которое ты дал при предыдущей заявке. "
+                "Отправь номер кнопкой ниже или введи его сообщением.",
+                reply_markup=phone_keyboard(),
+            )
+        else:
+            await callback.message.answer(CONSENT_PROMPT, reply_markup=consent_keyboard())
     await callback.answer()
 
 
@@ -449,9 +460,11 @@ async def return_to_consent(callback: CallbackQuery) -> None:
 
 @router.callback_query(LeadApplication.consent, F.data == "consent:decline")
 async def decline_consent(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.clear()
     if callback.message:
-        await callback.message.answer("Без согласия создать заявку не получится.")
+        await callback.message.answer(
+            "Без согласия создать заявку не получится. Если передумаешь, "
+            "нажми «Согласен» в сообщении выше или отправь /start."
+        )
     await callback.answer()
 
 

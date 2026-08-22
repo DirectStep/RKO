@@ -29,7 +29,7 @@ QUESTION_LABELS = {
     "city": "Город",
     "full_name": "ФИО",
     "email": "E-mail",
-    "has_bankruptcy_or_arrests": "Были банкротства или аресты",
+    "has_bankruptcy_or_arrests": "Банкротства или аресты",
     "is_civil_servant": "Госслужащий",
     "has_social_benefits": "Получает социальные выплаты",
     "no_bankruptcy": "Нет банкротств или арестов",
