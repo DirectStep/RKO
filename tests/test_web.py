@@ -61,7 +61,7 @@ def test_partner_channel_controls_are_present() -> None:
 
     assert 'id="add-channel-button"' in markup
     assert "state.session.role==='partner'?api('/api/channels')" not in script
-    assert "['admin','partner'].includes(state.session.role)?api('/api/channels')" in script
+    assert "['admin','partner'].includes(state.session.role)?'/api/channels':null" in script
     assert "method:'POST'" in script and "api('/api/channels'" in script
 
 
@@ -92,7 +92,7 @@ def test_admin_can_confirm_sources_and_review_duplicates() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 
     assert 'id="open-duplicate-reviews"' in markup
-    assert "api('/api/duplicate-reviews')" in script
+    assert "state.session.role==='admin'?'/api/duplicate-reviews':null" in script
     assert "/resolve" in script
     assert "confirmSourceChange" in script
     assert "Источник требует проверки" in markup
@@ -107,14 +107,16 @@ def test_mini_app_has_visible_loading_state() -> None:
     assert ".loading-state[hidden], .tabbar[hidden] { display: none; }" in styles
 
 
-def test_mini_app_limits_initial_requests_and_times_out() -> None:
+def test_mini_app_retries_and_loads_sections_sequentially() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 
-    assert "controller.abort(),15000" in script
+    assert "controller.abort(),12000" in script
+    assert "const attempts=(options.method||'GET').toUpperCase()==='GET'?3:1" in script
     assert "Сервер отвечает слишком долго" in script
-    assert "const [dashboard,loadedLeads]=await Promise.all" in script
+    assert "const dashboard=await api('/api/dashboard')" in script
+    assert "const loadedLeads=await api(" in script
     assert "Object.assign(state,{dashboard,leads});render()" in script
-    assert "Promise.allSettled" in script
+    assert "for(const [key,path] of optional)" in script
 
 
 def test_telegram_sdk_does_not_block_application_startup() -> None:

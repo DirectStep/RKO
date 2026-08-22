@@ -11,15 +11,21 @@ const payLabels = { not_calculated:'Не рассчитана',calculated:'Ра�
 const workflowLabels = { awaiting_admin:'Ожидает администратора',admin_processing:'Первичная обработка',awaiting_client_selection:'Клиент выбирает банки',awaiting_manager:'Ожидает менеджера',manager_processing:'В работе у менеджера',not_eligible:'Не подходит' }
 
 async function api(path, options={}) {
-  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000)
-  try{
-    const response = await fetch(path, { ...options, signal:controller.signal, headers:{ 'Content-Type':'application/json','X-Telegram-Init-Data':telegramInitData(),...(options.headers||{}) } })
-    if (!response.ok) { const body=await response.json().catch(()=>({})); throw new Error(body.detail||'Не удалось выполнить действие') }
-    return response.status===204 ? null : response.json()
-  }catch(error){
-    if(error.name==='AbortError')throw new Error('Сервер отвечает слишком долго. Нажми «Повторить».')
-    throw error
-  }finally{clearTimeout(timeout)}
+  const attempts=(options.method||'GET').toUpperCase()==='GET'?3:1
+  for(let attempt=1;attempt<=attempts;attempt+=1){
+    const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000)
+    try{
+      const response = await fetch(path, { ...options, cache:'no-store', signal:controller.signal, headers:{ 'Content-Type':'application/json','X-Telegram-Init-Data':telegramInitData(),...(options.headers||{}) } })
+      if (!response.ok) { const body=await response.json().catch(()=>({})); throw new Error(body.detail||'Не удалось выполнить действие') }
+      return response.status===204 ? null : response.json()
+    }catch(error){
+      if(attempt===attempts){
+        if(error.name==='AbortError')throw new Error('Сервер отвечает слишком долго. Нажми «Повторить».')
+        throw error
+      }
+      await new Promise(resolve=>setTimeout(resolve,400*attempt))
+    }finally{clearTimeout(timeout)}
+  }
 }
 function esc(value){ const n=document.createElement('span'); n.textContent=value??''; return n.innerHTML }
 function initials(name){ return String(name||'').split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase() }
@@ -107,12 +113,21 @@ async function load(){
       Object.assign(state,{leadApplication,leadBanks});renderLeadCabinet();return
     }
     const employee=['admin','manager'].includes(state.session.role)
-    const [dashboard,loadedLeads]=await Promise.all([api('/api/dashboard'),api(`/api/leads${state.leadScope==='mine'?'?mine=true':''}`)])
+    const dashboard=await api('/api/dashboard')
+    const loadedLeads=await api(`/api/leads${state.leadScope==='mine'?'?mine=true':''}`)
     const leads=state.session.role==='manager'&&state.leadScope==='queue'?loadedLeads.filter(lead=>lead.workflow_stage==='awaiting_manager'):loadedLeads
     Object.assign(state,{dashboard,leads});render()
-    const optional=await Promise.allSettled([state.session.role==='admin'?api('/api/partners'):[],['admin','partner'].includes(state.session.role)?api('/api/channels'):[],employee?api('/api/banks'):[],employee?api('/api/staff'):[],state.session.role==='admin'?api('/api/duplicate-reviews'):[]])
-    const [partners,channels,banks,staff,duplicates]=optional.map((result,index)=>result.status==='fulfilled'?result.value:[state.partners,state.channels,state.banks,state.staff,state.duplicates][index])
-    Object.assign(state,{partners,channels,banks,staff,duplicates});render()
+    const optional=[
+      ['partners',state.session.role==='admin'?'/api/partners':null],
+      ['channels',['admin','partner'].includes(state.session.role)?'/api/channels':null],
+      ['banks',employee?'/api/banks':null],
+      ['staff',employee?'/api/staff':null],
+      ['duplicates',state.session.role==='admin'?'/api/duplicate-reviews':null],
+    ]
+    for(const [key,path] of optional){
+      if(!path)continue
+      try{state[key]=await api(path);render()}catch(error){console.warn(`Не удалось загрузить ${key}`,error)}
+    }
   }catch(error){ document.querySelector('#loading-state').hidden=true; document.querySelector('.tabbar').hidden=true; document.querySelectorAll('.screen').forEach(x=>x.classList.remove('is-active')); document.querySelector('#error-message').textContent=error.message; document.querySelector('#error-state').hidden=false }
 }
 
