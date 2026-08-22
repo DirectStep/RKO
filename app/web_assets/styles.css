@@ -151,6 +151,25 @@ button { color: inherit; }
 .stat-grid div:last-child { border: 0; }
 .stat-grid strong { display: block; margin-top: 0.22rem; font-size: 1.25rem; }
 
+.review-banner {
+  display: flex;
+  width: 100%;
+  min-height: 4rem;
+  margin-top: 0.8rem;
+  padding: 0.7rem 0.9rem;
+  align-items: center;
+  justify-content: space-between;
+  border: 0;
+  border-radius: 0.8rem;
+  color: inherit;
+  background: var(--surface);
+  text-align: left;
+}
+.review-banner[hidden] { display: none; }
+.review-banner span { display: grid; gap: 0.15rem; }
+.review-banner small { color: var(--muted); font-size: 0.72rem; }
+.review-banner b { display: grid; width: 2rem; height: 2rem; place-items: center; border-radius: 50%; color: var(--accent-text); background: var(--warning); }
+
 .list-heading { display: flex; align-items: center; justify-content: space-between; padding: 1.35rem 0.35rem 0.55rem; }
 .list-heading h3 { font-size: 1rem; }
 .list-heading button { min-width: 2.75rem; min-height: 2.75rem; border: 0; color: var(--accent); background: transparent; font-weight: 600; }

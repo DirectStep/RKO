@@ -27,6 +27,7 @@ from app.domain.enums import (
     AssignmentStatus,
     BankExternalStatus,
     BankInternalStatus,
+    DuplicateResolution,
     LeadExternalStatus,
     LeadInternalStatus,
     LeadWorkflowStage,
@@ -169,6 +170,8 @@ class Lead(Base):
         enum_column(AssignmentStatus), default=AssignmentStatus.UNRESOLVED, nullable=False
     )
     assignment_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_updated_by_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"))
+    source_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     manager_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"))
     primary_admin_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"))
     workflow_stage: Mapped[LeadWorkflowStage] = mapped_column(
@@ -229,6 +232,7 @@ class DuplicateLeadReview(Base):
     telegram_username: Mapped[str | None] = mapped_column(String(64))
     display_name: Mapped[str] = mapped_column(String(200), nullable=False)
     phone: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
+    original_lead_id: Mapped[UUID | None] = mapped_column(ForeignKey("leads.id"))
     referral_code: Mapped[str | None] = mapped_column(String(64))
     questionnaire_answers: Mapped[dict[str, str]] = mapped_column(JSONB, nullable=False)
     consent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -236,6 +240,11 @@ class DuplicateLeadReview(Base):
     review_status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="pending", server_default="pending"
     )
+    resolution: Mapped[DuplicateResolution | None] = mapped_column(
+        enum_column(DuplicateResolution), nullable=True
+    )
+    resolved_by_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

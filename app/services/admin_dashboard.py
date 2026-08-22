@@ -60,11 +60,11 @@ class AdminDashboardService:
         if lead.assignment_status is AssignmentStatus.DIRECT:
             return "Прямая заявка"
         if lead.assignment_status is AssignmentStatus.UNRESOLVED:
-            return "Не определён"
+            return "Требует проверки"
         partner_id = lead.partner_id or lead.proposed_partner_id
         channel_id = lead.channel_id or lead.proposed_channel_id
         if partner_id is None or channel_id is None:
-            return "Не определён"
+            return "Требует проверки"
         async with self.database.session() as session:
             row = (
                 await session.execute(

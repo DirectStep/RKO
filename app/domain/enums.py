@@ -20,6 +20,12 @@ class AssignmentStatus(StrEnum):
     DIRECT = "direct"
 
 
+class DuplicateResolution(StrEnum):
+    DUPLICATE = "duplicate"
+    SEPARATE_LEAD = "separate_lead"
+    UPDATE_ORIGINAL = "update_original"
+
+
 class LeadInternalStatus(StrEnum):
     NEW = "new"
     MANAGER_ASSIGNED = "manager_assigned"

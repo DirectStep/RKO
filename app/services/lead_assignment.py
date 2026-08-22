@@ -58,6 +58,37 @@ class LeadAssignmentService:
             lead.assignment_status = AssignmentStatus.PENDING
             return lead
 
+    async def assign_source(
+        self,
+        *,
+        actor_role: UserRole,
+        actor_id: UUID,
+        lead_id: UUID,
+        partner_id: UUID,
+        channel_id: UUID,
+    ) -> Lead:
+        if actor_role is not UserRole.ADMIN:
+            raise DomainError("Источник может изменить только администратор")
+        async with self.database.session() as session, session.begin():
+            lead = await session.scalar(
+                select(Lead).where(Lead.id == lead_id).with_for_update()
+            )
+            if lead is None:
+                raise DomainError("Заявка не найдена")
+            channel = await session.get(Channel, channel_id)
+            if channel is None or channel.partner_id != partner_id or not channel.active:
+                raise DomainError("Активный канал партнёра не найден")
+            now = datetime.now(UTC)
+            lead.proposed_partner_id = partner_id
+            lead.proposed_channel_id = channel_id
+            lead.partner_id = partner_id
+            lead.channel_id = channel_id
+            lead.assignment_status = AssignmentStatus.CONFIRMED
+            lead.assignment_confirmed_at = now
+            lead.source_updated_by_user_id = actor_id
+            lead.source_updated_at = now
+            return lead
+
     async def mark_direct(self, *, actor_role: UserRole, lead_id: UUID) -> Lead:
         async with self.database.session() as session, session.begin():
             lead = await session.scalar(select(Lead).where(Lead.id == lead_id).with_for_update())
@@ -68,4 +99,25 @@ class LeadAssignmentService:
             lead.channel_id = None
             lead.assignment_confirmed_at = None
             lead.assignment_status = AssignmentStatus.DIRECT
+            return lead
+
+    async def assign_direct(
+        self, *, actor_role: UserRole, actor_id: UUID, lead_id: UUID
+    ) -> Lead:
+        if actor_role is not UserRole.ADMIN:
+            raise DomainError("Источник может изменить только администратор")
+        async with self.database.session() as session, session.begin():
+            lead = await session.scalar(
+                select(Lead).where(Lead.id == lead_id).with_for_update()
+            )
+            if lead is None:
+                raise DomainError("Заявка не найдена")
+            lead.proposed_partner_id = None
+            lead.proposed_channel_id = None
+            lead.partner_id = None
+            lead.channel_id = None
+            lead.assignment_confirmed_at = None
+            lead.assignment_status = AssignmentStatus.DIRECT
+            lead.source_updated_by_user_id = actor_id
+            lead.source_updated_at = datetime.now(UTC)
             return lead

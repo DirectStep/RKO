@@ -32,6 +32,7 @@ from app.models import (
     Bank,
     BankActivationCondition,
     Channel,
+    DuplicateLeadReview,
     Lead,
     LeadBank,
     Partner,
@@ -40,6 +41,7 @@ from app.models import (
 )
 from app.services.admin_catalog import AdminCatalogService
 from app.services.bank_conditions import normalize_bank_name
+from app.services.duplicate_reviews import DuplicateReviewService
 from app.services.lead_assignment import LeadAssignmentService
 from app.services.lead_workflow import LeadWorkflowService
 from app.services.user_access import UserAccessService
@@ -47,6 +49,7 @@ from app.services.workflow import WorkflowService
 from app.web_schemas import (
     BankCreate,
     ChannelCreate,
+    DuplicateReviewResolve,
     LeadBankCreate,
     LeadBankSelection,
     LeadBankUpdate,
@@ -456,11 +459,87 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 .select_from(Lead)
                 .where(scope, Lead.assignment_status == AssignmentStatus.UNRESOLVED)
             )
+            duplicates = (
+                await db_session.scalar(
+                    select(func.count())
+                    .select_from(DuplicateLeadReview)
+                    .where(DuplicateLeadReview.review_status == "pending")
+                )
+                if user.role is UserRole.ADMIN
+                else 0
+            )
         return {
             "total": total or 0,
             "new": new or 0,
             "active": active or 0,
             "unresolved": unresolved or 0,
+            "duplicates": duplicates or 0,
+        }
+
+    @app.get("/api/duplicate-reviews")
+    async def duplicate_reviews(
+        user: Annotated[MiniAppUser, Depends(current_user)],
+    ) -> list[dict[str, object]]:
+        require_admin(user)
+        async with database.session() as db_session:
+            rows = await db_session.execute(
+                select(DuplicateLeadReview, Lead)
+                .outerjoin(Lead, Lead.id == DuplicateLeadReview.original_lead_id)
+                .where(DuplicateLeadReview.review_status == "pending")
+                .order_by(DuplicateLeadReview.created_at)
+            )
+            return [
+                {
+                    "id": str(review.id),
+                    "telegram_id": review.telegram_id,
+                    "username": (
+                        f"@{review.telegram_username}" if review.telegram_username else ""
+                    ),
+                    "name": review.questionnaire_answers.get("full_name")
+                    or review.display_name,
+                    "phone": review.phone,
+                    "date": review.created_at.isoformat(),
+                    "referral_code": review.referral_code or "",
+                    "answers": review.questionnaire_answers,
+                    "original": (
+                        {
+                            "id": str(original.id),
+                            "short_id": original.short_id,
+                            "name": original.display_name,
+                            "username": (
+                                f"@{original.telegram_username}"
+                                if original.telegram_username
+                                else ""
+                            ),
+                            "phone": original.phone,
+                        }
+                        if original
+                        else None
+                    ),
+                }
+                for review, original in rows
+            ]
+
+    @app.post("/api/duplicate-reviews/{review_id}/resolve")
+    async def resolve_duplicate_review(
+        review_id: UUID,
+        payload: DuplicateReviewResolve,
+        user: Annotated[MiniAppUser, Depends(current_user)],
+    ) -> dict[str, str | None]:
+        admin_id = require_admin(user)
+        try:
+            review, lead = await DuplicateReviewService(database).resolve(
+                actor_role=user.role,
+                actor_id=admin_id,
+                review_id=review_id,
+                resolution=payload.resolution,
+            )
+        except DomainError as error:
+            raise domain_error(error) from error
+        return {
+            "id": str(review.id),
+            "resolution": review.resolution.value if review.resolution else None,
+            "lead_id": str(lead.id) if lead else None,
         }
 
     @app.get("/api/leads")
@@ -629,6 +708,14 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 else None
             )
             channel = await db_session.get(Channel, lead.channel_id) if lead.channel_id else None
+            source_partner = (
+                await db_session.get(Partner, lead.partner_id) if lead.partner_id else None
+            )
+            source_updated_by = (
+                await db_session.get(User, lead.source_updated_by_user_id)
+                if lead.source_updated_by_user_id
+                else None
+            )
         conditions_by_name = {
             condition.normalized_bank_name: condition for condition in conditions
         }
@@ -681,6 +768,12 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                     "consent_at": lead.consent_at.isoformat(),
                     "external_status": lead.external_status.value,
                     "assignment_status": lead.assignment_status.value,
+                    "source_partner": source_partner.name if source_partner else "",
+                    "source_channel": channel.name if channel else "",
+                    "source_updated_by": format_user_name(source_updated_by),
+                    "source_updated_at": (
+                        lead.source_updated_at.isoformat() if lead.source_updated_at else None
+                    ),
                     "manager_id": str(lead.manager_id) if lead.manager_id else None,
                     "primary_admin_id": (
                         str(lead.primary_admin_id) if lead.primary_admin_id else None
@@ -749,16 +842,18 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         payload: LeadSourceUpdate,
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> dict[str, str]:
-        require_admin(user)
+        admin_id = require_admin(user)
         try:
-            lead = await LeadAssignmentService(database).propose_source(
+            lead = await LeadAssignmentService(database).assign_source(
                 actor_role=user.role,
+                actor_id=admin_id,
                 lead_id=lead_id,
                 partner_id=payload.partner_id,
                 channel_id=payload.channel_id,
             )
         except DomainError as error:
             raise domain_error(error) from error
+        await notify_partner(lead.id, f"Новая подтверждённая заявка: {lead.short_id}")
         return {"id": str(lead.id), "assignment_status": lead.assignment_status.value}
 
     @app.post("/api/leads/{lead_id}/source/confirm")
@@ -781,10 +876,10 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         lead_id: UUID,
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> dict[str, str]:
-        require_admin(user)
+        admin_id = require_admin(user)
         try:
-            lead = await LeadAssignmentService(database).mark_direct(
-                actor_role=user.role, lead_id=lead_id
+            lead = await LeadAssignmentService(database).assign_direct(
+                actor_role=user.role, actor_id=admin_id, lead_id=lead_id
             )
         except DomainError as error:
             raise domain_error(error) from error

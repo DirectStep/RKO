@@ -98,7 +98,7 @@ async def admin_stats(callback: CallbackQuery, database: Database, settings: Set
         "Сводка\n\n"
         f"Всего заявок: {stats.total_leads}\n"
         f"Новых: {stats.new_leads}\n"
-        f"Источник не определён: {stats.unresolved_sources}\n"
+        f"Источник требует проверки: {stats.unresolved_sources}\n"
         f"Дубли на проверке: {stats.pending_duplicates}"
     )
     if isinstance(callback.message, Message):

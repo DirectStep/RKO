@@ -119,25 +119,42 @@ class LeadIntakeService:
                 )
             if await session.scalar(select(Lead.id).where(Lead.telegram_id == telegram_id)):
                 return SubmissionResult(SubmissionStatus.DUPLICATE_TELEGRAM)
-            if await session.scalar(select(Lead.id).where(Lead.phone == phone)):
+            original_lead_id = await session.scalar(
+                select(Lead.id).where(Lead.phone == phone).order_by(Lead.application_at).limit(1)
+            )
+            if original_lead_id:
                 existing_review = await session.scalar(
-                    select(DuplicateLeadReview.id).where(
+                    select(DuplicateLeadReview).where(
                         DuplicateLeadReview.telegram_id == telegram_id
-                    )
+                    ).with_for_update()
                 )
-                if not existing_review:
+                if existing_review is None:
                     session.add(
                         DuplicateLeadReview(
                             telegram_id=telegram_id,
                             telegram_username=telegram_username,
                             display_name=display_name,
                             phone=phone,
+                            original_lead_id=original_lead_id,
                             referral_code=referral_code,
                             questionnaire_answers=answers,
                             consent_at=consent_at,
                             first_click_at=first_click_at,
                         )
                     )
+                else:
+                    existing_review.telegram_username = telegram_username
+                    existing_review.display_name = display_name
+                    existing_review.phone = phone
+                    existing_review.original_lead_id = original_lead_id
+                    existing_review.referral_code = referral_code
+                    existing_review.questionnaire_answers = answers
+                    existing_review.consent_at = consent_at
+                    existing_review.first_click_at = first_click_at
+                    existing_review.review_status = "pending"
+                    existing_review.resolution = None
+                    existing_review.resolved_by_user_id = None
+                    existing_review.resolved_at = None
                 return SubmissionResult(SubmissionStatus.DUPLICATE_PHONE)
 
             draft = await session.scalar(

@@ -6,9 +6,9 @@
     <meta name="theme-color" content="#f1f2f3" />
     <meta name="description" content="Локальный рабочий кабинет РКО для заявок и партнёров" />
     <title>РКО</title>
-    <link rel="stylesheet" href="/assets/styles.css?v=20260821-05" />
+    <link rel="stylesheet" href="/assets/styles.css?v=20260822-01" />
     <script src="https://telegram.org/js/telegram-web-app.js?59"></script>
-    <script src="/assets/app.js?v=20260821-05" defer></script>
+    <script src="/assets/app.js?v=20260822-01" defer></script>
   </head>
   <body>
     <div class="app-shell">
@@ -44,9 +44,14 @@
             <div class="stat-grid">
               <div><span>Новые</span><strong id="new-count">—</strong></div>
               <div><span>В работе</span><strong id="active-count">—</strong></div>
-              <div><span>Без источника</span><strong id="unresolved-count">—</strong></div>
+              <div><span>Источник требует проверки</span><strong id="unresolved-count">—</strong></div>
             </div>
           </div>
+
+          <button class="review-banner" type="button" id="open-duplicate-reviews" hidden>
+            <span><small>Проверка данных</small><strong>Возможные дубли</strong></span>
+            <b id="duplicate-count">0</b>
+          </button>
 
           <div class="list-heading">
             <h3>Последние заявки</h3>

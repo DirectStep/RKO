@@ -12,6 +12,7 @@ from app.database import Database
 from app.domain.enums import (
     AssignmentStatus,
     BankInternalStatus,
+    DuplicateResolution,
     LeadInternalStatus,
     LeadWorkflowStage,
     PaymentStatus,
@@ -32,6 +33,7 @@ from app.models import (
 from app.reports.partner_report import build_partner_report
 from app.services.admin_catalog import AdminCatalogService
 from app.services.admin_dashboard import AdminDashboardService
+from app.services.duplicate_reviews import DuplicateReviewService
 from app.services.lead_assignment import LeadAssignmentService
 from app.services.lead_intake import LeadIntakeService, SubmissionStatus
 from app.services.lead_workflow import LeadWorkflowService
@@ -43,6 +45,117 @@ TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(
     not TEST_DATABASE_URL, reason="PostgreSQL integration database is absent"
 )
+
+
+@pytest.mark.asyncio
+async def test_admin_reassigns_source_and_resolves_duplicate_as_separate_lead() -> None:
+    database = Database(
+        Settings(
+            bot_token="123456:test-token",
+            app_env="test",
+            database_url=TEST_DATABASE_URL or "postgresql+asyncpg://unused",
+        )
+    )
+    suffix = str(uuid4().int)[:10]
+    ids: dict[str, UUID] = {}
+    now = datetime.now(UTC)
+    try:
+        async with database.session() as session, session.begin():
+            admin = User(
+                telegram_id=f"91{suffix}",
+                telegram_username=f"admin_{suffix}",
+                role=UserRole.ADMIN,
+            )
+            partner = Partner(
+                name=f"Партнёр {suffix}",
+                commission_percent=Decimal("5"),
+            )
+            session.add_all([admin, partner])
+            await session.flush()
+            channel = Channel(
+                partner_id=partner.id,
+                name="Канал",
+                referral_code=f"ref-{suffix}",
+                referral_link=f"https://t.me/test?start=ref-{suffix}",
+            )
+            lead = Lead(
+                short_id=f"SRC-{suffix}",
+                telegram_id=f"92{suffix}",
+                display_name="Исходный лид",
+                phone=f"+93{suffix}",
+                consent_status=True,
+                consent_at=now,
+                assignment_status=AssignmentStatus.DIRECT,
+                questionnaire_answers={"city": "Москва"},
+                first_click_at=now,
+                application_at=now,
+            )
+            session.add_all([channel, lead])
+            await session.flush()
+            review = DuplicateLeadReview(
+                telegram_id=f"94{suffix}",
+                telegram_username=f"duplicate_{suffix}",
+                display_name="Другой клиент",
+                phone=lead.phone,
+                original_lead_id=lead.id,
+                referral_code=channel.referral_code,
+                questionnaire_answers={
+                    "full_name": "Другой Клиент Тестовый",
+                    "email": f"{suffix}@example.com",
+                    "city": "Казань",
+                },
+                consent_at=now,
+                first_click_at=now,
+            )
+            session.add(review)
+            await session.flush()
+            ids.update(
+                admin=admin.id,
+                partner=partner.id,
+                channel=channel.id,
+                lead=lead.id,
+                review=review.id,
+            )
+
+        assigned = await LeadAssignmentService(database).assign_source(
+            actor_role=UserRole.ADMIN,
+            actor_id=ids["admin"],
+            lead_id=ids["lead"],
+            partner_id=ids["partner"],
+            channel_id=ids["channel"],
+        )
+        assert assigned.assignment_status is AssignmentStatus.CONFIRMED
+        assert assigned.source_updated_by_user_id == ids["admin"]
+
+        review, separate = await DuplicateReviewService(database).resolve(
+            actor_role=UserRole.ADMIN,
+            actor_id=ids["admin"],
+            review_id=ids["review"],
+            resolution=DuplicateResolution.SEPARATE_LEAD,
+        )
+        assert review.review_status == "resolved"
+        assert review.resolution is DuplicateResolution.SEPARATE_LEAD
+        assert separate is not None
+        assert separate.assignment_status is AssignmentStatus.CONFIRMED
+        assert separate.channel_id == ids["channel"]
+        ids["separate"] = separate.id
+    finally:
+        async with database.session() as session, session.begin():
+            await session.execute(
+                delete(DuplicateLeadReview).where(
+                    DuplicateLeadReview.id == ids.get("review")
+                )
+            )
+            lead_ids = [ids[key] for key in ("lead", "separate") if ids.get(key)]
+            if lead_ids:
+                await session.execute(delete(Lead).where(Lead.id.in_(lead_ids)))
+            if ids.get("channel"):
+                await session.execute(delete(Channel).where(Channel.id == ids["channel"]))
+            if ids.get("partner"):
+                await session.execute(delete(Partner).where(Partner.id == ids["partner"]))
+            if ids.get("admin"):
+                await session.execute(delete(User).where(User.id == ids["admin"]))
+        await database.close()
 
 
 @pytest.mark.asyncio

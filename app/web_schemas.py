@@ -4,7 +4,13 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.domain.enums import BankInternalStatus, LeadInternalStatus, PaymentStatus, UserRole
+from app.domain.enums import (
+    BankInternalStatus,
+    DuplicateResolution,
+    LeadInternalStatus,
+    PaymentStatus,
+    UserRole,
+)
 
 
 class StaffCreate(BaseModel):
@@ -38,6 +44,10 @@ class LeadUpdate(BaseModel):
 class LeadSourceUpdate(BaseModel):
     partner_id: UUID
     channel_id: UUID
+
+
+class DuplicateReviewResolve(BaseModel):
+    resolution: DuplicateResolution
 
 
 class BankCreate(BaseModel):
