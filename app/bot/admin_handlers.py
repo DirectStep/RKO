@@ -39,9 +39,7 @@ QUESTION_LABELS = {
 
 
 @router.message(Command("group_id"))
-async def show_admin_group_id(
-    message: Message, database: Database, settings: Settings
-) -> None:
+async def show_admin_group_id(message: Message, database: Database, settings: Settings) -> None:
     user = message.from_user
     if user is None or not await is_admin(user, database, settings):
         await message.answer("Команда доступна только администратору.")
@@ -98,6 +96,7 @@ async def admin_stats(callback: CallbackQuery, database: Database, settings: Set
         "Сводка\n\n"
         f"Всего заявок: {stats.total_leads}\n"
         f"Новых: {stats.new_leads}\n"
+        f"Повторных: {stats.repeat_leads}\n"
         f"Источник требует проверки: {stats.unresolved_sources}\n"
         f"Дубли на проверке: {stats.pending_duplicates}"
     )
@@ -112,7 +111,13 @@ async def admin_leads(callback: CallbackQuery, database: Database, settings: Set
         await callback.answer("Нет доступа", show_alert=True)
         return
     leads = await AdminDashboardService(database).get_recent_leads()
-    buttons = [(str(lead.id), f"{lead.short_id} · {lead.display_name}") for lead in leads]
+    buttons = [
+        (
+            str(lead.id),
+            f"{lead.short_id} · {'Повторная · ' if lead.is_repeat else ''}{lead.display_name}",
+        )
+        for lead in leads
+    ]
     text = "Последние заявки" if leads else "Заявок пока нет."
     if isinstance(callback.message, Message):
         await callback.message.edit_text(text, reply_markup=admin_leads_keyboard(buttons))
@@ -149,7 +154,7 @@ def format_lead(lead: Lead, assignment_label: str | None = None) -> str:
         for key, value in lead.questionnaire_answers.items()
     )
     return (
-        f"Заявка {lead.short_id}\n\n"
+        f"Заявка {lead.short_id}{' · Повторная' if lead.is_repeat else ''}\n\n"
         f"Telegram: {username}\n"
         f"Телефон: {lead.phone}\n"
         f"Статус: {lead.internal_status.value}\n"

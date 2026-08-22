@@ -46,7 +46,7 @@ async function copyText(value){
 function leadRow(lead){
   const detail=state.session.role==='partner'?lead.username:lead.phone
   const status=state.session.role==='partner'?(leadLabels[lead.status]||lead.status):(workflowLabels[lead.workflow_stage]||leadLabels[lead.status]||lead.status)
-  return `<button class="list-row" type="button" data-lead="${lead.id}"><span class="row-icon">${initials(lead.name)||'Р'}</span><span class="row-content"><span class="row-title"><strong>${esc(lead.name)}</strong><time>${date(lead.date).slice(0,5)}</time></span><span class="row-subtitle">${esc(lead.short_id)} · ${esc(status)}${detail?` · ${esc(detail)}`:''}</span></span></button>`
+  return `<button class="list-row" type="button" data-lead="${lead.id}"><span class="row-icon">${initials(lead.name)||'Р'}</span><span class="row-content"><span class="row-title"><strong>${esc(lead.name)}</strong><time>${date(lead.date).slice(0,5)}</time></span><span class="row-subtitle">${esc(lead.short_id)} · ${lead.is_repeat?'Повторная · ':''}${esc(status)}${detail?` · ${esc(detail)}`:''}</span></span></button>`
 }
 function renderLeads(items,target){ target.innerHTML=items.length?items.map(leadRow).join(''):'<p class="empty">Заявок пока нет</p>' }
 function updateLeadCount(count){ document.querySelector('#lead-count').textContent=`Показано: ${count}` }
@@ -57,7 +57,7 @@ function render(){
   document.querySelectorAll('#client-application-tab, #client-banks-tab').forEach(item=>item.hidden=true)
   document.querySelector('#greeting').textContent=state.session.name
   document.querySelector('#avatar').textContent=initials(state.session.name)||'Р'
-  for(const key of ['total','new','active','unresolved']) document.querySelector(`#${key}-count`).textContent=state.dashboard[key]
+  for(const key of ['total','new','active','unresolved','repeats']) document.querySelector(`#${key}-count`).textContent=state.dashboard[key]
   document.querySelector('#duplicate-count').textContent=state.dashboard.duplicates||0
   document.querySelector('#open-duplicate-reviews').hidden=!admin
   renderLeads(state.leads.slice(0,5),document.querySelector('#recent-leads')); renderLeads(state.leads,document.querySelector('#all-leads')); updateLeadCount(state.leads.length)
@@ -83,7 +83,7 @@ function renderLeadCabinet(){
   document.querySelector('#client-application-tab').hidden=false
   document.querySelector('#client-banks-tab').hidden=false
   document.querySelector('.tabbar').style.setProperty('--tab-count',2)
-  document.querySelector('#client-application-id').textContent=application.short_id
+  document.querySelector('#client-application-id').textContent=`${application.short_id}${application.is_repeat?' · Повторная':''}`
   const manager=application.manager_url
     ? `<a class="contact-row" href="${esc(application.manager_url)}" target="_blank" rel="noopener"><span><small>Менеджер</small><strong>${esc(application.manager)}</strong></span><b>Написать</b></a>`
     : `<div class="value-row"><span>Менеджер</span><strong>${esc(application.manager||'Ещё не назначен')}</strong></div>`
@@ -161,23 +161,24 @@ function bankCard(item,employee,admin){
 }
 async function openLead(id){
   try{
-    const lead=await api(`/api/leads/${id}`), partner=state.session.role==='partner', employee=!partner, admin=state.session.role==='admin'
+    const lead=await api(`/api/leads/${id}`), partner=state.session.role==='partner', admin=state.session.role==='admin', editable=!partner&&!lead.archived
     const managerRole=state.session.role==='manager'
-    const canManageBanks=(admin&&lead.is_primary_admin&&['admin_processing','awaiting_client_selection'].includes(lead.workflow_stage))||(managerRole&&lead.is_assigned_manager&&lead.workflow_stage==='manager_processing')
+    const canManageBanks=editable&&((admin&&lead.is_primary_admin&&['admin_processing','awaiting_client_selection'].includes(lead.workflow_stage))||(managerRole&&lead.is_assigned_manager&&lead.workflow_stage==='manager_processing'))
     const statusButtons=internalLeadStatuses.map(value=>`<button type="button" class="status-option ${lead.status===value?'is-selected':''}" data-lead-status="${value}" aria-pressed="${lead.status===value}">${esc(leadLabels[value])}</button>`).join('')
     const username=String(lead.username||'').replace(/^@/,'')
     const telegramLink=/^[A-Za-z0-9_]{5,}$/.test(username)?`https://t.me/${username}`:''
     const phoneLink=String(lead.phone||'').replace(/[^+\d]/g,'')
     const contacts=partner?'':`<section class="detail-section"><h3>Контакты</h3><a class="contact-row" href="tel:${esc(phoneLink)}"><span><small>Телефон</small><strong>${esc(lead.phone||'Не указан')}</strong></span><b aria-hidden="true">Позвонить</b></a>${lead.email?`<a class="contact-row" href="mailto:${esc(lead.email)}"><span><small>E-mail</small><strong>${esc(lead.email)}</strong></span><b>Написать</b></a>`:''}${telegramLink?`<a class="contact-row" href="${esc(telegramLink)}" target="_blank" rel="noopener"><span><small>Telegram</small><strong>@${esc(username)}</strong></span><b aria-hidden="true">Открыть</b></a>`:`<div class="value-row"><span>Telegram</span><strong>${esc(lead.username||lead.telegram_id||'Не указан')}</strong></div>`}</section>`
     const answers=partner?'':Object.entries(lead.answers||{}).map(([key,value])=>`<div class="value-row"><span>${esc(questionLabels[key]||key)}</span><strong>${esc(answer(value))}</strong></div>`).join('')
-    const statusEditor=employee?`<section class="detail-section status-section"><h3>Статус заявки</h3><details><summary><span><small>Текущий статус</small><strong>${esc(leadLabels[lead.status]||lead.status)}</strong></span><b>Изменить</b></summary><div class="status-grid">${statusButtons}</div></details></section>`:''
-    const edit=employee?`<section class="detail-section"><h3>Работа с заявкой</h3><label class="field"><span>Внутренний комментарий</span><textarea id="lead-comment" placeholder="Заметка для команды">${esc(lead.comment||'')}</textarea></label><button class="primary-button inset-button" id="save-lead">Сохранить комментарий</button></section>`:''
-    const workflowActions=admin&&lead.workflow_stage==='awaiting_admin'?'<button class="primary-button inset-button" id="claim-admin">Взять в первичную работу</button>':managerRole&&lead.workflow_stage==='awaiting_manager'?'<button class="primary-button inset-button" id="claim-manager">Взять в сопровождение</button>':admin&&lead.is_primary_admin&&['admin_processing','awaiting_client_selection'].includes(lead.workflow_stage)?'<button class="primary-button inset-button" id="publish-banks">Открыть банки клиенту</button>':''
+    const statusEditor=editable?`<section class="detail-section status-section"><h3>Статус заявки</h3><details><summary><span><small>Текущий статус</small><strong>${esc(leadLabels[lead.status]||lead.status)}</strong></span><b>Изменить</b></summary><div class="status-grid">${statusButtons}</div></details></section>`:''
+    const edit=editable?`<section class="detail-section"><h3>Работа с заявкой</h3><label class="field"><span>Внутренний комментарий</span><textarea id="lead-comment" placeholder="Заметка для команды">${esc(lead.comment||'')}</textarea></label><button class="primary-button inset-button" id="save-lead">Сохранить комментарий</button></section>`:''
+    const workflowActions=!lead.archived&&(admin&&lead.workflow_stage==='awaiting_admin'?'<button class="primary-button inset-button" id="claim-admin">Взять в первичную работу</button>':managerRole&&lead.workflow_stage==='awaiting_manager'?'<button class="primary-button inset-button" id="claim-manager">Взять в сопровождение</button>':admin&&lead.is_primary_admin&&['admin_processing','awaiting_client_selection'].includes(lead.workflow_stage)?'<button class="primary-button inset-button" id="publish-banks">Открыть банки клиенту</button>':'')
     const workflow=`<section class="detail-section"><h3>Этап обработки</h3><div class="value-row"><span>Стадия</span><strong>${esc(workflowLabels[lead.workflow_stage]||lead.workflow_stage)}</strong></div><div class="value-row"><span>Первичный ответственный</span><strong>${esc(lead.primary_admin||'Не назначен')}</strong></div><div class="value-row"><span>Менеджер сопровождения</span><strong>${esc(lead.manager||'Не назначен')}</strong></div>${workflowActions}</section>`
-    const banks=lead.banks.map(x=>bankCard(x,employee,admin)).join('')
-    const application=`<section class="detail-section"><h3>Заявка</h3><div class="value-row"><span>Создана</span><strong>${dateTime(lead.date)}</strong></div><div class="value-row"><span>Обновлена</span><strong>${dateTime(lead.updated)}</strong></div><div class="value-row"><span>Источник</span><strong>${esc(lead.channel)}</strong></div><div class="value-row"><span>Менеджер</span><strong>${esc(lead.manager)}</strong></div>${partner?'':`<div class="value-row"><span>Согласие на данные</span><strong>${lead.consent?'Получено':'Нет'}${lead.consent_at?` · ${date(lead.consent_at)}`:''}</strong></div>`}</section>`
+    const banks=lead.banks.map(x=>bankCard(x,editable,admin&&!lead.archived)).join('')
+    const application=`<section class="detail-section"><h3>${lead.archived?'Архивная заявка':'Заявка'}</h3><div class="value-row"><span>Создана</span><strong>${dateTime(lead.date)}</strong></div><div class="value-row"><span>Обновлена</span><strong>${dateTime(lead.updated)}</strong></div><div class="value-row"><span>Источник</span><strong>${esc(lead.channel)}</strong></div><div class="value-row"><span>Менеджер</span><strong>${esc(lead.manager)}</strong></div>${partner?'':`<div class="value-row"><span>Согласие на данные</span><strong>${lead.consent?'Получено':'Нет'}${lead.consent_at?` · ${date(lead.consent_at)}`:''}</strong></div>`}</section>`
     const questionnaire=partner||!answers?'':`<section class="detail-section"><h3>Анкета</h3>${answers}</section>`
-    openSheet(lead.name,`${lead.short_id} · ${workflowLabels[lead.workflow_stage]||leadLabels[lead.status]||lead.status}`,`${contacts}${workflow}${application}${statusEditor}${questionnaire}${edit}${admin?sourceCard(lead):''}<div class="list-heading"><h3>Банки</h3>${canManageBanks?'<button id="add-lead-bank">Добавить</button>':''}</div>${banks||'<p class="empty">Банки не добавлены</p>'}`)
+    const history=partner||!lead.previous_applications?.length?'':`<section class="detail-section"><h3>Предыдущие заявки</h3>${lead.previous_applications.map(previous=>`<button class="list-row" type="button" data-lead="${previous.id}"><span class="row-icon">${previous.is_repeat?'П':'А'}</span><span class="row-content"><span class="row-title"><strong>${esc(previous.short_id)}</strong><time>${date(previous.date).slice(0,5)}</time></span><span class="row-subtitle">${previous.is_repeat?'Повторная · ':''}${esc(leadLabels[previous.status]||previous.status)}</span></span></button>`).join('')}</section>`
+    openSheet(lead.name,`${lead.short_id} · ${lead.is_repeat?'Повторная · ':''}${lead.archived?'Архив · ':''}${workflowLabels[lead.workflow_stage]||leadLabels[lead.status]||lead.status}`,`${contacts}${workflow}${application}${statusEditor}${questionnaire}${history}${edit}${admin&&!lead.archived?sourceCard(lead):''}<div class="list-heading"><h3>Банки</h3>${canManageBanks?'<button id="add-lead-bank">Добавить</button>':''}</div>${banks||'<p class="empty">Банки не добавлены</p>'}`)
     bindLeadActions(lead,admin)
   }catch(error){ toast(error.message) }
 }

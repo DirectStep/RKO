@@ -107,6 +107,16 @@ def test_mini_app_has_visible_loading_state() -> None:
     assert ".loading-state[hidden], .tabbar[hidden] { display: none; }" in styles
 
 
+def test_repeat_applications_are_visible_in_summary_and_history() -> None:
+    markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert 'id="repeats-count"' in markup
+    assert "Повторная · " in script
+    assert "Предыдущие заявки" in script
+    assert "lead.previous_applications" in script
+
+
 def test_mini_app_retries_and_loads_sections_sequentially() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 

@@ -18,6 +18,7 @@ from app.bot.keyboards import (
     consent_keyboard,
     continue_keyboard,
     phone_keyboard,
+    resubmit_application_keyboard,
     retry_submission_keyboard,
     yes_no_keyboard,
 )
@@ -25,7 +26,7 @@ from app.bot.states import LeadApplication
 from app.bot.texts import CONSENT_PROMPT, CONSENT_TEXT, START_TEXT
 from app.config import Settings
 from app.database import Database
-from app.domain.enums import UserRole
+from app.domain.enums import LeadWorkflowStage, UserRole
 from app.domain.intake import (
     QUESTIONS,
     QuestionKind,
@@ -110,8 +111,7 @@ async def start(
         return
     if await has_registered_lead(database, str(user.id)):
         await message.answer(
-            "Кабинет клиента. Здесь видны статус заявки, назначенные банки "
-            "и условия их активации.",
+            "Кабинет клиента. Здесь видны статус заявки, назначенные банки и условия их активации.",
             reply_markup=cabinet_keyboard(settings.mini_app_url),
         )
         return
@@ -185,6 +185,43 @@ async def begin_application(
             CONSENT_PROMPT,
             reply_markup=consent_keyboard(),
         )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "application:resubmit")
+async def resubmit_application(
+    callback: CallbackQuery,
+    state: FSMContext,
+    database: Database,
+) -> None:
+    telegram_id = str(callback.from_user.id)
+    async with database.session() as session:
+        previous = await session.scalar(
+            select(Lead)
+            .where(
+                Lead.telegram_id == telegram_id,
+                Lead.archived_at.is_(None),
+                Lead.workflow_stage == LeadWorkflowStage.NOT_ELIGIBLE,
+            )
+            .order_by(Lead.application_at.desc())
+            .limit(1)
+        )
+    if previous is None:
+        await callback.answer("Повторная подача для этой заявки недоступна", show_alert=True)
+        return
+    await state.clear()
+    await state.update_data(
+        referral_code=previous.first_referral_code,
+        first_click_at=previous.first_click_at.isoformat(),
+        telegram_id=telegram_id,
+        telegram_username=callback.from_user.username,
+        display_name=callback.from_user.full_name,
+        repeat_of_id=str(previous.id),
+    )
+    await state.set_state(LeadApplication.consent)
+    if isinstance(callback.message, Message):
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.message.answer(CONSENT_PROMPT, reply_markup=consent_keyboard())
     await callback.answer()
 
 
@@ -441,6 +478,7 @@ async def finish_application(
             first_click_at=datetime.fromisoformat(data["first_click_at"]),
             consent_at=datetime.fromisoformat(data["consent_at"]),
             answers=data["answers"],
+            repeat_of_id=(UUID(data["repeat_of_id"]) if data.get("repeat_of_id") else None),
         )
     except DomainError as error:
         await state.clear()
@@ -468,7 +506,10 @@ async def finish_application(
         else:
             await message.answer(
                 f"Заявка {result.short_id} сохранена. К сожалению, по текущим "
-                "условиям мы пока не сможем помочь с открытием счетов."
+                "условиям мы пока не сможем помочь с открытием счетов.\n\n"
+                "Ты можешь подать заявку повторно, если указал что-то неверно "
+                "или твоя ситуация изменилась.",
+                reply_markup=resubmit_application_keyboard(),
             )
 
 
@@ -505,7 +546,7 @@ async def notify_admin_group(
         await bot.send_message(
             chat_id=settings.admin_group_id,
             text=(
-                f"Новая заявка {lead.short_id}\n\n"
+                f"{'Повторная' if lead.is_repeat else 'Новая'} заявка {lead.short_id}\n\n"
                 f"Источник: {channel.name if channel else 'Прямой'}\n"
                 f"Город: {city}"
             ),

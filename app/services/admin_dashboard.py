@@ -14,6 +14,7 @@ class AdminStats:
     new_leads: int
     unresolved_sources: int
     pending_duplicates: int
+    repeat_leads: int
 
 
 class AdminDashboardService:
@@ -22,33 +23,43 @@ class AdminDashboardService:
 
     async def get_stats(self) -> AdminStats:
         async with self.database.session() as session:
-            total_leads = await session.scalar(select(func.count()).select_from(Lead))
+            visible = Lead.archived_at.is_(None)
+            total_leads = await session.scalar(
+                select(func.count()).select_from(Lead).where(visible)
+            )
             new_leads = await session.scalar(
                 select(func.count())
                 .select_from(Lead)
-                .where(Lead.internal_status == LeadInternalStatus.NEW)
+                .where(visible, Lead.internal_status == LeadInternalStatus.NEW)
             )
             unresolved_sources = await session.scalar(
                 select(func.count())
                 .select_from(Lead)
-                .where(Lead.assignment_status == AssignmentStatus.UNRESOLVED)
+                .where(visible, Lead.assignment_status == AssignmentStatus.UNRESOLVED)
             )
             pending_duplicates = await session.scalar(
                 select(func.count())
                 .select_from(DuplicateLeadReview)
                 .where(DuplicateLeadReview.review_status == "pending")
             )
+            repeat_leads = await session.scalar(
+                select(func.count()).select_from(Lead).where(visible, Lead.is_repeat.is_(True))
+            )
         return AdminStats(
             total_leads=total_leads or 0,
             new_leads=new_leads or 0,
             unresolved_sources=unresolved_sources or 0,
             pending_duplicates=pending_duplicates or 0,
+            repeat_leads=repeat_leads or 0,
         )
 
     async def get_recent_leads(self, limit: int = 10) -> list[Lead]:
         async with self.database.session() as session:
             result = await session.scalars(
-                select(Lead).order_by(Lead.application_at.desc()).limit(limit)
+                select(Lead)
+                .where(Lead.archived_at.is_(None))
+                .order_by(Lead.application_at.desc())
+                .limit(limit)
             )
             return list(result)
 

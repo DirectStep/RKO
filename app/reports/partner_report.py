@@ -39,6 +39,7 @@ async def build_partner_report(database: Database, partner_id: UUID) -> bytes:
             .where(
                 Lead.partner_id == partner_id,
                 Lead.assignment_status == AssignmentStatus.CONFIRMED,
+                Lead.archived_at.is_(None),
             )
             .order_by(Lead.application_at.desc(), Bank.name)
         )
@@ -65,7 +66,8 @@ async def build_partner_report(database: Database, partner_id: UUID) -> bytes:
             [
                 lead.short_id,
                 lead.application_at.date().isoformat(),
-                LEAD_STATUS_LABELS[lead.external_status.value],
+                f"{'Повторная · ' if lead.is_repeat else ''}"
+                f"{LEAD_STATUS_LABELS[lead.external_status.value]}",
                 channel_name,
                 bank_name or "",
                 lead_bank.external_status.value if lead_bank else "",

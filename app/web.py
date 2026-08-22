@@ -205,7 +205,12 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         role = await UserAccessService(database, settings).resolve_role(telegram_id, username)
         async with database.session() as session:
             user = await session.scalar(select(User).where(User.telegram_id == telegram_id))
-            lead = await session.scalar(select(Lead).where(Lead.telegram_id == telegram_id))
+            lead = await session.scalar(
+                select(Lead)
+                .where(Lead.telegram_id == telegram_id, Lead.archived_at.is_(None))
+                .order_by(Lead.application_at.desc())
+                .limit(1)
+            )
         if user is not None and user.access_status is not AccessStatus.ACTIVE:
             raise HTTPException(status_code=403, detail="Доступ отключён")
         if role in {None, UserRole.LEAD}:
@@ -237,10 +242,12 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
 
     def lead_scope(user: MiniAppUser) -> ColumnElement[bool]:
         if user.role is UserRole.PARTNER:
-            return (Lead.partner_id == user.partner_id) & (
-                Lead.assignment_status == AssignmentStatus.CONFIRMED
+            return (
+                (Lead.partner_id == user.partner_id)
+                & (Lead.assignment_status == AssignmentStatus.CONFIRMED)
+                & Lead.archived_at.is_(None)
             )
-        return true()
+        return Lead.archived_at.is_(None)
 
     def require_operational_user(user: MiniAppUser) -> None:
         if user.role is UserRole.LEAD:
@@ -343,10 +350,9 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             "updated": lead.last_updated_at.isoformat(),
             "status": lead.external_status.value,
             "workflow_stage": lead.workflow_stage.value,
+            "is_repeat": lead.is_repeat,
             "manager": format_user_name(manager),
-            "manager_url": (
-                f"https://t.me/{manager_username}" if manager_username else ""
-            ),
+            "manager_url": (f"https://t.me/{manager_username}" if manager_username else ""),
         }
 
     @app.get("/api/lead/banks")
@@ -373,9 +379,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 )
             )
             conditions = list(await db_session.scalars(select(BankActivationCondition)))
-        conditions_by_name = {
-            condition.normalized_bank_name: condition for condition in conditions
-        }
+        conditions_by_name = {condition.normalized_bank_name: condition for condition in conditions}
         result: list[dict[str, object]] = []
         for lead_bank, bank in bank_rows:
             condition = conditions_by_name.get(normalize_bank_name(bank.name))
@@ -468,12 +472,16 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 if user.role is UserRole.ADMIN
                 else 0
             )
+            repeats = await db_session.scalar(
+                select(func.count()).select_from(Lead).where(scope, Lead.is_repeat.is_(True))
+            )
         return {
             "total": total or 0,
             "new": new or 0,
             "active": active or 0,
             "unresolved": unresolved or 0,
             "duplicates": duplicates or 0,
+            "repeats": repeats or 0,
         }
 
     @app.get("/api/duplicate-reviews")
@@ -495,8 +503,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                     "username": (
                         f"@{review.telegram_username}" if review.telegram_username else ""
                     ),
-                    "name": review.questionnaire_answers.get("full_name")
-                    or review.display_name,
+                    "name": review.questionnaire_answers.get("full_name") or review.display_name,
                     "phone": review.phone,
                     "date": review.created_at.isoformat(),
                     "referral_code": review.referral_code or "",
@@ -570,6 +577,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 ),
                 "date": lead.application_at.isoformat(),
                 "workflow_stage": lead.workflow_stage.value,
+                "is_repeat": lead.is_repeat,
             }
             if user.role is not UserRole.PARTNER:
                 item["phone"] = lead.phone
@@ -617,7 +625,8 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                             [
                                 lead.short_id,
                                 lead.application_at.date().isoformat(),
-                                lead.external_status.value,
+                                f"{'Повторная · ' if lead.is_repeat else ''}"
+                                f"{lead.external_status.value}",
                                 channel.name if channel else "Прямой",
                                 bank.name if bank else "",
                                 lead_bank.external_status.value if lead_bank else "",
@@ -631,9 +640,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                         )
                     else:
                         manager = (
-                            await db_session.get(User, lead.manager_id)
-                            if lead.manager_id
-                            else None
+                            await db_session.get(User, lead.manager_id) if lead.manager_id else None
                         )
                         rows.append(
                             [
@@ -641,7 +648,8 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                                 lead.display_name,
                                 lead.phone,
                                 lead.application_at.date().isoformat(),
-                                lead.internal_status.value,
+                                f"{'Повторная · ' if lead.is_repeat else ''}"
+                                f"{lead.internal_status.value}",
                                 channel.name if channel else "Прямой",
                                 format_user_name(manager),
                                 bank.name if bank else "",
@@ -661,16 +669,31 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         if user.role is UserRole.PARTNER:
             writer.writerow(
                 [
-                    "Заявка", "Дата", "Статус", "Канал", "Банк", "Статус банка",
-                    "Вознаграждение", "Выплата",
+                    "Заявка",
+                    "Дата",
+                    "Статус",
+                    "Канал",
+                    "Банк",
+                    "Статус банка",
+                    "Вознаграждение",
+                    "Выплата",
                 ]
             )
         else:
             writer.writerow(
                 [
-                    "Заявка", "Клиент", "Телефон", "Дата", "Статус", "Канал",
-                    "Менеджер", "Банк", "Статус банка", "Доход факт",
-                    "Вознаграждение", "Выплата",
+                    "Заявка",
+                    "Клиент",
+                    "Телефон",
+                    "Дата",
+                    "Статус",
+                    "Канал",
+                    "Менеджер",
+                    "Банк",
+                    "Статус банка",
+                    "Доход факт",
+                    "Вознаграждение",
+                    "Выплата",
                 ]
             )
         writer.writerows(rows)
@@ -687,8 +710,11 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> dict[str, object]:
         require_operational_user(user)
+        detail_scope = (
+            true() if user.role in {UserRole.ADMIN, UserRole.MANAGER} else lead_scope(user)
+        )
         async with database.session() as db_session:
-            lead = await db_session.scalar(select(Lead).where(Lead.id == lead_id, lead_scope(user)))
+            lead = await db_session.scalar(select(Lead).where(Lead.id == lead_id, detail_scope))
             if lead is None:
                 raise HTTPException(status_code=404, detail="Заявка не найдена")
             rows = await db_session.execute(
@@ -698,14 +724,10 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 .where(LeadBank.lead_id == lead.id)
                 .order_by(LeadBank.planned_at)
             )
-            conditions = list(
-                await db_session.scalars(select(BankActivationCondition))
-            )
+            conditions = list(await db_session.scalars(select(BankActivationCondition)))
             manager = await db_session.get(User, lead.manager_id) if lead.manager_id else None
             primary_admin = (
-                await db_session.get(User, lead.primary_admin_id)
-                if lead.primary_admin_id
-                else None
+                await db_session.get(User, lead.primary_admin_id) if lead.primary_admin_id else None
             )
             channel = await db_session.get(Channel, lead.channel_id) if lead.channel_id else None
             source_partner = (
@@ -716,18 +738,25 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 if lead.source_updated_by_user_id
                 else None
             )
-        conditions_by_name = {
-            condition.normalized_bank_name: condition for condition in conditions
-        }
+            previous_applications = list(
+                await db_session.scalars(
+                    select(Lead)
+                    .where(
+                        Lead.telegram_id == lead.telegram_id,
+                        Lead.id != lead.id,
+                        Lead.application_at < lead.application_at,
+                    )
+                    .order_by(Lead.application_at.desc())
+                )
+            )
+        conditions_by_name = {condition.normalized_bank_name: condition for condition in conditions}
         banks = []
         for lead_bank, bank, payment in rows:
             serialized = serialize_lead_bank(lead_bank, bank, payment, user.role)
             if user.role is not UserRole.PARTNER:
                 condition = conditions_by_name.get(normalize_bank_name(bank.name))
                 serialized["action_text"] = condition.action_text if condition else ""
-                serialized["payout_text"] = (
-                    condition.payout_text if condition else "Уточняется"
-                )
+                serialized["payout_text"] = condition.payout_text if condition else "Уточняется"
             banks.append(serialized)
         result: dict[str, object] = {
             "id": str(lead.id),
@@ -746,6 +775,18 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             "manager": format_user_name(manager),
             "primary_admin": format_user_name(primary_admin),
             "workflow_stage": lead.workflow_stage.value,
+            "is_repeat": lead.is_repeat,
+            "archived": lead.archived_at is not None,
+            "previous_applications": [
+                {
+                    "id": str(previous.id),
+                    "short_id": previous.short_id,
+                    "date": previous.application_at.isoformat(),
+                    "status": previous.internal_status.value,
+                    "is_repeat": previous.is_repeat,
+                }
+                for previous in previous_applications
+            ],
             "banks_published_at": (
                 lead.banks_published_at.isoformat() if lead.banks_published_at else None
             ),
@@ -1066,8 +1107,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 "role": item.role.value,
                 "status": (
                     "pending"
-                    if item.telegram_id is None
-                    and item.access_status is AccessStatus.ACTIVE
+                    if item.telegram_id is None and item.access_status is AccessStatus.ACTIVE
                     else item.access_status.value
                 ),
             }

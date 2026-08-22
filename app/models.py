@@ -154,7 +154,7 @@ class Lead(Base):
     id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     module_code: Mapped[str] = mapped_column(String(16), default="rko", server_default="rko")
     short_id: Mapped[str] = mapped_column(String(24), nullable=False, unique=True)
-    telegram_id: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
+    telegram_id: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     telegram_username: Mapped[str | None] = mapped_column(String(64))
     display_name: Mapped[str] = mapped_column(String(200), nullable=False)
     phone: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
@@ -180,9 +180,7 @@ class Lead(Base):
         nullable=False,
     )
     banks_published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    bank_selection_submitted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
+    bank_selection_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     internal_status: Mapped[LeadInternalStatus] = mapped_column(
         enum_column(LeadInternalStatus), default=LeadInternalStatus.NEW, nullable=False
     )
@@ -196,6 +194,9 @@ class Lead(Base):
     questionnaire_answers: Mapped[dict[str, str]] = mapped_column(JSONB, nullable=False)
     first_click_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     application_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_repeat: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    previous_lead_id: Mapped[UUID | None] = mapped_column(ForeignKey("leads.id"))
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

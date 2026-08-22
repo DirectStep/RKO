@@ -87,6 +87,18 @@ def retry_submission_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def resubmit_application_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Подать заявку повторно", callback_data="application:resubmit"
+                )
+            ]
+        ]
+    )
+
+
 def admin_menu_keyboard(mini_app_url: str = "") -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text="Сводка", callback_data="admin:stats")],

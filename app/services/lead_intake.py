@@ -32,6 +32,7 @@ class SubmissionResult:
     short_id: str | None = None
     eligible: bool | None = None
     lead_id: UUID | None = None
+    is_repeat: bool = False
 
 
 @dataclass(frozen=True)
@@ -101,6 +102,7 @@ class LeadIntakeService:
         first_click_at: datetime,
         consent_at: datetime,
         answers: dict[str, str],
+        repeat_of_id: UUID | None = None,
     ) -> SubmissionResult:
         async with self.database.session() as session, session.begin():
             await session.execute(
@@ -114,19 +116,39 @@ class LeadIntakeService:
                 select(User.role).where(User.telegram_id == telegram_id)
             )
             if user_role is UserRole.PARTNER:
-                raise DomainError(
-                    "Партнёрский аккаунт не может оставить заявку как клиент"
-                )
-            if await session.scalar(select(Lead.id).where(Lead.telegram_id == telegram_id)):
+                raise DomainError("Партнёрский аккаунт не может оставить заявку как клиент")
+            active_lead = await session.scalar(
+                select(Lead)
+                .where(Lead.telegram_id == telegram_id, Lead.archived_at.is_(None))
+                .order_by(Lead.application_at.desc())
+                .limit(1)
+                .with_for_update()
+            )
+            previous_lead = None
+            if repeat_of_id is not None:
+                previous_lead = await session.get(Lead, repeat_of_id, with_for_update=True)
+                if (
+                    previous_lead is None
+                    or previous_lead.telegram_id != telegram_id
+                    or previous_lead.archived_at is not None
+                    or previous_lead.workflow_stage is not LeadWorkflowStage.NOT_ELIGIBLE
+                    or active_lead is None
+                    or active_lead.id != previous_lead.id
+                ):
+                    raise DomainError("Повторно подать можно только последнюю отклонённую заявку")
+            elif active_lead is not None:
                 return SubmissionResult(SubmissionStatus.DUPLICATE_TELEGRAM)
             original_lead_id = await session.scalar(
-                select(Lead.id).where(Lead.phone == phone).order_by(Lead.application_at).limit(1)
+                select(Lead.id)
+                .where(Lead.phone == phone, Lead.telegram_id != telegram_id)
+                .order_by(Lead.application_at)
+                .limit(1)
             )
             if original_lead_id:
                 existing_review = await session.scalar(
-                    select(DuplicateLeadReview).where(
-                        DuplicateLeadReview.telegram_id == telegram_id
-                    ).with_for_update()
+                    select(DuplicateLeadReview)
+                    .where(DuplicateLeadReview.telegram_id == telegram_id)
+                    .with_for_update()
                 )
                 if existing_review is None:
                     session.add(
@@ -161,7 +183,9 @@ class LeadIntakeService:
                 select(LeadDraft).where(LeadDraft.telegram_id == telegram_id).with_for_update()
             )
             channel = None
-            if draft and draft.proposed_channel_id:
+            if previous_lead and previous_lead.channel_id:
+                channel = await session.get(Channel, previous_lead.channel_id)
+            elif draft and draft.proposed_channel_id:
                 channel = await session.get(Channel, draft.proposed_channel_id)
             elif draft is None and referral_code:
                 channel = await self._find_channel(session, referral_code)
@@ -180,37 +204,79 @@ class LeadIntakeService:
                 email=answers.get("email"),
                 consent_status=True,
                 consent_at=consent_at,
-                first_referral_code=draft.referral_code if draft else referral_code,
-                proposed_partner_id=channel.partner_id if channel else None,
-                proposed_channel_id=channel.id if channel else None,
-                partner_id=channel.partner_id if channel else None,
-                channel_id=channel.id if channel else None,
-                assignment_status=(
-                    AssignmentStatus.CONFIRMED if channel else AssignmentStatus.DIRECT
+                first_referral_code=(
+                    previous_lead.first_referral_code
+                    if previous_lead
+                    else draft.referral_code
+                    if draft
+                    else referral_code
                 ),
-                assignment_confirmed_at=now if channel else None,
+                proposed_partner_id=(
+                    previous_lead.proposed_partner_id
+                    if previous_lead
+                    else channel.partner_id
+                    if channel
+                    else None
+                ),
+                proposed_channel_id=(
+                    previous_lead.proposed_channel_id
+                    if previous_lead
+                    else channel.id
+                    if channel
+                    else None
+                ),
+                partner_id=(
+                    previous_lead.partner_id
+                    if previous_lead
+                    else channel.partner_id
+                    if channel
+                    else None
+                ),
+                channel_id=(
+                    previous_lead.channel_id if previous_lead else channel.id if channel else None
+                ),
+                assignment_status=(
+                    previous_lead.assignment_status
+                    if previous_lead
+                    else AssignmentStatus.CONFIRMED
+                    if channel
+                    else AssignmentStatus.DIRECT
+                ),
+                assignment_confirmed_at=(
+                    previous_lead.assignment_confirmed_at
+                    if previous_lead
+                    else now
+                    if channel
+                    else None
+                ),
                 workflow_stage=(
-                    LeadWorkflowStage.AWAITING_ADMIN
-                    if eligible
-                    else LeadWorkflowStage.NOT_ELIGIBLE
+                    LeadWorkflowStage.AWAITING_ADMIN if eligible else LeadWorkflowStage.NOT_ELIGIBLE
                 ),
                 internal_status=(
                     LeadInternalStatus.NEW if eligible else LeadInternalStatus.NOT_ELIGIBLE
                 ),
                 external_status=(
-                    LeadExternalStatus.NEW
-                    if eligible
-                    else LeadExternalStatus.CLOSED_WITHOUT_RESULT
+                    LeadExternalStatus.NEW if eligible else LeadExternalStatus.CLOSED_WITHOUT_RESULT
                 ),
                 questionnaire_answers=answers,
                 first_click_at=first_click_at,
                 application_at=now,
+                is_repeat=previous_lead is not None,
+                previous_lead_id=previous_lead.id if previous_lead else None,
             )
             session.add(lead)
             await session.flush()
+            if previous_lead:
+                previous_lead.archived_at = now
             if draft:
                 await session.delete(draft)
-        return SubmissionResult(SubmissionStatus.CREATED, short_id, eligible, lead.id)
+        return SubmissionResult(
+            SubmissionStatus.CREATED,
+            short_id,
+            eligible,
+            lead.id,
+            previous_lead is not None,
+        )
 
     @staticmethod
     async def _find_channel(session: AsyncSession, referral_code: str | None) -> Channel | None:

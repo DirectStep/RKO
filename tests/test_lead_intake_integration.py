@@ -142,9 +142,7 @@ async def test_admin_reassigns_source_and_resolves_duplicate_as_separate_lead() 
     finally:
         async with database.session() as session, session.begin():
             await session.execute(
-                delete(DuplicateLeadReview).where(
-                    DuplicateLeadReview.id == ids.get("review")
-                )
+                delete(DuplicateLeadReview).where(DuplicateLeadReview.id == ids.get("review"))
             )
             lead_ids = [ids[key] for key in ("lead", "separate") if ids.get(key)]
             if lead_ids:
@@ -320,12 +318,105 @@ async def test_partner_cannot_submit_lead_application() -> None:
             )
 
         async with database.session() as session:
-            assert await session.scalar(
-                select(Lead.id).where(Lead.telegram_id == telegram_id)
-            ) is None
+            assert (
+                await session.scalar(select(Lead.id).where(Lead.telegram_id == telegram_id)) is None
+            )
     finally:
         async with database.session() as session, session.begin():
             await session.execute(delete(User).where(User.telegram_id == telegram_id))
+        await database.close()
+
+
+@pytest.mark.asyncio
+async def test_rejected_lead_can_create_linked_repeat_application() -> None:
+    database = Database(
+        Settings(
+            bot_token="123456:test-token",
+            app_env="test",
+            database_url=TEST_DATABASE_URL or "postgresql+asyncpg://unused",
+        )
+    )
+    suffix = str(uuid4().int)[:10]
+    telegram_id = f"84{suffix}"
+    phone = f"+7444{suffix}"
+    referral_code = f"repeat-{suffix}"
+    now = datetime.now(UTC)
+    partner_id = channel_id = first_id = repeat_id = None
+    try:
+        async with database.session() as session, session.begin():
+            partner = Partner(name=f"Повторный партнёр {suffix}", commission_percent=Decimal("5"))
+            session.add(partner)
+            await session.flush()
+            channel = Channel(
+                partner_id=partner.id,
+                name=f"Повторный канал {suffix}",
+                referral_code=referral_code,
+                referral_link=f"https://t.me/test_bot?start={referral_code}",
+            )
+            session.add(channel)
+            await session.flush()
+            partner_id, channel_id = partner.id, channel.id
+
+        intake = LeadIntakeService(database)
+        await intake.record_first_click(
+            telegram_id=telegram_id,
+            referral_code=referral_code,
+            clicked_at=now,
+        )
+        rejected = await intake.submit(
+            telegram_id=telegram_id,
+            telegram_username=f"repeat_{suffix}",
+            display_name="Первый вариант",
+            phone=phone,
+            referral_code=referral_code,
+            first_click_at=now,
+            consent_at=now,
+            answers={"adult": "no", "full_name": "Иванов Иван Иванович"},
+        )
+        assert rejected.eligible is False
+        assert rejected.lead_id is not None
+        first_id = rejected.lead_id
+
+        repeated = await intake.submit(
+            telegram_id=telegram_id,
+            telegram_username=f"repeat_{suffix}",
+            display_name="Второй вариант",
+            phone=phone,
+            referral_code=None,
+            first_click_at=now,
+            consent_at=now,
+            answers={
+                "adult": "yes",
+                "has_bankruptcy_or_arrests": "no",
+                "is_civil_servant": "no",
+                "full_name": "Иванов Иван Иванович",
+            },
+            repeat_of_id=first_id,
+        )
+        assert repeated.eligible is True
+        assert repeated.is_repeat is True
+        assert repeated.lead_id is not None
+        repeat_id = repeated.lead_id
+
+        async with database.session() as session:
+            first = await session.get(Lead, first_id)
+            repeat = await session.get(Lead, repeat_id)
+            assert first is not None and first.archived_at is not None
+            assert repeat is not None and repeat.previous_lead_id == first.id
+            assert repeat.partner_id == first.partner_id == partner_id
+            assert repeat.channel_id == first.channel_id == channel_id
+            assert repeat.workflow_stage is LeadWorkflowStage.AWAITING_ADMIN
+    finally:
+        async with database.session() as session, session.begin():
+            if repeat_id is not None:
+                await session.execute(delete(Lead).where(Lead.id == repeat_id))
+            if first_id is not None:
+                await session.execute(delete(Lead).where(Lead.id == first_id))
+            await session.execute(delete(LeadDraft).where(LeadDraft.telegram_id == telegram_id))
+            if channel_id is not None:
+                await session.execute(delete(Channel).where(Channel.id == channel_id))
+            if partner_id is not None:
+                await session.execute(delete(Partner).where(Partner.id == partner_id))
         await database.close()
 
 
@@ -375,17 +466,13 @@ async def test_two_stage_lead_claim_and_bank_selection() -> None:
         )
         assert result.eligible is True
         async with database.session() as session:
-            lead = await session.scalar(
-                select(Lead).where(Lead.telegram_id == f"83{suffix}")
-            )
+            lead = await session.scalar(select(Lead).where(Lead.telegram_id == f"83{suffix}"))
             assert lead is not None
             lead_id = lead.id
             assert lead.workflow_stage is LeadWorkflowStage.AWAITING_ADMIN
 
         workflow = LeadWorkflowService(database)
-        await workflow.claim_by_admin(
-            actor_role=UserRole.ADMIN, actor_id=admin_id, lead_id=lead_id
-        )
+        await workflow.claim_by_admin(actor_role=UserRole.ADMIN, actor_id=admin_id, lead_id=lead_id)
         bank = await WorkflowService(database).create_bank(
             actor_role=UserRole.ADMIN, name=f"Банк {suffix}"
         )
@@ -396,12 +483,8 @@ async def test_two_stage_lead_claim_and_bank_selection() -> None:
             lead_id=lead_id,
             bank_id=bank_id,
         )
-        await workflow.publish_banks(
-            actor_role=UserRole.ADMIN, actor_id=admin_id, lead_id=lead_id
-        )
-        await workflow.submit_bank_selection(
-            lead_id=lead_id, selected_bank_ids={bank_id}
-        )
+        await workflow.publish_banks(actor_role=UserRole.ADMIN, actor_id=admin_id, lead_id=lead_id)
+        await workflow.submit_bank_selection(lead_id=lead_id, selected_bank_ids={bank_id})
         lead = await workflow.claim_by_manager(
             actor_role=UserRole.MANAGER,
             actor_id=manager_id,
@@ -533,9 +616,7 @@ async def test_invited_admin_username_is_claimed_by_first_telegram_account() -> 
     second_id = f"82{suffix}"
     try:
         role = await UserAccessService(database, settings).resolve_role(first_id, username)
-        repeated_role = await UserAccessService(database, settings).resolve_role(
-            first_id, username
-        )
+        repeated_role = await UserAccessService(database, settings).resolve_role(first_id, username)
         rejected_role = await UserAccessService(database, settings).resolve_role(
             second_id, username
         )

@@ -142,13 +142,14 @@ button { color: inherit; }
 
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   border-top: 1px solid rgba(255, 255, 255, 0.22);
   background: rgba(0, 0, 0, 0.06);
 }
 
 .stat-grid div { min-width: 0; padding: 0.85rem 0.75rem; border-right: 1px solid rgba(255, 255, 255, 0.18); }
-.stat-grid div:last-child { border: 0; }
+.stat-grid div:nth-child(2n) { border-right: 0; }
+.stat-grid div:nth-child(n + 3) { border-top: 1px solid rgba(255, 255, 255, 0.18); }
 .stat-grid strong { display: block; margin-top: 0.22rem; font-size: 1.25rem; }
 
 .review-banner {
