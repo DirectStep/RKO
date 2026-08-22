@@ -49,9 +49,21 @@ QUESTION_REVIEW_LABELS = tuple(question.review_label for question in QUESTIONS)
 async def has_registered_lead(database: Database, telegram_id: str) -> bool:
     async with database.session() as session:
         lead_id = await session.scalar(
-            select(Lead.id).where(Lead.telegram_id == telegram_id).limit(1)
+            select(Lead.id)
+            .where(Lead.telegram_id == telegram_id, Lead.archived_at.is_(None))
+            .limit(1)
         )
     return lead_id is not None
+
+
+async def get_current_lead(database: Database, telegram_id: str) -> Lead | None:
+    async with database.session() as session:
+        return await session.scalar(
+            select(Lead)
+            .where(Lead.telegram_id == telegram_id, Lead.archived_at.is_(None))
+            .order_by(Lead.application_at.desc())
+            .limit(1)
+        )
 
 
 @router.message(CommandStart())
@@ -109,11 +121,21 @@ async def start(
             reply_markup=cabinet_keyboard(settings.mini_app_url),
         )
         return
-    if await has_registered_lead(database, str(user.id)):
-        await message.answer(
-            "Кабинет клиента. Здесь видны статус заявки, назначенные банки и условия их активации.",
-            reply_markup=cabinet_keyboard(settings.mini_app_url),
-        )
+    current_lead = await get_current_lead(database, str(user.id))
+    if current_lead is not None:
+        if current_lead.workflow_stage is LeadWorkflowStage.NOT_ELIGIBLE:
+            await message.answer(
+                f"Заявка {current_lead.short_id} имеет статус «Не подходит».\n\n"
+                "Ты можешь подать заявку повторно, если указал что-то неверно "
+                "или твоя ситуация изменилась.",
+                reply_markup=resubmit_application_keyboard(),
+            )
+        else:
+            await message.answer(
+                "Кабинет клиента. Здесь видны статус заявки, назначенные банки "
+                "и условия их активации.",
+                reply_markup=cabinet_keyboard(settings.mini_app_url),
+            )
         return
     try:
         first_click = await LeadIntakeService(database).record_first_click(
