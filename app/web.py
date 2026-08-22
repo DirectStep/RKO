@@ -6,6 +6,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Annotated, cast
 from urllib.parse import parse_qsl
@@ -16,6 +17,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select, true
+from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.config import Settings
@@ -23,6 +25,7 @@ from app.database import Database
 from app.domain.enums import (
     AccessStatus,
     AssignmentStatus,
+    LeadExternalStatus,
     LeadInternalStatus,
     PaymentStatus,
     UserRole,
@@ -39,11 +42,13 @@ from app.models import (
     Payment,
     User,
 )
+from app.reports.partner_report import build_partner_report
 from app.services.admin_catalog import AdminCatalogService
 from app.services.bank_conditions import normalize_bank_name
 from app.services.duplicate_reviews import DuplicateReviewService
 from app.services.lead_assignment import LeadAssignmentService
 from app.services.lead_workflow import LeadWorkflowService
+from app.services.partner_cabinet import partner_cabinet_data, partner_contact
 from app.services.user_access import UserAccessService
 from app.services.workflow import WorkflowService
 from app.web_schemas import (
@@ -263,6 +268,11 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             raise HTTPException(status_code=403, detail="Раздел доступен администратору")
         return user.database_id
 
+    def require_partner(user: MiniAppUser) -> UUID:
+        if user.role is not UserRole.PARTNER or user.partner_id is None:
+            raise HTTPException(status_code=403, detail="Раздел доступен партнёру")
+        return user.partner_id
+
     def require_employee(user: MiniAppUser) -> UUID:
         if user.role not in {UserRole.ADMIN, UserRole.MANAGER} or user.database_id is None:
             raise HTTPException(status_code=403, detail="Раздел доступен сотруднику")
@@ -300,18 +310,21 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
     @app.get("/api/session")
     async def session(
         user: Annotated[MiniAppUser, Depends(current_user)],
-    ) -> dict[str, str]:
+    ) -> dict[str, object]:
         google_sheet_url = ""
         if user.role is UserRole.ADMIN and settings.google_sheet_id:
             google_sheet_url = (
                 f"https://docs.google.com/spreadsheets/d/{settings.google_sheet_id}/edit"
             )
-        return {
+        result: dict[str, object] = {
             "name": user.name,
             "role": user.role.value,
             "telegram_id": user.id,
             "google_sheet_url": google_sheet_url,
         }
+        if user.role is UserRole.PARTNER and user.partner_id is not None:
+            result["contact"] = await partner_contact(database, user.partner_id)
+        return result
 
     @app.get("/api/lead/session")
     async def lead_session(
@@ -426,6 +439,53 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         except DomainError as error:
             raise domain_error(error) from error
         return {"id": str(lead.id), "workflow_stage": lead.workflow_stage.value}
+
+    @app.get("/api/partner/cabinet")
+    async def partner_cabinet(
+        user: Annotated[MiniAppUser, Depends(current_user)],
+        date_from: date | None = None,
+        date_to: date | None = None,
+        channel_id: UUID | None = None,
+        lead_status: LeadExternalStatus | None = None,
+        payment_status: PaymentStatus | None = None,
+        search: str = "",
+    ) -> dict[str, object]:
+        partner_id = require_partner(user)
+        if date_from and date_to and date_from > date_to:
+            raise HTTPException(status_code=400, detail="Начало периода позже окончания")
+        data = await partner_cabinet_data(
+            database,
+            partner_id,
+            date_from=date_from,
+            date_to=date_to,
+            channel_id=channel_id,
+            lead_status=lead_status,
+            payment_status=payment_status,
+            search=search,
+        )
+        return {**data, "contact": await partner_contact(database, partner_id)}
+
+    @app.get("/api/partner/report.xlsx")
+    async def partner_report(
+        user: Annotated[MiniAppUser, Depends(current_user)],
+        date_from: date | None = None,
+        date_to: date | None = None,
+    ) -> StreamingResponse:
+        partner_id = require_partner(user)
+        if date_from and date_to and date_from > date_to:
+            raise HTTPException(status_code=400, detail="Начало периода позже окончания")
+        report = await build_partner_report(
+            database,
+            partner_id,
+            date_from=date_from,
+            date_to=date_to,
+        )
+        headers = {"Content-Disposition": 'attachment; filename="rko-partner-report.xlsx"'}
+        return StreamingResponse(
+            iter([report]),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers=headers,
+        )
 
     @app.get("/api/dashboard")
     async def dashboard(
@@ -576,10 +636,10 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                     else lead.internal_status.value
                 ),
                 "date": lead.application_at.isoformat(),
-                "workflow_stage": lead.workflow_stage.value,
                 "is_repeat": lead.is_repeat,
             }
             if user.role is not UserRole.PARTNER:
+                item["workflow_stage"] = lead.workflow_stage.value
                 item["phone"] = lead.phone
                 item["source"] = lead.assignment_status.value
                 item["manager_id"] = str(lead.manager_id) if lead.manager_id else None
@@ -758,6 +818,22 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 serialized["action_text"] = condition.action_text if condition else ""
                 serialized["payout_text"] = condition.payout_text if condition else "Уточняется"
             banks.append(serialized)
+        if user.role is UserRole.PARTNER:
+            contact = await partner_contact(database, require_partner(user))
+            return {
+                "id": str(lead.id),
+                "short_id": lead.short_id,
+                "name": lead.display_name,
+                "username": f"@{lead.telegram_username}" if lead.telegram_username else "",
+                "date": lead.application_at.isoformat(),
+                "updated": lead.last_updated_at.isoformat(),
+                "status": lead.external_status.value,
+                "payment_status": lead.payment_status.value,
+                "channel": channel.name if channel else "Прямой",
+                "is_repeat": lead.is_repeat,
+                "contact": contact,
+                "banks": banks,
+            }
         result: dict[str, object] = {
             "id": str(lead.id),
             "short_id": lead.short_id,
@@ -765,11 +841,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             "username": f"@{lead.telegram_username}" if lead.telegram_username else "",
             "date": lead.application_at.isoformat(),
             "updated": lead.last_updated_at.isoformat(),
-            "status": (
-                lead.external_status.value
-                if user.role is UserRole.PARTNER
-                else lead.internal_status.value
-            ),
+            "status": lead.internal_status.value,
             "payment_status": lead.payment_status.value,
             "channel": channel.name if channel else "Прямой",
             "manager": format_user_name(manager),
@@ -799,30 +871,27 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             "is_assigned_manager": lead.manager_id == user.database_id,
             "banks": banks,
         }
-        if user.role is not UserRole.PARTNER:
-            result.update(
-                {
-                    "telegram_id": lead.telegram_id,
-                    "phone": lead.phone,
-                    "email": lead.email or "",
-                    "consent": lead.consent_status,
-                    "consent_at": lead.consent_at.isoformat(),
-                    "external_status": lead.external_status.value,
-                    "assignment_status": lead.assignment_status.value,
-                    "source_partner": source_partner.name if source_partner else "",
-                    "source_channel": channel.name if channel else "",
-                    "source_updated_by": format_user_name(source_updated_by),
-                    "source_updated_at": (
-                        lead.source_updated_at.isoformat() if lead.source_updated_at else None
-                    ),
-                    "manager_id": str(lead.manager_id) if lead.manager_id else None,
-                    "primary_admin_id": (
-                        str(lead.primary_admin_id) if lead.primary_admin_id else None
-                    ),
-                    "comment": lead.internal_comment or "",
-                    "answers": lead.questionnaire_answers,
-                }
-            )
+        result.update(
+            {
+                "telegram_id": lead.telegram_id,
+                "phone": lead.phone,
+                "email": lead.email or "",
+                "consent": lead.consent_status,
+                "consent_at": lead.consent_at.isoformat(),
+                "external_status": lead.external_status.value,
+                "assignment_status": lead.assignment_status.value,
+                "source_partner": source_partner.name if source_partner else "",
+                "source_channel": channel.name if channel else "",
+                "source_updated_by": format_user_name(source_updated_by),
+                "source_updated_at": (
+                    lead.source_updated_at.isoformat() if lead.source_updated_at else None
+                ),
+                "manager_id": str(lead.manager_id) if lead.manager_id else None,
+                "primary_admin_id": (str(lead.primary_admin_id) if lead.primary_admin_id else None),
+                "comment": lead.internal_comment or "",
+                "answers": lead.questionnaire_answers,
+            }
+        )
         return result
 
     @app.patch("/api/leads/{lead_id}")
@@ -931,17 +1000,30 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> list[dict[str, object]]:
         require_admin(user)
+        linked_user = aliased(User)
+        assigned_admin = aliased(User)
         async with database.session() as db_session:
             rows = await db_session.execute(
                 select(
                     Partner,
-                    User.telegram_id,
-                    User.telegram_username,
+                    linked_user.telegram_id,
+                    linked_user.telegram_username,
+                    assigned_admin.id,
+                    assigned_admin.telegram_username,
+                    assigned_admin.telegram_id,
                     func.count(Channel.id),
                 )
-                .outerjoin(User, User.id == Partner.telegram_user_id)
+                .outerjoin(linked_user, linked_user.id == Partner.telegram_user_id)
+                .outerjoin(assigned_admin, assigned_admin.id == Partner.assigned_manager_id)
                 .outerjoin(Channel, Channel.partner_id == Partner.id)
-                .group_by(Partner.id, User.telegram_id, User.telegram_username)
+                .group_by(
+                    Partner.id,
+                    linked_user.telegram_id,
+                    linked_user.telegram_username,
+                    assigned_admin.id,
+                    assigned_admin.telegram_username,
+                    assigned_admin.telegram_id,
+                )
                 .order_by(Partner.name)
             )
         return [
@@ -957,8 +1039,20 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                     else ""
                 ),
                 "channels": channel_count,
+                "assigned_admin_id": str(admin_id) if admin_id else "",
+                "assigned_admin": (
+                    f"@{admin_username}" if admin_username else (admin_telegram_id or "Не назначен")
+                ),
             }
-            for partner, telegram_id, telegram_username, channel_count in rows
+            for (
+                partner,
+                telegram_id,
+                telegram_username,
+                admin_id,
+                admin_username,
+                admin_telegram_id,
+                channel_count,
+            ) in rows
         ]
 
     @app.get("/api/channels")
@@ -1056,7 +1150,11 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> dict[str, str]:
         require_admin(user)
-        if payload.commission_percent is None and payload.telegram_username is None:
+        if (
+            payload.commission_percent is None
+            and payload.telegram_username is None
+            and not payload.update_assigned_admin
+        ):
             raise HTTPException(status_code=400, detail="Не указаны изменения")
         service = AdminCatalogService(database)
         try:
@@ -1072,6 +1170,12 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                     actor_role=user.role,
                     partner_id=partner_id,
                     telegram_username=payload.telegram_username,
+                )
+            if payload.update_assigned_admin:
+                partner = await service.update_partner_admin(
+                    actor_role=user.role,
+                    partner_id=partner_id,
+                    admin_id=payload.assigned_admin_id,
                 )
         except DomainError as error:
             raise domain_error(error) from error

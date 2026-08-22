@@ -65,6 +65,29 @@ def test_partner_channel_controls_are_present() -> None:
     assert "method:'POST'" in script and "api('/api/channels'" in script
 
 
+def test_partner_cabinet_has_section_seven_controls() -> None:
+    markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+    styles = (ASSETS_DIR / "styles.css").read_text(encoding="utf-8")
+
+    for control_id in (
+        "partner-summary",
+        "partner-period",
+        "partner-date-from",
+        "partner-date-to",
+        "partner-channel",
+        "partner-lead-status",
+        "partner-payment-status",
+        "partner-report",
+        "partner-contact",
+    ):
+        assert f'id="{control_id}"' in markup
+    assert "api(`/api/partner/cabinet?${partnerQuery()}`)" in script
+    assert "/api/partner/report.xlsx" in script
+    assert "function openPartnerLead" in script
+    assert ".scope-filter[hidden] { display: none; }" in styles
+
+
 def test_lead_cabinet_has_separate_read_only_sections() -> None:
     markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")

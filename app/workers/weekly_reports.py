@@ -38,7 +38,7 @@ async def send_partner_reports(database: Database, bot: Bot) -> int:
     for partner, telegram_id in recipients:
         try:
             report = await build_partner_report(database, partner.id)
-            document = BufferedInputFile(report, filename="rko-weekly-report.csv")
+            document = BufferedInputFile(report, filename="rko-weekly-report.xlsx")
             await bot.send_document(
                 chat_id=int(telegram_id),
                 document=document,

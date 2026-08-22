@@ -3,6 +3,7 @@ alembic==1.19.1
 asyncpg==0.31.0
 fastapi==0.116.1
 gspread==6.2.1
+openpyxl==3.1.5
 mypy==1.20.2
 pydantic-settings==2.15.0
 pytest==8.4.2

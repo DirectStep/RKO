@@ -6,8 +6,8 @@
     <meta name="theme-color" content="#f1f2f3" />
     <meta name="description" content="Локальный рабочий кабинет РКО для заявок и партнёров" />
     <title>РКО</title>
-    <link rel="stylesheet" href="/assets/styles.css?v=20260822-06" />
-    <script src="/assets/app.js?v=20260822-06" defer></script>
+    <link rel="stylesheet" href="/assets/styles.css?v=20260823-03" />
+    <script src="/assets/app.js?v=20260823-03" defer></script>
     <script src="https://telegram.org/js/telegram-web-app.js?59" async></script>
   </head>
   <body>
@@ -49,6 +49,21 @@
             </div>
           </div>
 
+          <section class="partner-summary" id="partner-summary" hidden>
+            <div class="metric-grid">
+              <button type="button" data-partner-list="active"><span>Активные лиды</span><strong id="partner-active">—</strong></button>
+              <button type="button" data-partner-list="opened"><span>Открытые банки</span><strong id="partner-opened">—</strong></button>
+              <div><span>Расчётная выплата</span><strong id="partner-estimated">—</strong></div>
+              <div><span>Подтверждено</span><strong id="partner-confirmed">—</strong></div>
+              <div><span>Выплачено</span><strong id="partner-paid">—</strong></div>
+              <div><span>Закрыто без результата</span><strong id="partner-closed">—</strong></div>
+            </div>
+            <div class="quick-actions">
+              <button type="button" id="partner-report">Скачать Excel</button>
+              <button type="button" id="partner-contact">Написать администратору</button>
+            </div>
+          </section>
+
           <button class="review-banner" type="button" id="open-duplicate-reviews" hidden>
             <span><small>Проверка данных</small><strong>Возможные дубли</strong></span>
             <b id="duplicate-count">0</b>
@@ -77,6 +92,14 @@
             <span>Показывать</span>
             <select id="lead-scope"><option value="queue">Ожидают менеджера</option><option value="mine">Только мои</option><option value="all">Все заявки</option></select>
           </label>
+          <div class="partner-filters" id="partner-filters" hidden>
+            <select id="partner-period"><option value="month">Текущий месяц</option><option value="all">За всё время</option><option value="custom">Выбрать даты</option></select>
+            <input id="partner-date-from" type="date" aria-label="Начало периода" hidden />
+            <input id="partner-date-to" type="date" aria-label="Конец периода" hidden />
+            <select id="partner-channel"><option value="">Все каналы</option></select>
+            <select id="partner-lead-status"><option value="">Все статусы заявок</option><option value="new">Новая</option><option value="in_progress">В работе</option><option value="opening_accounts">Открытие счетов</option><option value="partially_completed">Частично завершена</option><option value="completed">Завершена</option><option value="paused">На паузе</option><option value="closed_without_result">Закрыта без результата</option></select>
+            <select id="partner-payment-status"><option value="">Все выплаты</option><option value="not_calculated">Не рассчитана</option><option value="calculated">Рассчитана</option><option value="awaiting_confirmation">Ждёт подтверждения</option><option value="confirmed">Подтверждена</option><option value="in_registry">В реестре</option><option value="paid">Выплачена</option><option value="cancelled">Отменена</option></select>
+          </div>
           <div class="telegram-list" id="all-leads"></div>
         </section>
 

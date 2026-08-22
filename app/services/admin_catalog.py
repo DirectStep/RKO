@@ -171,6 +171,31 @@ class AdminCatalogService:
             partner.telegram_username = username
             return partner
 
+    async def update_partner_admin(
+        self,
+        *,
+        actor_role: UserRole,
+        partner_id: UUID,
+        admin_id: UUID | None,
+    ) -> Partner:
+        self._require_admin(actor_role)
+        async with self.database.session() as session, session.begin():
+            partner = await session.scalar(
+                select(Partner).where(Partner.id == partner_id).with_for_update()
+            )
+            if partner is None:
+                raise DomainError("Партнёр не найден")
+            if admin_id is not None:
+                admin = await session.get(User, admin_id)
+                if (
+                    admin is None
+                    or admin.role is not UserRole.ADMIN
+                    or admin.access_status is not AccessStatus.ACTIVE
+                ):
+                    raise DomainError("Можно назначить только активного администратора")
+            partner.assigned_manager_id = admin_id
+            return partner
+
     async def create_partner_activation_link(
         self,
         *,
@@ -212,9 +237,7 @@ class AdminCatalogService:
                 .limit(1)
             )
             has_drafts = await session.scalar(
-                select(LeadDraft.id)
-                .where(LeadDraft.proposed_partner_id == partner_id)
-                .limit(1)
+                select(LeadDraft.id).where(LeadDraft.proposed_partner_id == partner_id).limit(1)
             )
             if has_leads is not None or has_drafts is not None:
                 raise DomainError(

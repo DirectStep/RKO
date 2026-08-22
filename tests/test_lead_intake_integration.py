@@ -987,12 +987,18 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
             paid_at=date(2026, 8, 17),
         )
         assert payment.status is PaymentStatus.PAID
-        report = (await build_partner_report(database, ids["partner"])).decode("utf-8-sig")
-        assert lead.short_id in report
-        assert "2000.00" in report
-        assert lead.phone not in report
-        assert "10000.00" not in report
-        assert "Первичный контакт" not in report
+        from io import BytesIO
+
+        from openpyxl import load_workbook
+
+        report = await build_partner_report(database, ids["partner"])
+        sheet = load_workbook(BytesIO(report), read_only=True).active
+        values = [str(value) for row in sheet.iter_rows(values_only=True) for value in row]
+        assert lead.short_id in values
+        assert "2000" in values
+        assert lead.phone not in values
+        assert "10000" not in values
+        assert "Первичный контакт" not in values
         with pytest.raises(DomainError, match="удалить нельзя"):
             await workflow.delete_lead(actor_role=UserRole.ADMIN, lead_id=lead.id)
     finally:

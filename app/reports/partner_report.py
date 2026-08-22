@@ -1,12 +1,13 @@
-import csv
 import io
+from datetime import date
 from uuid import UUID
 
-from sqlalchemy import select
+from openpyxl import Workbook  # type: ignore[import-untyped]
+from openpyxl.styles import Font, PatternFill  # type: ignore[import-untyped]
+from openpyxl.utils import get_column_letter  # type: ignore[import-untyped]
 
 from app.database import Database
-from app.domain.enums import AssignmentStatus, PaymentStatus
-from app.models import Bank, Channel, Lead, LeadBank, Payment
+from app.services.partner_cabinet import PartnerBankData, partner_cabinet_data
 
 LEAD_STATUS_LABELS = {
     "new": "Новая",
@@ -16,6 +17,13 @@ LEAD_STATUS_LABELS = {
     "completed": "Завершена",
     "paused": "На паузе",
     "closed_without_result": "Закрыта без результата",
+}
+BANK_STATUS_LABELS = {
+    "planned": "Запланирован",
+    "in_progress": "В работе",
+    "opened": "Открыт",
+    "not_opened": "Не открыт",
+    "will_not_open": "Не будет открыт",
 }
 PAYMENT_STATUS_LABELS = {
     "not_calculated": "Не рассчитана",
@@ -28,51 +36,69 @@ PAYMENT_STATUS_LABELS = {
 }
 
 
-async def build_partner_report(database: Database, partner_id: UUID) -> bytes:
-    async with database.session() as session:
-        result = await session.execute(
-            select(Lead, Channel.name, LeadBank, Bank.name, Payment)
-            .join(Channel, Channel.id == Lead.channel_id)
-            .outerjoin(LeadBank, LeadBank.lead_id == Lead.id)
-            .outerjoin(Bank, Bank.id == LeadBank.bank_id)
-            .outerjoin(Payment, Payment.lead_bank_id == LeadBank.id)
-            .where(
-                Lead.partner_id == partner_id,
-                Lead.assignment_status == AssignmentStatus.CONFIRMED,
-                Lead.archived_at.is_(None),
-            )
-            .order_by(Lead.application_at.desc(), Bank.name)
-        )
-        report_rows = list(result)
-
-    output = io.StringIO(newline="")
-    output.write("\ufeff")
-    writer = csv.writer(output, delimiter=";")
-    writer.writerow(
-        [
-            "Заявка",
-            "Дата",
-            "Статус",
-            "Канал",
-            "Банк",
-            "Статус банка",
-            "Вознаграждение",
-            "Выплата",
-        ]
+async def build_partner_report(
+    database: Database,
+    partner_id: UUID,
+    *,
+    date_from: date | None = None,
+    date_to: date | None = None,
+) -> bytes:
+    data = await partner_cabinet_data(
+        database,
+        partner_id,
+        date_from=date_from,
+        date_to=date_to,
     )
-    for lead, channel_name, lead_bank, bank_name, payment in report_rows:
-        payment_status = payment.status if payment else PaymentStatus.NOT_CALCULATED
-        writer.writerow(
-            [
-                lead.short_id,
-                lead.application_at.date().isoformat(),
-                f"{'Повторная · ' if lead.is_repeat else ''}"
-                f"{LEAD_STATUS_LABELS[lead.external_status.value]}",
-                channel_name,
-                bank_name or "",
-                lead_bank.external_status.value if lead_bank else "",
-                lead_bank.partner_reward_fact or "" if lead_bank else "",
-                PAYMENT_STATUS_LABELS[payment_status.value],
-            ]
-        )
-    return output.getvalue().encode("utf-8")
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Заявки"
+    headers = [
+        "Заявка",
+        "Клиент",
+        "Telegram",
+        "Дата",
+        "Канал",
+        "Статус заявки",
+        "Банк",
+        "Статус банка",
+        "Расчётная выплата",
+        "Подтверждённая выплата",
+        "Статус выплаты",
+    ]
+    sheet.append(headers)
+    for cell in sheet[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="229ED9")
+    for lead in data["leads"]:
+        banks: list[PartnerBankData | None] = [*lead["banks"]]
+        if not banks:
+            banks.append(None)
+        lead_status = LEAD_STATUS_LABELS[lead["status"]]
+        if lead["is_repeat"]:
+            lead_status = f"Повторная · {lead_status}"
+        for bank in banks:
+            sheet.append(
+                [
+                    lead["short_id"],
+                    lead["name"],
+                    lead["username"],
+                    str(lead["date"])[:10],
+                    lead["channel"],
+                    lead_status,
+                    bank["bank"] if bank else "",
+                    BANK_STATUS_LABELS[bank["status"]] if bank else "",
+                    float(bank["reward_estimate"]) if bank else 0,
+                    float(bank["reward_fact"]) if bank else 0,
+                    PAYMENT_STATUS_LABELS[bank["payment_status"]] if bank else "",
+                ]
+            )
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = sheet.dimensions
+    for column, width in enumerate((15, 26, 20, 13, 22, 24, 20, 20, 20, 24, 22), start=1):
+        sheet.column_dimensions[get_column_letter(column)].width = width
+    for row in sheet.iter_rows(min_row=2, min_col=9, max_col=10):
+        for cell in row:
+            cell.number_format = '#,##0.00 "₽"'
+    output = io.BytesIO()
+    workbook.save(output)
+    return output.getvalue()

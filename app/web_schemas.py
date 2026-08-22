@@ -26,6 +26,8 @@ class PartnerAccessUpdate(BaseModel):
 class PartnerUpdate(BaseModel):
     commission_percent: Decimal | None = Field(default=None, ge=0, le=100)
     telegram_username: str | None = None
+    assigned_admin_id: UUID | None = None
+    update_assigned_admin: bool = False
 
 
 class ChannelCreate(BaseModel):

@@ -136,6 +136,37 @@ def cabinet_keyboard(mini_app_url: str = "") -> InlineKeyboardMarkup | None:
     )
 
 
+def partner_menu_keyboard(mini_app_url: str = "") -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if mini_app_url.startswith("https://"):
+        rows.append(
+            [InlineKeyboardButton(text="Открыть кабинет", web_app=WebAppInfo(url=mini_app_url))]
+        )
+    rows.extend(
+        [
+            [InlineKeyboardButton(text="Сводка", callback_data="partner:summary")],
+            [
+                InlineKeyboardButton(text="Мои лиды", callback_data="partner:leads"),
+                InlineKeyboardButton(text="Активные", callback_data="partner:active"),
+            ],
+            [
+                InlineKeyboardButton(text="Открытые банки", callback_data="partner:opened"),
+                InlineKeyboardButton(text="Выплаты", callback_data="partner:payments"),
+            ],
+            [
+                InlineKeyboardButton(text="Каналы", callback_data="partner:channels"),
+                InlineKeyboardButton(text="Excel-отчёт", callback_data="partner:report"),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Связаться с администратором", callback_data="partner:contact"
+                )
+            ],
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def admin_leads_keyboard(leads: list[tuple[str, str]]) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text=label, callback_data=f"admin:lead:{lead_id}")]

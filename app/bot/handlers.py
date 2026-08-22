@@ -1,11 +1,12 @@
 import logging
 from datetime import UTC, datetime
+from typing import cast
 from uuid import UUID
 
 from aiogram import Bot, F, Router
 from aiogram.filters import CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
+from aiogram.types import BufferedInputFile, CallbackQuery, Message, ReplyKeyboardRemove
 from sqlalchemy import select
 
 from app.bot.keyboards import (
@@ -17,6 +18,7 @@ from app.bot.keyboards import (
     consent_document_keyboard,
     consent_keyboard,
     continue_keyboard,
+    partner_menu_keyboard,
     phone_keyboard,
     resubmit_application_keyboard,
     retry_submission_keyboard,
@@ -35,8 +37,10 @@ from app.domain.intake import (
     normalize_phone,
 )
 from app.domain.operations import DomainError
-from app.models import Channel, Lead
+from app.models import Channel, Lead, Partner, User
+from app.reports.partner_report import build_partner_report
 from app.services.lead_intake import LeadIntakeService, SubmissionStatus
+from app.services.partner_cabinet import partner_cabinet_data, partner_contact
 from app.services.user_access import UserAccessService
 from app.services.workflow import WorkflowService
 
@@ -58,11 +62,26 @@ async def has_registered_lead(database: Database, telegram_id: str) -> bool:
 
 async def get_current_lead(database: Database, telegram_id: str) -> Lead | None:
     async with database.session() as session:
-        return await session.scalar(
-            select(Lead)
-            .where(Lead.telegram_id == telegram_id, Lead.archived_at.is_(None))
-            .order_by(Lead.application_at.desc())
-            .limit(1)
+        return cast(
+            Lead | None,
+            await session.scalar(
+                select(Lead)
+                .where(Lead.telegram_id == telegram_id, Lead.archived_at.is_(None))
+                .order_by(Lead.application_at.desc())
+                .limit(1)
+            ),
+        )
+
+
+async def get_partner(database: Database, telegram_id: str) -> Partner | None:
+    async with database.session() as session:
+        return cast(
+            Partner | None,
+            await session.scalar(
+                select(Partner)
+                .join(User, User.id == Partner.telegram_user_id)
+                .where(User.telegram_id == telegram_id, Partner.active.is_(True))
+            ),
         )
 
 
@@ -99,7 +118,7 @@ async def start(
             return
         await message.answer(
             f"Партнёрский кабинет «{partner.name}» активирован.",
-            reply_markup=cabinet_keyboard(settings.mini_app_url),
+            reply_markup=partner_menu_keyboard(settings.mini_app_url),
         )
         return
     if role is UserRole.ADMIN:
@@ -118,7 +137,7 @@ async def start(
         await message.answer(
             "Партнёрский кабинет. Здесь видны только подтверждённые заявки "
             "твоего источника — без личных данных клиента.",
-            reply_markup=cabinet_keyboard(settings.mini_app_url),
+            reply_markup=partner_menu_keyboard(settings.mini_app_url),
         )
         return
     current_lead = await get_current_lead(database, str(user.id))
@@ -170,6 +189,153 @@ async def start(
     elif requested_referral_code:
         start_text = f"Эта партнёрская ссылка недействительна или отключена.\n\n{START_TEXT}"
     await message.answer(start_text, reply_markup=continue_keyboard())
+
+
+async def partner_for_callback(callback: CallbackQuery, database: Database) -> Partner | None:
+    partner = await get_partner(database, str(callback.from_user.id))
+    if partner is None:
+        await callback.answer("Партнёрский кабинет не найден", show_alert=True)
+    return partner
+
+
+@router.callback_query(F.data == "partner:summary")
+async def partner_summary(callback: CallbackQuery, database: Database, settings: Settings) -> None:
+    partner = await partner_for_callback(callback, database)
+    if partner is None or callback.message is None:
+        return
+    metrics = (await partner_cabinet_data(database, partner.id))["metrics"]
+    await callback.message.answer(
+        "Сводка партнёра\n\n"
+        f"Подтверждённые лиды: {metrics['total']}\n"
+        f"Приняты в работу: {metrics['accepted']}\n"
+        f"Активные: {metrics['active']}\n"
+        f"Завершённые: {metrics['completed']}\n"
+        f"Открытые банки: {metrics['opened_banks']}\n"
+        f"Расчётная выплата: {metrics['estimated_payout']} ₽\n"
+        f"Подтверждено: {metrics['confirmed_payout']} ₽\n"
+        f"Выплачено: {metrics['paid']} ₽",
+        reply_markup=partner_menu_keyboard(settings.mini_app_url),
+    )
+    await callback.answer()
+
+
+async def send_partner_leads(
+    callback: CallbackQuery,
+    database: Database,
+    settings: Settings,
+    *,
+    active_only: bool,
+) -> None:
+    partner = await partner_for_callback(callback, database)
+    if partner is None or callback.message is None:
+        return
+    leads = (await partner_cabinet_data(database, partner.id))["leads"]
+    if active_only:
+        leads = [
+            lead
+            for lead in leads
+            if lead["status"]
+            in {"new", "in_progress", "opening_accounts", "partially_completed", "paused"}
+        ]
+    lines = [
+        f"{lead['short_id']} · {lead['name']} · {lead['channel']} · {lead['status']}"
+        for lead in leads[:20]
+    ]
+    title = "Активные лиды" if active_only else "Мои лиды"
+    suffix = (
+        f"\n\nПоказаны первые 20 из {len(leads)}. Полный список — в кабинете."
+        if len(leads) > 20
+        else ""
+    )
+    await callback.message.answer(
+        f"{title}\n\n" + ("\n".join(lines) if lines else "Пока пусто") + suffix,
+        reply_markup=partner_menu_keyboard(settings.mini_app_url),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "partner:leads")
+async def partner_leads(callback: CallbackQuery, database: Database, settings: Settings) -> None:
+    await send_partner_leads(callback, database, settings, active_only=False)
+
+
+@router.callback_query(F.data == "partner:active")
+async def partner_active(callback: CallbackQuery, database: Database, settings: Settings) -> None:
+    await send_partner_leads(callback, database, settings, active_only=True)
+
+
+@router.callback_query(F.data.in_({"partner:opened", "partner:payments"}))
+async def partner_finances(callback: CallbackQuery, database: Database, settings: Settings) -> None:
+    partner = await partner_for_callback(callback, database)
+    if partner is None or callback.message is None:
+        return
+    data = await partner_cabinet_data(database, partner.id)
+    if callback.data == "partner:opened":
+        rows = [
+            f"{lead['short_id']} · {bank['bank']} · {bank['reward_fact']} ₽"
+            for lead in data["leads"]
+            for bank in lead["banks"]
+            if bank["status"] == "opened"
+        ]
+        text = "Открытые банки\n\n" + ("\n".join(rows[:30]) if rows else "Пока пусто")
+    else:
+        metrics = data["metrics"]
+        text = (
+            "Выплаты\n\n"
+            f"Расчётная: {metrics['estimated_payout']} ₽\n"
+            f"Подтверждено: {metrics['confirmed_payout']} ₽\n"
+            f"Выплачено: {metrics['paid']} ₽"
+        )
+    await callback.message.answer(text, reply_markup=partner_menu_keyboard(settings.mini_app_url))
+    await callback.answer()
+
+
+@router.callback_query(F.data == "partner:channels")
+async def partner_channels(callback: CallbackQuery, database: Database, settings: Settings) -> None:
+    partner = await partner_for_callback(callback, database)
+    if partner is None or callback.message is None:
+        return
+    async with database.session() as session:
+        channels = list(
+            await session.scalars(
+                select(Channel).where(Channel.partner_id == partner.id).order_by(Channel.name)
+            )
+        )
+    lines = [f"{channel.name}:\n{channel.referral_link}" for channel in channels]
+    await callback.message.answer(
+        "Каналы\n\n"
+        + ("\n\n".join(lines) if lines else "Каналов пока нет. Добавить можно в мини-приложении."),
+        reply_markup=partner_menu_keyboard(settings.mini_app_url),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "partner:contact")
+async def partner_contact_handler(callback: CallbackQuery, database: Database) -> None:
+    partner = await partner_for_callback(callback, database)
+    if partner is None or callback.message is None:
+        return
+    contact = await partner_contact(database, partner.id)
+    text = f"Твой администратор: {contact['name']}"
+    if contact["url"]:
+        text += f"\n{contact['url']}"
+    else:
+        text += "\nПока не назначен. Напиши в общий чат команды."
+    await callback.message.answer(text)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "partner:report")
+async def partner_report_handler(callback: CallbackQuery, database: Database) -> None:
+    partner = await partner_for_callback(callback, database)
+    if partner is None or callback.message is None:
+        return
+    report = await build_partner_report(database, partner.id)
+    await callback.message.answer_document(
+        BufferedInputFile(report, filename="rko-partner-report.xlsx"),
+        caption="Отчёт за всё время. Произвольный период можно выбрать в мини-приложении.",
+    )
+    await callback.answer()
 
 
 @router.callback_query(F.data == "application:begin")

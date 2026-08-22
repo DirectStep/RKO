@@ -2,7 +2,7 @@ function telegramWebApp(){return window.Telegram?.WebApp}
 function telegramInitData(){return telegramWebApp()?.initData||new URLSearchParams(window.location.hash.slice(1)).get('tgWebAppData')||''}
 telegramWebApp()?.ready(); telegramWebApp()?.expand()
 
-const state = { session: null, dashboard: {}, leads: [], partners: [], channels: [], banks: [], staff: [], duplicates: [], leadApplication: null, leadBanks: [], leadScope: 'queue' }
+const state = { session: null, dashboard: {}, leads: [], partners: [], channels: [], banks: [], staff: [], duplicates: [], leadApplication: null, leadBanks: [], leadScope: 'queue', partnerData: null, currentScreen: 'summary' }
 const leadLabels = { new:'Новая',manager_assigned:'Менеджер назначен',awaiting_first_contact:'Ждёт звонка',contacted:'Связались',awaiting_data:'Ждём данные',data_received:'Данные получены',selecting_banks:'Подбираем банки',preparing_applications:'Готовим заявки',applications_sent:'Заявки отправлены',opening_accounts:'Открытие счетов',partially_opened:'Часть счетов открыта',all_planned_opened:'Счета открыты',paused:'На паузе',no_response:'Нет ответа',lead_refused:'Отказ клиента',not_eligible:'Не подходит',completed:'Завершена',in_progress:'В работе',partially_completed:'Частично завершена',closed_without_result:'Закрыта без результата' }
 const internalLeadStatuses = ['new','manager_assigned','awaiting_first_contact','contacted','awaiting_data','data_received','selecting_banks','preparing_applications','applications_sent','opening_accounts','partially_opened','all_planned_opened','paused','no_response','lead_refused','not_eligible','completed']
 const questionLabels = { adult:'Совершеннолетие',has_ip:'ИП',city:'Город',full_name:'ФИО',email:'E-mail',has_bankruptcy_or_arrests:'Банкротства или аресты',is_civil_servant:'Госслужащий',has_social_benefits:'Социальные выплаты',no_bankruptcy:'Нет банкротств или арестов',not_civil_servant:'Не госслужащий',no_social_benefits:'Нет социальных выплат' }
@@ -50,6 +50,39 @@ function leadRow(lead){
 }
 function renderLeads(items,target){ target.innerHTML=items.length?items.map(leadRow).join(''):'<p class="empty">Заявок пока нет</p>' }
 function updateLeadCount(count){ document.querySelector('#lead-count').textContent=`Показано: ${count}` }
+function monthStart(){ const now=new Date();return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01` }
+function partnerQuery(){
+  const params=new URLSearchParams()
+  const period=document.querySelector('#partner-period').value
+  if(period==='month')params.set('date_from',monthStart())
+  if(period==='custom'){
+    const from=document.querySelector('#partner-date-from').value,to=document.querySelector('#partner-date-to').value
+    if(from)params.set('date_from',from);if(to)params.set('date_to',to)
+  }
+  for(const [id,key] of [['partner-channel','channel_id'],['partner-lead-status','lead_status'],['partner-payment-status','payment_status']]){const value=document.querySelector(`#${id}`).value;if(value)params.set(key,value)}
+  return params.toString()
+}
+function renderPartnerSummary(){
+  const metrics=state.partnerData.metrics
+  document.querySelector('#partner-summary').hidden=false
+  document.querySelector('#partner-filters').hidden=false
+  document.querySelector('#partner-active').textContent=metrics.active
+  document.querySelector('#partner-opened').textContent=metrics.opened_banks
+  document.querySelector('#partner-estimated').textContent=money(metrics.estimated_payout)
+  document.querySelector('#partner-confirmed').textContent=money(metrics.confirmed_payout)
+  document.querySelector('#partner-paid').textContent=money(metrics.paid)
+  document.querySelector('#partner-closed').textContent=metrics.closed
+  document.querySelector('#lead-search').placeholder='Имя, username или номер'
+  const channelSelect=document.querySelector('#partner-channel'), selected=channelSelect.value
+  channelSelect.innerHTML='<option value="">Все каналы</option>'+state.channels.map(channel=>`<option value="${channel.id}">${esc(channel.name)}</option>`).join('')
+  channelSelect.value=selected
+  const custom=document.querySelector('#partner-period').value==='custom'
+  document.querySelector('#partner-date-from').hidden=!custom
+  document.querySelector('#partner-date-to').hidden=!custom
+  document.querySelector('.primary-stat span').textContent='Подтверждённые лиды'
+  const labels=document.querySelectorAll('.stat-grid span')
+  ;['Приняты в работу','Активные','Банки в плане','Завершённые'].forEach((label,index)=>labels[index].textContent=label)
+}
 function render(){
   const admin=state.session.role==='admin', partnerRole=state.session.role==='partner', employee=admin||state.session.role==='manager'
   document.querySelector('#loading-state').hidden=true
@@ -70,7 +103,8 @@ function render(){
   document.querySelector('#partners-list').innerHTML=partnerRole?(state.channels.length?state.channels.map(channel=>`<button class="list-row" type="button" data-copy-channel="${esc(channel.link)}"><span class="row-icon partner">${initials(channel.name)||'К'}</span><span class="row-content"><span class="row-title"><strong>${esc(channel.name)}</strong></span><span class="row-subtitle">${esc(channel.link)}</span></span><b>Скопировать</b></button>`).join(''):'<p class="empty">Добавь первый канал и получи ссылку для лидов</p>'):(state.partners.length?state.partners.map(p=>`<button class="list-row" type="button" data-partner="${p.id}"><span class="row-icon partner">${initials(p.name)||'П'}</span><span class="row-content"><span class="row-title"><strong>${esc(p.name)}</strong></span><span class="row-subtitle">${esc(p.commission)}% · каналов: ${p.channels}</span></span><i class="status-dot ${p.active?'':'off'}"></i></button>`).join(''):'<p class="empty">Партнёров пока нет</p>')
   document.querySelector('#banks-list').innerHTML=state.banks.length?state.banks.map(b=>`<button class="list-row" type="button" data-bank="${b.id}"><span class="row-icon">Б</span><span class="row-content"><span class="row-title"><strong>${esc(b.name)}</strong></span><span class="row-subtitle">${b.active?'Можно добавлять в заявки':'Отключён'}</span></span><i class="status-dot ${b.active?'':'off'}"></i></button>`).join(''):'<p class="empty">Добавьте первый банк</p>'
   document.querySelector('#staff-list').innerHTML=state.staff.length?state.staff.map(p=>`<button class="list-row" type="button" data-staff="${p.id}"><span class="row-icon partner">${p.role==='admin'?'А':'М'}</span><span class="row-content"><span class="row-title"><strong>${esc(p.username||p.telegram_id)}</strong></span><span class="row-subtitle">${p.role==='admin'?'Администратор':'Менеджер'} · ${p.status==='pending'?'ожидает первого входа':p.status==='active'?'доступ включён':'доступ отключён'}</span></span><i class="status-dot ${p.status==='active'?'':'off'}"></i></button>`).join(''):'<p class="empty">Сотрудников пока нет</p>'
-  if(!document.querySelector('.screen.is-active'))showScreen('summary')
+  if(partnerRole)renderPartnerSummary();else{document.querySelector('#partner-summary').hidden=true;document.querySelector('#partner-filters').hidden=true}
+  if(!document.querySelector('.screen.is-active'))showScreen(state.currentScreen)
 }
 function renderLeadCabinet(){
   const application=state.leadApplication
@@ -111,6 +145,13 @@ async function load(){
     if(state.session.role==='lead'){
       const [leadApplication,leadBanks]=await Promise.all([api('/api/lead/application'),api('/api/lead/banks')])
       Object.assign(state,{leadApplication,leadBanks});renderLeadCabinet();return
+    }
+    if(state.session.role==='partner'){
+      state.channels=await api('/api/channels')
+      state.partnerData=await api(`/api/partner/cabinet?${partnerQuery()}`)
+      const metrics=state.partnerData.metrics
+      Object.assign(state,{leads:state.partnerData.leads,dashboard:{total:metrics.total,new:metrics.accepted,active:metrics.active,unresolved:metrics.planned_banks,repeats:metrics.completed,duplicates:0}})
+      render();return
     }
     const employee=['admin','manager'].includes(state.session.role)
     const dashboard=await api('/api/dashboard')
@@ -160,6 +201,7 @@ function bankCard(item,employee,admin){
   return `<article class="bank-card" data-bank-card="${item.id}"><header><h4>${esc(item.bank)}</h4><span>${esc(payLabels[item.payment_status]||item.payment_status)}</span></header>${clientView}${edit}<div class="value-row"><span>Вознаграждение</span><strong class="money">${money(item.reward_fact||item.reward_estimate)}</strong></div><div class="button-stack">${confirm}${next}</div></article>`
 }
 async function openLead(id){
+  if(state.session.role==='partner')return openPartnerLead(id)
   try{
     const lead=await api(`/api/leads/${id}`), partner=state.session.role==='partner', admin=state.session.role==='admin', editable=!partner&&!lead.archived
     const managerRole=state.session.role==='manager'
@@ -181,6 +223,17 @@ async function openLead(id){
     openSheet(lead.name,`${lead.short_id} · ${lead.is_repeat?'Повторная · ':''}${lead.archived?'Архив · ':''}${workflowLabels[lead.workflow_stage]||leadLabels[lead.status]||lead.status}`,`${contacts}${workflow}${application}${statusEditor}${questionnaire}${history}${edit}${admin&&!lead.archived?sourceCard(lead):''}<div class="list-heading"><h3>Банки</h3>${canManageBanks?'<button id="add-lead-bank">Добавить</button>':''}</div>${banks||'<p class="empty">Банки не добавлены</p>'}`)
     bindLeadActions(lead,admin)
   }catch(error){ toast(error.message) }
+}
+function openPartnerLead(id){
+  const lead=state.partnerData.leads.find(item=>item.id===id)
+  if(!lead)return toast('Заявка не найдена')
+  const username=String(lead.username||'').replace(/^@/,'')
+  const telegram=/^[A-Za-z0-9_]{5,}$/.test(username)?`<a class="contact-row" href="https://t.me/${esc(username)}" target="_blank" rel="noopener"><span><small>Telegram клиента</small><strong>@${esc(username)}</strong></span><b>Открыть</b></a>`:'<div class="value-row"><span>Telegram клиента</span><strong>Не указан</strong></div>'
+  const contact=state.partnerData.contact
+  const admin=contact.url?`<a class="contact-row" href="${esc(contact.url)}" target="_blank" rel="noopener"><span><small>Ваш администратор</small><strong>${esc(contact.name)}</strong></span><b>Написать</b></a>`:`<div class="value-row"><span>Ваш администратор</span><strong>Ещё не назначен</strong></div>`
+  const counts=lead.bank_counts||{}
+  const banks=lead.banks.map(bank=>`<article class="bank-card"><header><h4>${esc(bank.bank)}</h4><span>${esc(payLabels[bank.payment_status]||bank.payment_status)}</span></header><div class="value-row"><span>Статус банка</span><strong>${esc(bankLabels[bank.status]||bank.status)}</strong></div><div class="value-row"><span>Расчётная выплата</span><strong>${money(bank.reward_estimate)}</strong></div><div class="value-row"><span>Подтверждённая выплата</span><strong>${money(bank.reward_fact)}</strong></div></article>`).join('')
+  openSheet(lead.name,`${lead.short_id} · ${lead.is_repeat?'Повторная · ':''}${leadLabels[lead.status]||lead.status}`,`<section class="detail-section"><h3>Карточка лида</h3><div class="value-row"><span>Номер</span><strong>${esc(lead.short_id)}</strong></div><div class="value-row"><span>Дата заявки</span><strong>${dateTime(lead.date)}</strong></div><div class="value-row"><span>Последнее обновление</span><strong>${dateTime(lead.updated)}</strong></div><div class="value-row"><span>Канал</span><strong>${esc(lead.channel)}</strong></div><div class="value-row"><span>Статус</span><strong>${esc(leadLabels[lead.status]||lead.status)}</strong></div>${telegram}${admin}</section><section class="detail-section"><h3>Банки и выплаты</h3><div class="value-row"><span>Открыто / в работе / запланировано</span><strong>${counts.opened||0} / ${counts.in_progress||0} / ${counts.planned||0}</strong></div><div class="value-row"><span>Не будет открыто</span><strong>${counts.will_not_open||0}</strong></div><div class="value-row"><span>Расчётная выплата всего</span><strong>${money(lead.reward_estimate)}</strong></div><div class="value-row"><span>Подтверждено всего</span><strong>${money(lead.reward_fact)}</strong></div></section>${banks||'<p class="empty">Банки пока не добавлены</p>'}`)
 }
 function bindLeadActions(lead,admin){
   document.querySelector('#claim-admin')?.addEventListener('click',async()=>{await api(`/api/leads/${lead.id}/claim-admin`,{method:'POST',body:'{}'});toast('Заявка закреплена за тобой');await load();await openLead(lead.id)})
@@ -204,7 +257,9 @@ function openPartner(id){
   const links=channels.length?channels.map(channel=>`<a class="contact-row" href="${esc(channel.link)}" target="_blank" rel="noopener"><span><small>${esc(channel.name)}</small><strong>${esc(channel.link)}</strong></span><b>Открыть</b></a>`).join(''):'<p class="empty">Каналов пока нет</p>'
   const username=String(p.telegram_username||'').replace(/^@/,'')
   const telegram=username?`@${username}${p.telegram_id?` · ID ${p.telegram_id}`:''}`:p.telegram_id?`ID ${p.telegram_id}`:'Не привязан'
-  openSheet(p.name,'Партнёр и каналы',`<section class="detail-section"><h3>Реферальные ссылки</h3>${links}</section><section class="form-card"><h3>Настройки партнёра</h3><label class="field"><span>Процент партнёра</span><input id="partner-commission" inputmode="decimal" value="${esc(p.commission)}"></label><button class="secondary-button inset-button" id="save-commission">Сохранить процент</button><div class="value-row"><span>Telegram</span><strong>${esc(telegram)}</strong></div><label class="field"><span>Telegram ID</span><input id="partner-id" inputmode="numeric" value="${esc(p.telegram_id||'')}" placeholder="Например, 123456789"></label><label class="field"><span>Username без @</span><input id="partner-user" value="${esc(username)}" placeholder="Например, gerasimov"></label><p class="field-note">Username привяжется при первом входе партнёра. Telegram ID можно указать сразу, если он известен.</p><button class="primary-button inset-button" id="save-partner">Сохранить доступ</button></section><section class="destructive-section"><button class="danger-button" id="show-remove-partner">Убрать партнёра</button><div id="remove-partner-confirm" hidden><p>Партнёр и его каналы будут удалены. Если уже есть заявки, удаление не выполнится.</p><div class="button-stack"><button class="danger-button" id="remove-partner">Да, удалить</button><button class="secondary-button" id="cancel-remove-partner">Отмена</button></div></div></section>`)
+  const admins=state.staff.filter(item=>item.role==='admin'&&item.status==='active').map(item=>`<option value="${item.id}" ${p.assigned_admin_id===item.id?'selected':''}>${esc(item.username||item.telegram_id)}</option>`).join('')
+  openSheet(p.name,'Партнёр и каналы',`<section class="detail-section"><h3>Реферальные ссылки</h3>${links}</section><section class="form-card"><h3>Настройки партнёра</h3><label class="field"><span>Ответственный администратор</span><select id="partner-admin"><option value="">Не назначен</option>${admins}</select></label><button class="secondary-button inset-button" id="save-partner-admin">Сохранить администратора</button><label class="field"><span>Процент партнёра</span><input id="partner-commission" inputmode="decimal" value="${esc(p.commission)}"></label><button class="secondary-button inset-button" id="save-commission">Сохранить процент</button><div class="value-row"><span>Telegram</span><strong>${esc(telegram)}</strong></div><label class="field"><span>Telegram ID</span><input id="partner-id" inputmode="numeric" value="${esc(p.telegram_id||'')}" placeholder="Например, 123456789"></label><label class="field"><span>Username без @</span><input id="partner-user" value="${esc(username)}" placeholder="Например, gerasimov"></label><p class="field-note">Username привяжется при первом входе партнёра. Telegram ID можно указать сразу, если он известен.</p><button class="primary-button inset-button" id="save-partner">Сохранить доступ</button></section><section class="destructive-section"><button class="danger-button" id="show-remove-partner">Убрать партнёра</button><div id="remove-partner-confirm" hidden><p>Партнёр и его каналы будут удалены. Если уже есть заявки, удаление не выполнится.</p><div class="button-stack"><button class="danger-button" id="remove-partner">Да, удалить</button><button class="secondary-button" id="cancel-remove-partner">Отмена</button></div></div></section>`)
+  document.querySelector('#save-partner-admin').addEventListener('click',async()=>{const value=document.querySelector('#partner-admin').value;await api(`/api/partners/${id}`,{method:'PATCH',body:JSON.stringify({assigned_admin_id:value||null,update_assigned_admin:true})});toast('Администратор сохранён');await load();openPartner(id)})
   document.querySelector('#save-commission').addEventListener('click',async()=>{await api(`/api/partners/${id}`,{method:'PATCH',body:JSON.stringify({commission_percent:document.querySelector('#partner-commission').value.replace(',','.')})});toast('Процент сохранён');await load();openPartner(id)})
   document.querySelector('#save-partner').addEventListener('click',async()=>{const telegramId=document.querySelector('#partner-id').value.trim(),telegramUsername=document.querySelector('#partner-user').value.trim();if(telegramId){await api(`/api/partners/${id}/access`,{method:'PUT',body:JSON.stringify({telegram_id:telegramId,telegram_username:telegramUsername||null})});toast('Доступ настроен')}else{if(!telegramUsername)return toast('Укажи username или Telegram ID');await api(`/api/partners/${id}`,{method:'PATCH',body:JSON.stringify({telegram_username:telegramUsername})});toast('Username сохранён')}await load();openPartner(id)})
   document.querySelector('#show-remove-partner').addEventListener('click',()=>{document.querySelector('#show-remove-partner').hidden=true;document.querySelector('#remove-partner-confirm').hidden=false})
@@ -229,7 +284,7 @@ function confirmDuplicateResolution(item,resolution){
   document.querySelector('#confirm-duplicate-resolution').addEventListener('click',async()=>{await api(`/api/duplicate-reviews/${item.id}/resolve`,{method:'POST',body:JSON.stringify({resolution})});toast('Решение сохранено');await load();openDuplicateQueue()})
   document.querySelector('#cancel-duplicate-resolution').addEventListener('click',()=>openDuplicate(item.id))
 }
-function showScreen(name){ document.querySelectorAll('.screen').forEach(x=>x.classList.toggle('is-active',x.id===`${name}-screen`));document.querySelectorAll('[data-screen]').forEach(x=>x.classList.toggle('is-active',x.dataset.screen===name));window.scrollTo({top:0,behavior:'smooth'}) }
+function showScreen(name){ state.currentScreen=name;document.querySelectorAll('.screen').forEach(x=>x.classList.toggle('is-active',x.id===`${name}-screen`));document.querySelectorAll('[data-screen]').forEach(x=>x.classList.toggle('is-active',x.dataset.screen===name));window.scrollTo({top:0,behavior:'smooth'}) }
 
 document.addEventListener('click',async event=>{ const lead=event.target.closest('[data-lead]'),partner=event.target.closest('[data-partner]'),channel=event.target.closest('[data-copy-channel]'),bank=event.target.closest('[data-bank]'),staff=event.target.closest('[data-staff]'),duplicate=event.target.closest('[data-duplicate]');try{if(lead)await openLead(lead.dataset.lead);if(partner)openPartner(partner.dataset.partner);if(channel)await copyText(channel.dataset.copyChannel);if(bank&&state.session.role==='admin'){await api(`/api/banks/${bank.dataset.bank}/toggle`,{method:'POST'});toast('Статус банка изменён');await load()}if(staff&&state.session.role==='admin'){await api(`/api/staff/${staff.dataset.staff}/toggle`,{method:'POST'});toast('Доступ изменён');await load()}if(duplicate)openDuplicate(duplicate.dataset.duplicate)}catch(error){toast(error.message)} })
 document.querySelectorAll('[data-screen]').forEach(x=>x.addEventListener('click',()=>showScreen(x.dataset.screen)))
@@ -237,7 +292,13 @@ document.querySelectorAll('[data-go]').forEach(x=>x.addEventListener('click',()=
 document.querySelector('#close-sheet').addEventListener('click',closeSheet);document.querySelector('#sheet-backdrop').addEventListener('click',closeSheet);document.querySelector('#retry-button').addEventListener('click',load)
 document.querySelector('#lead-search').addEventListener('input',event=>{const q=event.target.value.trim().toLowerCase(),items=state.leads.filter(x=>`${x.name} ${x.phone||''} ${x.username||''} ${x.short_id}`.toLowerCase().includes(q));renderLeads(items,document.querySelector('#all-leads'));updateLeadCount(items.length)})
 document.querySelector('#lead-scope').addEventListener('change',async event=>{state.leadScope=event.target.value;await load()})
-document.querySelector('#download-report').addEventListener('click',async()=>{try{const response=await fetch('/api/reports/leads.csv',{headers:{'X-Telegram-Init-Data':telegramInitData()}});if(!response.ok)throw new Error('Не удалось сформировать отчёт');const link=document.createElement('a');link.href=URL.createObjectURL(await response.blob());link.download='rko-leads.csv';link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);toast('Отчёт сформирован')}catch(error){toast(error.message)}})
+async function downloadReport(){try{const partner=state.session?.role==='partner',path=partner?`/api/partner/report.xlsx?${partnerQuery()}`:'/api/reports/leads.csv',response=await fetch(path,{headers:{'X-Telegram-Init-Data':telegramInitData()}});if(!response.ok)throw new Error('Не удалось сформировать отчёт');const link=document.createElement('a');link.href=URL.createObjectURL(await response.blob());link.download=partner?'rko-partner-report.xlsx':'rko-leads.csv';link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);toast('Отчёт сформирован')}catch(error){toast(error.message)}}
+document.querySelector('#download-report').addEventListener('click',downloadReport)
+document.querySelector('#partner-report').addEventListener('click',downloadReport)
+document.querySelector('#partner-contact').addEventListener('click',()=>{const url=state.partnerData?.contact?.url;if(!url)return toast('Администратор ещё не назначен');const tg=telegramWebApp();tg?.openTelegramLink?tg.openTelegramLink(url):window.open(url,'_blank','noopener')})
+document.querySelectorAll('#partner-filters select').forEach(select=>select.addEventListener('change',load))
+document.querySelectorAll('#partner-date-from, #partner-date-to').forEach(input=>input.addEventListener('change',load))
+document.querySelectorAll('[data-partner-list]').forEach(button=>button.addEventListener('click',()=>{const mode=button.dataset.partnerList;let items=state.leads;if(mode==='active')items=items.filter(lead=>['new','in_progress','opening_accounts','partially_completed','paused'].includes(lead.status));if(mode==='opened')items=items.filter(lead=>Number(lead.bank_counts?.opened||0)>0);renderLeads(items,document.querySelector('#all-leads'));updateLeadCount(items.length);showScreen('leads')}))
 document.querySelector('#open-google-sheet').addEventListener('click',()=>{const url=state.session?.google_sheet_url;if(!url)return;const tg=telegramWebApp();tg?.openLink?tg.openLink(url):window.open(url,'_blank','noopener')})
 document.querySelector('#open-duplicate-reviews').addEventListener('click',openDuplicateQueue)
 document.querySelector('#add-bank-button').addEventListener('click',()=>{openSheet('Новый банк','Справочник','<section class="form-card"><label class="field"><span>Название</span><input id="new-bank"></label></section><button class="primary-button" id="create-bank">Добавить</button>');document.querySelector('#create-bank').addEventListener('click',async()=>{await api('/api/banks',{method:'POST',body:JSON.stringify({name:document.querySelector('#new-bank').value})});toast('Банк добавлен');closeSheet();await load()})})
