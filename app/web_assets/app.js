@@ -107,8 +107,11 @@ async function load(){
     }
     const employee=['admin','manager'].includes(state.session.role)
     const [dashboard,loadedLeads]=await Promise.all([api('/api/dashboard'),api(`/api/leads${state.leadScope==='mine'?'?mine=true':''}`)])
-    const [partners,channels,banks,staff,duplicates]=await Promise.all([state.session.role==='admin'?api('/api/partners'):[],['admin','partner'].includes(state.session.role)?api('/api/channels'):[],employee?api('/api/banks'):[],employee?api('/api/staff'):[],state.session.role==='admin'?api('/api/duplicate-reviews'):[]])
-    const leads=state.session.role==='manager'&&state.leadScope==='queue'?loadedLeads.filter(lead=>lead.workflow_stage==='awaiting_manager'):loadedLeads; Object.assign(state,{dashboard,leads,partners,channels,banks,staff,duplicates}); render()
+    const leads=state.session.role==='manager'&&state.leadScope==='queue'?loadedLeads.filter(lead=>lead.workflow_stage==='awaiting_manager'):loadedLeads
+    Object.assign(state,{dashboard,leads});render()
+    const optional=await Promise.allSettled([state.session.role==='admin'?api('/api/partners'):[],['admin','partner'].includes(state.session.role)?api('/api/channels'):[],employee?api('/api/banks'):[],employee?api('/api/staff'):[],state.session.role==='admin'?api('/api/duplicate-reviews'):[]])
+    const [partners,channels,banks,staff,duplicates]=optional.map((result,index)=>result.status==='fulfilled'?result.value:[state.partners,state.channels,state.banks,state.staff,state.duplicates][index])
+    Object.assign(state,{partners,channels,banks,staff,duplicates});render()
   }catch(error){ document.querySelector('#loading-state').hidden=true; document.querySelector('.tabbar').hidden=true; document.querySelectorAll('.screen').forEach(x=>x.classList.remove('is-active')); document.querySelector('#error-message').textContent=error.message; document.querySelector('#error-state').hidden=false }
 }
 

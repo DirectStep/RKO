@@ -113,3 +113,5 @@ def test_mini_app_limits_initial_requests_and_times_out() -> None:
     assert "controller.abort(),15000" in script
     assert "Сервер отвечает слишком долго" in script
     assert "const [dashboard,loadedLeads]=await Promise.all" in script
+    assert "Object.assign(state,{dashboard,leads});render()" in script
+    assert "Promise.allSettled" in script
