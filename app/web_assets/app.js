@@ -10,9 +10,15 @@ const payLabels = { not_calculated:'Не рассчитана',calculated:'Ра�
 const workflowLabels = { awaiting_admin:'Ожидает администратора',admin_processing:'Первичная обработка',awaiting_client_selection:'Клиент выбирает банки',awaiting_manager:'Ожидает менеджера',manager_processing:'В работе у менеджера',not_eligible:'Не подходит' }
 
 async function api(path, options={}) {
-  const response = await fetch(path, { ...options, headers:{ 'Content-Type':'application/json','X-Telegram-Init-Data':tg?.initData||'',...(options.headers||{}) } })
-  if (!response.ok) { const body=await response.json().catch(()=>({})); throw new Error(body.detail||'Не удалось выполнить действие') }
-  return response.status===204 ? null : response.json()
+  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000)
+  try{
+    const response = await fetch(path, { ...options, signal:controller.signal, headers:{ 'Content-Type':'application/json','X-Telegram-Init-Data':tg?.initData||'',...(options.headers||{}) } })
+    if (!response.ok) { const body=await response.json().catch(()=>({})); throw new Error(body.detail||'Не удалось выполнить действие') }
+    return response.status===204 ? null : response.json()
+  }catch(error){
+    if(error.name==='AbortError')throw new Error('Сервер отвечает слишком долго. Нажми «Повторить».')
+    throw error
+  }finally{clearTimeout(timeout)}
 }
 function esc(value){ const n=document.createElement('span'); n.textContent=value??''; return n.innerHTML }
 function initials(name){ return String(name||'').split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase() }
@@ -100,8 +106,9 @@ async function load(){
       Object.assign(state,{leadApplication,leadBanks});renderLeadCabinet();return
     }
     const employee=['admin','manager'].includes(state.session.role)
-    const jobs=[api('/api/dashboard'),api(`/api/leads${state.leadScope==='mine'?'?mine=true':''}`),state.session.role==='admin'?api('/api/partners'):[],['admin','partner'].includes(state.session.role)?api('/api/channels'):[],employee?api('/api/banks'):[],employee?api('/api/staff'):[],state.session.role==='admin'?api('/api/duplicate-reviews'):[]]
-    const [dashboard,loadedLeads,partners,channels,banks,staff,duplicates]=await Promise.all(jobs); const leads=state.session.role==='manager'&&state.leadScope==='queue'?loadedLeads.filter(lead=>lead.workflow_stage==='awaiting_manager'):loadedLeads; Object.assign(state,{dashboard,leads,partners,channels,banks,staff,duplicates}); render()
+    const [dashboard,loadedLeads]=await Promise.all([api('/api/dashboard'),api(`/api/leads${state.leadScope==='mine'?'?mine=true':''}`)])
+    const [partners,channels,banks,staff,duplicates]=await Promise.all([state.session.role==='admin'?api('/api/partners'):[],['admin','partner'].includes(state.session.role)?api('/api/channels'):[],employee?api('/api/banks'):[],employee?api('/api/staff'):[],state.session.role==='admin'?api('/api/duplicate-reviews'):[]])
+    const leads=state.session.role==='manager'&&state.leadScope==='queue'?loadedLeads.filter(lead=>lead.workflow_stage==='awaiting_manager'):loadedLeads; Object.assign(state,{dashboard,leads,partners,channels,banks,staff,duplicates}); render()
   }catch(error){ document.querySelector('#loading-state').hidden=true; document.querySelector('.tabbar').hidden=true; document.querySelectorAll('.screen').forEach(x=>x.classList.remove('is-active')); document.querySelector('#error-message').textContent=error.message; document.querySelector('#error-state').hidden=false }
 }
 

@@ -105,3 +105,11 @@ def test_mini_app_has_visible_loading_state() -> None:
     assert 'id="loading-state"' in markup
     assert ".loading-spinner" in styles
     assert ".loading-state[hidden], .tabbar[hidden] { display: none; }" in styles
+
+
+def test_mini_app_limits_initial_requests_and_times_out() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "controller.abort(),15000" in script
+    assert "Сервер отвечает слишком долго" in script
+    assert "const [dashboard,loadedLeads]=await Promise.all" in script
