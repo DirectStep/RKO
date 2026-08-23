@@ -13,7 +13,10 @@ EXPECTED_HEADERS = (
     "Выплату лиду платит банк отдельно",
     "Активно",
     "Порядок",
+    "Условие активации",
 )
+
+FORMULA_ERRORS = ("#REF!", "#N/A", "#VALUE!", "#NAME?", "#DIV/0!")
 
 
 @dataclass(frozen=True)
@@ -26,6 +29,7 @@ class BankRateRow:
     lead_payout_paid_separately: bool
     active: bool
     display_order: int
+    activation_condition: str
     source_row: int
 
 
@@ -61,6 +65,9 @@ def parse_bank_rate_rows(values: list[list[str]]) -> list[BankRateRow]:
         cells = [*values_row, *("" for _ in EXPECTED_HEADERS)][: len(EXPECTED_HEADERS)]
         if not any(cell.strip() for cell in cells):
             continue
+        for cell in cells:
+            if cell.strip().upper().startswith(FORMULA_ERRORS):
+                raise ValueError(f"Строка {source_row}: ошибка формулы Google Sheets")
         offer_code, bank_name, online_text = (cell.strip() for cell in cells[:3])
         if not offer_code or not bank_name:
             raise ValueError(f"Строка {source_row}: заполни код и название предложения")
@@ -82,6 +89,7 @@ def parse_bank_rate_rows(values: list[list[str]]) -> list[BankRateRow]:
                 ),
                 active=_boolean(cells[6], source_row, "Активно"),
                 display_order=display_order,
+                activation_condition=cells[8].strip(),
                 source_row=source_row,
             )
         )

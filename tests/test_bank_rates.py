@@ -18,8 +18,19 @@ def test_bank_rate_rows_are_parsed() -> None:
             "Выплату лиду платит банк отдельно",
             "Активно",
             "Порядок",
+            "Условие активации",
         ],
-        ["alpha-ip", "Альфа ИП", "Нет", "10 000,00 ₽", "5 000", "Да", "Да", "10"],
+        [
+            "alpha-ip",
+            "Альфа ИП",
+            "Нет",
+            "10 000,00 ₽",
+            "5 000",
+            "Да",
+            "Да",
+            "10",
+            "Совершить первую оплату",
+        ],
     ]
 
     assert parse_bank_rate_rows(values) == [
@@ -32,6 +43,7 @@ def test_bank_rate_rows_are_parsed() -> None:
             lead_payout_paid_separately=True,
             active=True,
             display_order=10,
+            activation_condition="Совершить первую оплату",
             source_row=2,
         )
     ]
@@ -42,9 +54,16 @@ def test_bank_rate_rows_are_parsed() -> None:
     [(3, "не число"), (5, "может быть"), (6, "включено"), (7, "1.5")],
 )
 def test_invalid_bank_rate_rows_are_rejected(column: int, value: str) -> None:
-    row = ["code", "Банк", "Да", "1000", "200", "Нет", "Да", "1"]
+    row = ["code", "Банк", "Да", "1000", "200", "Нет", "Да", "1", "Условие"]
     row[column] = value
     with pytest.raises(ValueError):
+        parse_bank_rate_rows([list(parse_bank_rate_rows.__globals__["EXPECTED_HEADERS"]), row])
+
+
+def test_formula_errors_are_rejected_without_replacing_snapshot() -> None:
+    row = ["code", "Банк", "Да", "1000", "200", "Нет", "Да", "1", "#REF!"]
+
+    with pytest.raises(ValueError, match="ошибка формулы"):
         parse_bank_rate_rows([list(parse_bank_rate_rows.__globals__["EXPECTED_HEADERS"]), row])
 
 
