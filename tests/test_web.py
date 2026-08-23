@@ -209,6 +209,8 @@ def test_telegram_sdk_does_not_block_application_startup() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 
     assert 'telegram-web-app.js?59" async' in markup
-    assert markup.index("/assets/app.js") < markup.index("telegram-web-app.js")
+    assert 'app.js?v=20260823-05"></script>' in markup
+    assert markup.index('window.addEventListener("error"') < markup.index("/assets/app.js")
+    assert "await waitForTelegramContext()" in script
     assert "get('tgWebAppData')" in script
     assert "'X-Telegram-Init-Data':telegramInitData()" in script
