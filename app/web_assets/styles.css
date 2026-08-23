@@ -149,6 +149,9 @@ button { color: inherit; }
 .partner-filters[hidden] { display: none; }
 .partner-filters select, .partner-filters input { width: 100%; min-height: 2.75rem; padding: 0 0.65rem; border: 1px solid var(--separator); border-radius: 0.65rem; color: var(--text); background: var(--surface); }
 .partner-filters input[hidden] { display: none; }
+.sheet-link-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.55rem; margin-bottom: 0.75rem; }
+.sheet-link-grid[hidden] { display: none; }
+.sheet-link-grid button { min-height: 2.75rem; padding: 0.55rem; border: 0; border-radius: 0.7rem; color: var(--accent); background: var(--surface); font-weight: 650; }
 
 .primary-stat { padding: 1.15rem 1.2rem 1rem; }
 .primary-stat span, .stat-grid span { display: block; opacity: 1; font-size: 0.75rem; }

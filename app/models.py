@@ -283,6 +283,36 @@ class BankActivationCondition(Base):
     synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class BankRate(Base):
+    __tablename__ = "bank_rates"
+    __table_args__ = (
+        CheckConstraint(
+            "base_payout >= 0 AND lead_payout >= 0",
+            name="ck_bank_rate_nonnegative_money",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    offer_code: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    bank_id: Mapped[UUID] = mapped_column(ForeignKey("banks.id"), nullable=False, unique=True)
+    online_text: Mapped[str] = mapped_column(
+        String(120), nullable=False, default="Уточняется", server_default="Уточняется"
+    )
+    base_payout: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    lead_payout: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    lead_payout_paid_separately: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    display_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    source_row: Mapped[int] = mapped_column(Integer, nullable=False)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class LeadBank(Base):
     __tablename__ = "lead_banks"
     __table_args__ = (
@@ -303,6 +333,9 @@ class LeadBank(Base):
     id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     lead_id: Mapped[UUID] = mapped_column(ForeignKey("leads.id"), nullable=False)
     bank_id: Mapped[UUID] = mapped_column(ForeignKey("banks.id"), nullable=False)
+    bank_rate_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("bank_rates.id", ondelete="SET NULL")
+    )
     internal_status: Mapped[BankInternalStatus] = mapped_column(
         enum_column(BankInternalStatus), default=BankInternalStatus.PLANNED, nullable=False
     )
@@ -327,6 +360,13 @@ class LeadBank(Base):
     partner_percent_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     partner_reward_estimate: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     partner_reward_fact: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    lead_reward_estimate: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    lead_reward_fact: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    team_profit_estimate: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    team_profit_fact: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    lead_reward_paid_separately: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     last_updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

@@ -9,7 +9,17 @@ from sqlalchemy import select
 
 from app.database import Database
 from app.integrations.google_sheets import SheetData
-from app.models import Bank, Channel, DuplicateLeadReview, Lead, LeadBank, Partner, Payment, User
+from app.models import (
+    Bank,
+    BankRate,
+    Channel,
+    DuplicateLeadReview,
+    Lead,
+    LeadBank,
+    Partner,
+    Payment,
+    User,
+)
 
 SHEET_MODELS = (
     ("Пользователи", User),
@@ -17,6 +27,7 @@ SHEET_MODELS = (
     ("Каналы", Channel),
     ("Заявки", Lead),
     ("Банки", Bank),
+    ("Ставки банков", BankRate),
     ("Банки заявок", LeadBank),
     ("Выплаты", Payment),
     ("Проверка дублей", DuplicateLeadReview),

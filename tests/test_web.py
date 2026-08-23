@@ -3,11 +3,13 @@ import hmac
 import json
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import urlencode
 
 import pytest
 
-from app.web import validate_telegram_init_data
+from app.domain.enums import BankExternalStatus, BankInternalStatus, PaymentStatus, UserRole
+from app.web import serialize_lead_bank, validate_telegram_init_data
 
 ASSETS_DIR = Path(__file__).parents[1] / "app" / "web_assets"
 
@@ -98,6 +100,56 @@ def test_lead_cabinet_has_separate_read_only_sections() -> None:
     assert "api('/api/lead/application')" in script
     assert "api('/api/lead/banks')" in script
     assert "renderLeadCabinet();return" in script
+    assert "money(item.lead_payout)" in script
+    assert "item.online_text" in script
+
+
+def test_financial_fields_are_split_by_role_in_mini_app() -> None:
+    markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert 'data-sheet-link="bank_conditions_sheet_url"' in markup
+    assert 'data-sheet-link="bank_rates_sheet_url"' in markup
+    assert "Выплата лиду" in script
+    assert "Выплата партнёру" in script
+    assert "Командная прибыль" in script
+    assert 'admin?`<div class="value-row"><span>Командная прибыль' in script
+
+
+def test_partner_api_does_not_receive_internal_financial_fields() -> None:
+    lead_bank = SimpleNamespace(
+        id="lead-bank",
+        internal_status=BankInternalStatus.PLANNED,
+        external_status=BankExternalStatus.PLANNED,
+        opened_at=None,
+        partner_reward_estimate=100,
+        partner_reward_fact=None,
+        bank_income_estimate=1000,
+        bank_income_fact=None,
+        partner_percent_snapshot=10,
+        close_reason=None,
+        offered_to_lead=True,
+        selected_by_lead=True,
+        lead_reward_estimate=300,
+        lead_reward_fact=None,
+        lead_reward_paid_separately=False,
+        team_profit_estimate=600,
+        team_profit_fact=None,
+    )
+    bank = SimpleNamespace(id="bank", name="Банк")
+    rate = SimpleNamespace(online_text="Да")
+
+    partner = serialize_lead_bank(lead_bank, bank, None, UserRole.PARTNER, rate)
+    manager = serialize_lead_bank(lead_bank, bank, None, UserRole.MANAGER, rate)
+    admin = serialize_lead_bank(lead_bank, bank, None, UserRole.ADMIN, rate)
+
+    assert partner["payment_status"] == PaymentStatus.NOT_CALCULATED.value
+    assert "income_estimate" not in partner
+    assert "lead_reward_estimate" not in partner
+    assert "team_profit_estimate" not in partner
+    assert manager["lead_reward_estimate"] == "300"
+    assert "team_profit_estimate" not in manager
+    assert admin["team_profit_estimate"] == "600"
 
 
 def test_two_stage_claim_and_client_bank_selection_controls_are_present() -> None:

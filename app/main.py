@@ -14,6 +14,7 @@ from app.database import Database
 from app.logging import configure_logging
 from app.web import create_web_app
 from app.workers.bank_conditions_sync import run_bank_conditions_sync
+from app.workers.bank_rates_sync import run_bank_rates_sync
 from app.workers.sheets_sync import run_sheets_sync
 from app.workers.weekly_reports import run_weekly_reports
 
@@ -31,9 +32,8 @@ async def run() -> None:
     dispatcher.include_router(router)
     sheets_task = asyncio.create_task(run_sheets_sync(database, settings))
     bank_conditions_task = asyncio.create_task(run_bank_conditions_sync(database, settings))
-    reports_task = asyncio.create_task(
-        run_weekly_reports(database, bot, settings.project_timezone)
-    )
+    bank_rates_task = asyncio.create_task(run_bank_rates_sync(database, settings))
+    reports_task = asyncio.create_task(run_weekly_reports(database, bot, settings.project_timezone))
     web_server = uvicorn.Server(
         uvicorn.Config(
             create_web_app(database, settings, bot),
@@ -51,11 +51,14 @@ async def run() -> None:
     finally:
         sheets_task.cancel()
         bank_conditions_task.cancel()
+        bank_rates_task.cancel()
         reports_task.cancel()
         with suppress(asyncio.CancelledError):
             await sheets_task
         with suppress(asyncio.CancelledError):
             await bank_conditions_task
+        with suppress(asyncio.CancelledError):
+            await bank_rates_task
         with suppress(asyncio.CancelledError):
             await reports_task
         web_server.should_exit = True

@@ -32,9 +32,7 @@ class UserAccessService:
                     .with_for_update()
                     .limit(1)
                 )
-            if pending_staff is not None and (
-                user is None or user.role is UserRole.LEAD
-            ):
+            if pending_staff is not None and (user is None or user.role is UserRole.LEAD):
                 if user is not None:
                     await session.delete(user)
                     await session.flush()

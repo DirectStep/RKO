@@ -58,3 +58,17 @@ def test_bank_conditions_are_enabled_with_sheet_and_credentials(tmp_path) -> Non
     assert settings.bank_conditions_enabled is True
     assert settings.bank_conditions_worksheet == "Условия активации"
     assert settings.bank_conditions_sync_interval_seconds == 60
+
+
+def test_bank_rates_are_enabled_with_sheet_and_credentials(tmp_path) -> None:
+    credentials_file = tmp_path / "service-account.json"
+    credentials_file.write_text("{}", encoding="utf-8")
+    settings = Settings(
+        bot_token="123456:test-token",
+        bank_rates_sheet_id="rates-sheet",
+        google_service_account_file=str(credentials_file),
+    )
+
+    assert settings.bank_rates_enabled is True
+    assert settings.bank_rates_worksheet == "Справочник для бота"
+    assert settings.bank_rates_sync_interval_seconds == 60

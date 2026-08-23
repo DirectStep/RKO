@@ -55,9 +55,7 @@ def upgrade() -> None:
         "lead_banks",
         sa.Column("offered_to_lead", sa.Boolean(), server_default="false", nullable=False),
     )
-    op.add_column(
-        "lead_banks", sa.Column("selected_by_lead", sa.Boolean(), nullable=True)
-    )
+    op.add_column("lead_banks", sa.Column("selected_by_lead", sa.Boolean(), nullable=True))
 
     op.execute(
         """

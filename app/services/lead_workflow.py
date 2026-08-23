@@ -18,15 +18,11 @@ class LeadWorkflowService:
     def __init__(self, database: Database) -> None:
         self.database = database
 
-    async def claim_by_admin(
-        self, *, actor_role: UserRole, actor_id: UUID, lead_id: UUID
-    ) -> Lead:
+    async def claim_by_admin(self, *, actor_role: UserRole, actor_id: UUID, lead_id: UUID) -> Lead:
         if actor_role is not UserRole.ADMIN:
             raise DomainError("Первично взять заявку может только администратор")
         async with self.database.session() as session, session.begin():
-            lead = await session.scalar(
-                select(Lead).where(Lead.id == lead_id).with_for_update()
-            )
+            lead = await session.scalar(select(Lead).where(Lead.id == lead_id).with_for_update())
             if lead is None:
                 raise DomainError("Заявка не найдена")
             if lead.workflow_stage is LeadWorkflowStage.NOT_ELIGIBLE:
@@ -45,15 +41,11 @@ class LeadWorkflowService:
             lead.last_updated_at = datetime.now(UTC)
             return lead
 
-    async def publish_banks(
-        self, *, actor_role: UserRole, actor_id: UUID, lead_id: UUID
-    ) -> Lead:
+    async def publish_banks(self, *, actor_role: UserRole, actor_id: UUID, lead_id: UUID) -> Lead:
         if actor_role is not UserRole.ADMIN:
             raise DomainError("Опубликовать банки может только администратор")
         async with self.database.session() as session, session.begin():
-            lead = await session.scalar(
-                select(Lead).where(Lead.id == lead_id).with_for_update()
-            )
+            lead = await session.scalar(select(Lead).where(Lead.id == lead_id).with_for_update())
             if lead is None:
                 raise DomainError("Заявка не найдена")
             if lead.primary_admin_id != actor_id:
@@ -65,9 +57,7 @@ class LeadWorkflowService:
                 raise DomainError("На этой стадии нельзя предложить банки")
             lead_banks = list(
                 await session.scalars(
-                    select(LeadBank)
-                    .where(LeadBank.lead_id == lead_id)
-                    .with_for_update()
+                    select(LeadBank).where(LeadBank.lead_id == lead_id).with_for_update()
                 )
             )
             if not lead_banks:
@@ -84,15 +74,11 @@ class LeadWorkflowService:
             lead.last_updated_at = now
             return lead
 
-    async def submit_bank_selection(
-        self, *, lead_id: UUID, selected_bank_ids: set[UUID]
-    ) -> Lead:
+    async def submit_bank_selection(self, *, lead_id: UUID, selected_bank_ids: set[UUID]) -> Lead:
         if not selected_bank_ids:
             raise DomainError("Выбери хотя бы один банк")
         async with self.database.session() as session, session.begin():
-            lead = await session.scalar(
-                select(Lead).where(Lead.id == lead_id).with_for_update()
-            )
+            lead = await session.scalar(select(Lead).where(Lead.id == lead_id).with_for_update())
             if lead is None:
                 raise DomainError("Заявка не найдена")
             if lead.workflow_stage is not LeadWorkflowStage.AWAITING_CLIENT_SELECTION:
@@ -126,9 +112,7 @@ class LeadWorkflowService:
         if actor_role is not UserRole.MANAGER:
             raise DomainError("На этой стадии заявку может взять только менеджер")
         async with self.database.session() as session, session.begin():
-            lead = await session.scalar(
-                select(Lead).where(Lead.id == lead_id).with_for_update()
-            )
+            lead = await session.scalar(select(Lead).where(Lead.id == lead_id).with_for_update())
             if lead is None:
                 raise DomainError("Заявка не найдена")
             if lead.manager_id == actor_id:

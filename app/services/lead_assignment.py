@@ -70,9 +70,7 @@ class LeadAssignmentService:
         if actor_role is not UserRole.ADMIN:
             raise DomainError("Источник может изменить только администратор")
         async with self.database.session() as session, session.begin():
-            lead = await session.scalar(
-                select(Lead).where(Lead.id == lead_id).with_for_update()
-            )
+            lead = await session.scalar(select(Lead).where(Lead.id == lead_id).with_for_update())
             if lead is None:
                 raise DomainError("Заявка не найдена")
             channel = await session.get(Channel, channel_id)
@@ -101,15 +99,11 @@ class LeadAssignmentService:
             lead.assignment_status = AssignmentStatus.DIRECT
             return lead
 
-    async def assign_direct(
-        self, *, actor_role: UserRole, actor_id: UUID, lead_id: UUID
-    ) -> Lead:
+    async def assign_direct(self, *, actor_role: UserRole, actor_id: UUID, lead_id: UUID) -> Lead:
         if actor_role is not UserRole.ADMIN:
             raise DomainError("Источник может изменить только администратор")
         async with self.database.session() as session, session.begin():
-            lead = await session.scalar(
-                select(Lead).where(Lead.id == lead_id).with_for_update()
-            )
+            lead = await session.scalar(select(Lead).where(Lead.id == lead_id).with_for_update())
             if lead is None:
                 raise DomainError("Заявка не найдена")
             lead.proposed_partner_id = None

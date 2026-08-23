@@ -21,6 +21,7 @@ from app.domain.enums import (
 from app.domain.operations import DomainError
 from app.models import (
     Bank,
+    BankRate,
     Channel,
     DuplicateLeadReview,
     Lead,
@@ -477,6 +478,21 @@ async def test_two_stage_lead_claim_and_bank_selection() -> None:
             actor_role=UserRole.ADMIN, name=f"Банк {suffix}"
         )
         bank_id = bank.id
+        async with database.session() as session, session.begin():
+            session.add(
+                BankRate(
+                    offer_code=f"workflow-{suffix}",
+                    bank_id=bank.id,
+                    online_text="Да",
+                    base_payout=Decimal("10000.00"),
+                    lead_payout=Decimal("3000.00"),
+                    lead_payout_paid_separately=False,
+                    active=True,
+                    display_order=1,
+                    source_row=2,
+                    synced_at=now,
+                )
+            )
         await WorkflowService(database).add_bank_to_lead(
             actor_role=UserRole.ADMIN,
             actor_user_id=admin_id,
@@ -500,6 +516,7 @@ async def test_two_stage_lead_claim_and_bank_selection() -> None:
                 await session.execute(delete(LeadBank).where(LeadBank.lead_id == lead_id))
                 await session.execute(delete(Lead).where(Lead.id == lead_id))
             if bank_id is not None:
+                await session.execute(delete(BankRate).where(BankRate.bank_id == bank_id))
                 await session.execute(delete(Bank).where(Bank.id == bank_id))
             user_ids = [value for value in (admin_id, manager_id) if value is not None]
             if user_ids:
@@ -916,6 +933,21 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
 
         now = datetime.now(UTC)
         async with database.session() as session, session.begin():
+            rate = BankRate(
+                offer_code=f"full-workflow-{suffix}",
+                bank_id=bank.id,
+                online_text="Да",
+                base_payout=Decimal("12000.00"),
+                lead_payout=Decimal("3000.00"),
+                lead_payout_paid_separately=False,
+                active=True,
+                display_order=1,
+                source_row=2,
+                synced_at=now,
+            )
+            session.add(rate)
+            await session.flush()
+            ids["bank_rate"] = rate.id
             lead = Lead(
                 short_id=f"FLOW-{suffix}",
                 telegram_id=f"6{suffix}",
@@ -963,6 +995,9 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
         )
         assert lead_bank.partner_reward_estimate == Decimal("2400.00")
         assert lead_bank.partner_reward_fact == Decimal("2000.00")
+        assert lead_bank.lead_reward_estimate == Decimal("3000.00")
+        assert lead_bank.team_profit_estimate == Decimal("6600.00")
+        assert lead_bank.team_profit_fact == Decimal("5000.00")
         assert lead_bank.opened_at is not None
 
         payment = await workflow.confirm_lead_bank_payment(
@@ -1013,6 +1048,8 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
                 await session.execute(delete(Channel).where(Channel.id == ids["channel"]))
             if "partner" in ids:
                 await session.execute(delete(Partner).where(Partner.id == ids["partner"]))
+            if "bank_rate" in ids:
+                await session.execute(delete(BankRate).where(BankRate.id == ids["bank_rate"]))
             if "bank" in ids:
                 await session.execute(delete(Bank).where(Bank.id == ids["bank"]))
             user_ids = [ids[key] for key in ("manager", "partner_user") if ids.get(key)]

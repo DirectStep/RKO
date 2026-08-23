@@ -18,7 +18,7 @@ from app.domain.enums import (
 )
 from app.domain.operations import DomainError, confirm_payment, validate_payment_transition
 from app.domain.statuses import external_bank_status, external_lead_status
-from app.models import Bank, Lead, LeadBank, Partner, Payment, User
+from app.models import Bank, BankRate, Lead, LeadBank, Partner, Payment, User
 
 
 class WorkflowService:
@@ -47,9 +47,7 @@ class WorkflowService:
             raise DomainError("Можно создать только менеджера или администратора")
         username = self._clean_username(telegram_username)
         if username is None or not re.fullmatch(r"[A-Za-z0-9_]{5,32}", username):
-            raise DomainError(
-                "Username должен содержать 5–32 латинских символа, цифры или _"
-            )
+            raise DomainError("Username должен содержать 5–32 латинских символа, цифры или _")
         if telegram_id is not None:
             self._validate_telegram_id(telegram_id)
         async with self.database.session() as session, session.begin():
@@ -71,9 +69,7 @@ class WorkflowService:
                 existing.access_status = AccessStatus.ACTIVE
                 return existing
             partner_username = await session.scalar(
-                select(Partner.id).where(
-                    func.lower(Partner.telegram_username) == username.lower()
-                )
+                select(Partner.id).where(func.lower(Partner.telegram_username) == username.lower())
             )
             if partner_username is not None:
                 raise DomainError("Этот username уже указан у партнёра")
@@ -296,10 +292,7 @@ class WorkflowService:
             if bank is None or not bank.active:
                 raise DomainError("Активный банк не найден")
             if actor_user_id is not None:
-                if (
-                    actor_role is UserRole.ADMIN
-                    and lead.primary_admin_id != actor_user_id
-                ):
+                if actor_role is UserRole.ADMIN and lead.primary_admin_id != actor_user_id:
                     raise DomainError("Сначала возьми заявку в работу")
                 if actor_role is UserRole.MANAGER and (
                     lead.manager_id != actor_user_id
@@ -315,15 +308,36 @@ class WorkflowService:
             if lead.partner_id is not None:
                 partner = await session.get(Partner, lead.partner_id)
                 percent = partner.commission_percent if partner else None
+            rate = await session.scalar(
+                select(BankRate).where(
+                    BankRate.bank_id == bank_id,
+                    BankRate.active.is_(True),
+                )
+            )
+            if rate is None:
+                raise DomainError("У банка нет актуальной ставки из таблицы")
+            partner_reward = self._reward(rate.base_payout, percent)
+            team_profit = self._team_profit(
+                income=rate.base_payout,
+                partner_reward=partner_reward,
+                lead_reward=rate.lead_payout,
+                lead_reward_paid_separately=rate.lead_payout_paid_separately,
+            )
             lead_bank = LeadBank(
                 lead_id=lead_id,
                 bank_id=bank_id,
+                bank_rate_id=rate.id,
                 internal_status=BankInternalStatus.PLANNED,
                 external_status=external_bank_status(BankInternalStatus.PLANNED),
                 planned_at=datetime.now(UTC),
                 offered_to_lead=actor_role is UserRole.MANAGER,
                 selected_by_lead=True if actor_role is UserRole.MANAGER else None,
+                bank_income_estimate=rate.base_payout,
                 partner_percent_snapshot=percent,
+                partner_reward_estimate=partner_reward,
+                lead_reward_estimate=rate.lead_payout,
+                team_profit_estimate=team_profit,
+                lead_reward_paid_separately=rate.lead_payout_paid_separately,
             )
             session.add(lead_bank)
             await session.flush()
@@ -355,10 +369,23 @@ class WorkflowService:
                 lead_bank.partner_reward_estimate = self._reward(
                     income_estimate, lead_bank.partner_percent_snapshot
                 )
+                lead_bank.team_profit_estimate = self._team_profit(
+                    income=income_estimate,
+                    partner_reward=lead_bank.partner_reward_estimate,
+                    lead_reward=lead_bank.lead_reward_estimate,
+                    lead_reward_paid_separately=lead_bank.lead_reward_paid_separately,
+                )
             if income_fact is not None:
                 lead_bank.bank_income_fact = income_fact
                 lead_bank.partner_reward_fact = self._reward(
                     income_fact, lead_bank.partner_percent_snapshot
+                )
+                lead_bank.lead_reward_fact = lead_bank.lead_reward_estimate
+                lead_bank.team_profit_fact = self._team_profit(
+                    income=income_fact,
+                    partner_reward=lead_bank.partner_reward_fact,
+                    lead_reward=lead_bank.lead_reward_fact,
+                    lead_reward_paid_separately=lead_bank.lead_reward_paid_separately,
                 )
                 payment = await session.scalar(
                     select(Payment).where(Payment.lead_bank_id == lead_bank.id).with_for_update()
@@ -511,6 +538,21 @@ class WorkflowService:
         if percent is None:
             return None
         return (income * percent / Decimal("100")).quantize(Decimal("0.01"))
+
+    @staticmethod
+    def _team_profit(
+        *,
+        income: Decimal,
+        partner_reward: Decimal | None,
+        lead_reward: Decimal | None,
+        lead_reward_paid_separately: bool,
+    ) -> Decimal:
+        profit = income - (partner_reward or Decimal("0"))
+        if not lead_reward_paid_separately:
+            profit -= lead_reward or Decimal("0")
+        if profit < 0:
+            raise DomainError("Ставки дают отрицательную командную прибыль")
+        return profit.quantize(Decimal("0.01"))
 
     @staticmethod
     def _validate_money(value: Decimal | None) -> None:

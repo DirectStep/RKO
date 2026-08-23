@@ -33,9 +33,7 @@ def upgrade() -> None:
         "duplicate_lead_reviews",
         sa.Column("original_lead_id", postgresql.UUID(as_uuid=True), nullable=True),
     )
-    op.add_column(
-        "duplicate_lead_reviews", sa.Column("resolution", sa.String(32), nullable=True)
-    )
+    op.add_column("duplicate_lead_reviews", sa.Column("resolution", sa.String(32), nullable=True))
     op.add_column(
         "duplicate_lead_reviews",
         sa.Column("resolved_by_user_id", postgresql.UUID(as_uuid=True), nullable=True),
@@ -74,9 +72,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_constraint(
-        "duplicateresolution_values", "duplicate_lead_reviews", type_="check"
-    )
+    op.drop_constraint("duplicateresolution_values", "duplicate_lead_reviews", type_="check")
     op.drop_constraint(
         "duplicate_reviews_resolved_by_user_id_fkey",
         "duplicate_lead_reviews",

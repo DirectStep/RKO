@@ -34,6 +34,7 @@ from app.domain.operations import DomainError
 from app.models import (
     Bank,
     BankActivationCondition,
+    BankRate,
     Channel,
     DuplicateLeadReview,
     Lead,
@@ -130,6 +131,7 @@ def serialize_lead_bank(
     bank: Bank,
     payment: Payment | None,
     role: UserRole,
+    rate: BankRate | None = None,
 ) -> dict[str, object]:
     result: dict[str, object] = {
         "id": str(lead_bank.id),
@@ -154,6 +156,7 @@ def serialize_lead_bank(
         "payment_id": str(payment.id) if payment else None,
         "payment_status": payment.status.value if payment else PaymentStatus.NOT_CALCULATED.value,
         "paid_at": payment.paid_at.isoformat() if payment and payment.paid_at else None,
+        "online_text": rate.online_text if rate is not None else "Уточняется",
     }
     if role is not UserRole.PARTNER:
         result.update(
@@ -178,8 +181,34 @@ def serialize_lead_bank(
                 "registry_number": payment.registry_number if payment else None,
                 "offered_to_lead": lead_bank.offered_to_lead,
                 "selected_by_lead": lead_bank.selected_by_lead,
+                "lead_reward_estimate": (
+                    str(lead_bank.lead_reward_estimate)
+                    if lead_bank.lead_reward_estimate is not None
+                    else None
+                ),
+                "lead_reward_fact": (
+                    str(lead_bank.lead_reward_fact)
+                    if lead_bank.lead_reward_fact is not None
+                    else None
+                ),
+                "lead_reward_paid_separately": lead_bank.lead_reward_paid_separately,
             }
         )
+        if role is UserRole.ADMIN:
+            result.update(
+                {
+                    "team_profit_estimate": (
+                        str(lead_bank.team_profit_estimate)
+                        if lead_bank.team_profit_estimate is not None
+                        else None
+                    ),
+                    "team_profit_fact": (
+                        str(lead_bank.team_profit_fact)
+                        if lead_bank.team_profit_fact is not None
+                        else None
+                    ),
+                }
+            )
     return result
 
 
@@ -312,15 +341,27 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> dict[str, object]:
         google_sheet_url = ""
+        bank_conditions_sheet_url = ""
+        bank_rates_sheet_url = ""
         if user.role is UserRole.ADMIN and settings.google_sheet_id:
             google_sheet_url = (
                 f"https://docs.google.com/spreadsheets/d/{settings.google_sheet_id}/edit"
+            )
+        if user.role is UserRole.ADMIN and settings.bank_conditions_sheet_id:
+            bank_conditions_sheet_url = (
+                f"https://docs.google.com/spreadsheets/d/{settings.bank_conditions_sheet_id}/edit"
+            )
+        if user.role is UserRole.ADMIN and settings.bank_rates_sheet_id:
+            bank_rates_sheet_url = (
+                f"https://docs.google.com/spreadsheets/d/{settings.bank_rates_sheet_id}/edit"
             )
         result: dict[str, object] = {
             "name": user.name,
             "role": user.role.value,
             "telegram_id": user.id,
             "google_sheet_url": google_sheet_url,
+            "bank_conditions_sheet_url": bank_conditions_sheet_url,
+            "bank_rates_sheet_url": bank_rates_sheet_url,
         }
         if user.role is UserRole.PARTNER and user.partner_id is not None:
             result["contact"] = await partner_contact(database, user.partner_id)
@@ -392,7 +433,9 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 )
             )
             conditions = list(await db_session.scalars(select(BankActivationCondition)))
+            rates = list(await db_session.scalars(select(BankRate)))
         conditions_by_name = {condition.normalized_bank_name: condition for condition in conditions}
+        rates_by_bank = {rate.bank_id: rate for rate in rates}
         result: list[dict[str, object]] = []
         for lead_bank, bank in bank_rows:
             condition = conditions_by_name.get(normalize_bank_name(bank.name))
@@ -403,6 +446,16 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                     "status": lead_bank.external_status.value,
                     "selected": lead_bank.selected_by_lead,
                     "selection_locked": lead.bank_selection_submitted_at is not None,
+                    "online_text": (
+                        rates_by_bank[bank.id].online_text
+                        if bank.id in rates_by_bank
+                        else "Уточняется"
+                    ),
+                    "lead_payout": (
+                        str(lead_bank.lead_reward_estimate)
+                        if lead_bank.lead_reward_estimate is not None
+                        else "0"
+                    ),
                     "action_text": (
                         condition.action_text if condition is not None and condition.active else ""
                     ),
@@ -785,6 +838,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 .order_by(LeadBank.planned_at)
             )
             conditions = list(await db_session.scalars(select(BankActivationCondition)))
+            rates = list(await db_session.scalars(select(BankRate)))
             manager = await db_session.get(User, lead.manager_id) if lead.manager_id else None
             primary_admin = (
                 await db_session.get(User, lead.primary_admin_id) if lead.primary_admin_id else None
@@ -810,9 +864,12 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 )
             )
         conditions_by_name = {condition.normalized_bank_name: condition for condition in conditions}
+        rates_by_bank = {rate.bank_id: rate for rate in rates}
         banks = []
         for lead_bank, bank, payment in rows:
-            serialized = serialize_lead_bank(lead_bank, bank, payment, user.role)
+            serialized = serialize_lead_bank(
+                lead_bank, bank, payment, user.role, rates_by_bank.get(bank.id)
+            )
             if user.role is not UserRole.PARTNER:
                 condition = conditions_by_name.get(normalize_bank_name(bank.name))
                 serialized["action_text"] = condition.action_text if condition else ""
@@ -1254,16 +1311,36 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
     ) -> list[dict[str, object]]:
         if user.role is UserRole.PARTNER:
             raise HTTPException(status_code=403, detail="Справочник доступен сотруднику")
-        items = await WorkflowService(database).list_banks()
-        return [
-            {
+        async with database.session() as db_session:
+            rows = list(
+                await db_session.execute(
+                    select(Bank, BankRate)
+                    .outerjoin(BankRate, BankRate.bank_id == Bank.id)
+                    .order_by(Bank.display_order, Bank.name)
+                )
+            )
+        result: list[dict[str, object]] = []
+        for bank, rate in rows:
+            item: dict[str, object] = {
                 "id": str(bank.id),
                 "name": bank.name,
                 "active": bank.active,
                 "order": bank.display_order,
+                "online_text": rate.online_text if rate else "Уточняется",
+                "synced": rate.synced_at.isoformat() if rate else None,
             }
-            for bank in items
-        ]
+            if user.role is UserRole.ADMIN:
+                item.update(
+                    {
+                        "base_payout": str(rate.base_payout) if rate else None,
+                        "lead_payout": str(rate.lead_payout) if rate else None,
+                        "lead_payout_paid_separately": (
+                            rate.lead_payout_paid_separately if rate else False
+                        ),
+                    }
+                )
+            result.append(item)
+        return result
 
     @app.post("/api/banks")
     async def create_bank(

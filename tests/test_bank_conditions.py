@@ -34,9 +34,7 @@ def test_header_only_sheet_is_a_valid_empty_bank_list() -> None:
         ),
     ],
 )
-def test_invalid_bank_condition_rows_are_rejected(
-    values: list[list[str]], message: str
-) -> None:
+def test_invalid_bank_condition_rows_are_rejected(values: list[list[str]], message: str) -> None:
     with pytest.raises(ValueError, match=message):
         parse_bank_condition_rows(values)
 

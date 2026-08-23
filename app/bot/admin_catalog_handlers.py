@@ -131,9 +131,7 @@ async def partner_toggle(callback: CallbackQuery, database: Database, settings: 
     try:
         partner_id = UUID((callback.data or "").removeprefix("admin:partner:toggle:"))
         service = AdminCatalogService(database)
-        partner = await service.toggle_partner(
-            actor_role=UserRole.ADMIN, partner_id=partner_id
-        )
+        partner = await service.toggle_partner(actor_role=UserRole.ADMIN, partner_id=partner_id)
         channels = await service.list_partner_channels(partner.id)
         access = await service.get_partner_access(partner.id)
     except (ValueError, DomainError) as error:
@@ -510,9 +508,7 @@ def format_partner(
     )
     if not channels:
         return f"{text}\n\nКаналов пока нет."
-    links = "\n\n".join(
-        f"{item.channel.name}:\n{item.channel.referral_link}" for item in channels
-    )
+    links = "\n\n".join(f"{item.channel.name}:\n{item.channel.referral_link}" for item in channels)
     return f"{text}\n\nРеферальные ссылки:\n\n{links}"
 
 
