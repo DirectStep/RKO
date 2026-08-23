@@ -2,6 +2,16 @@ function telegramWebApp(){return window.Telegram?.WebApp}
 function telegramInitData(){return telegramWebApp()?.initData||new URLSearchParams(window.location.hash.slice(1)).get('tgWebAppData')||''}
 telegramWebApp()?.ready(); telegramWebApp()?.expand()
 
+let telegramContextWaited=false
+async function waitForTelegramContext(){
+  if(telegramInitData()||telegramContextWaited)return
+  telegramContextWaited=true
+  for(let attempt=0;attempt<20&&!telegramInitData();attempt+=1){
+    await new Promise(resolve=>setTimeout(resolve,100))
+  }
+  telegramWebApp()?.ready();telegramWebApp()?.expand()
+}
+
 const state = { session: null, dashboard: {}, leads: [], partners: [], channels: [], banks: [], staff: [], duplicates: [], leadApplication: null, leadBanks: [], leadScope: 'queue', partnerData: null, currentScreen: 'summary' }
 const leadLabels = { new:'Новая',manager_assigned:'Менеджер назначен',awaiting_first_contact:'Ждёт звонка',contacted:'Связались',awaiting_data:'Ждём данные',data_received:'Данные получены',selecting_banks:'Подбираем банки',preparing_applications:'Готовим заявки',applications_sent:'Заявки отправлены',opening_accounts:'Открытие счетов',partially_opened:'Часть счетов открыта',all_planned_opened:'Счета открыты',paused:'На паузе',no_response:'Нет ответа',lead_refused:'Отказ клиента',not_eligible:'Не подходит',completed:'Завершена',in_progress:'В работе',partially_completed:'Частично завершена',closed_without_result:'Закрыта без результата' }
 const internalLeadStatuses = ['new','manager_assigned','awaiting_first_contact','contacted','awaiting_data','data_received','selecting_banks','preparing_applications','applications_sent','opening_accounts','partially_opened','all_planned_opened','paused','no_response','lead_refused','not_eligible','completed']
@@ -137,6 +147,7 @@ function confirmLeadBankSelection(){
   document.querySelector('#confirm-bank-selection').addEventListener('click',async()=>{try{await api('/api/lead/banks/selection',{method:'POST',body:JSON.stringify({bank_ids:selected})});closeSheet();toast('Выбор отправлен менеджеру');await load()}catch(error){toast(error.message)}})
 }
 async function load(){
+  await waitForTelegramContext()
   document.querySelectorAll('.screen').forEach(x=>x.classList.remove('is-active'))
   document.querySelector('#loading-state').hidden=false
   document.querySelector('.tabbar').hidden=true
