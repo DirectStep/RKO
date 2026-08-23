@@ -6,7 +6,7 @@ let telegramContextWaited=false
 async function waitForTelegramContext(){
   if(telegramInitData()||telegramContextWaited)return
   telegramContextWaited=true
-  for(let attempt=0;attempt<20&&!telegramInitData();attempt+=1){
+  for(let attempt=0;attempt<60&&!telegramInitData();attempt+=1){
     await new Promise(resolve=>setTimeout(resolve,100))
   }
   telegramWebApp()?.ready();telegramWebApp()?.expand()
@@ -21,9 +21,9 @@ const payLabels = { not_calculated:'Не рассчитана',calculated:'Ра�
 const workflowLabels = { awaiting_admin:'Ожидает администратора',admin_processing:'Первичная обработка',awaiting_client_selection:'Клиент выбирает банки',awaiting_manager:'Ожидает менеджера',manager_processing:'В работе у менеджера',not_eligible:'Не подходит' }
 
 async function api(path, options={}) {
-  const attempts=(options.method||'GET').toUpperCase()==='GET'?3:1
+  const attempts=(options.method||'GET').toUpperCase()==='GET'?2:1
   for(let attempt=1;attempt<=attempts;attempt+=1){
-    const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),12000)
+    const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000)
     try{
       const response = await fetch(path, { ...options, cache:'no-store', signal:controller.signal, headers:{ 'Content-Type':'application/json','X-Telegram-Init-Data':telegramInitData(),...(options.headers||{}) } })
       if (!response.ok) { const body=await response.json().catch(()=>({})); throw new Error(body.detail||'Не удалось выполнить действие') }
@@ -159,15 +159,20 @@ async function load(){
       Object.assign(state,{leadApplication,leadBanks});renderLeadCabinet();return
     }
     if(state.session.role==='partner'){
-      state.channels=await api('/api/channels')
-      state.partnerData=await api(`/api/partner/cabinet?${partnerQuery()}`)
+      const [channels,partnerData]=await Promise.all([
+        api('/api/channels'),
+        api(`/api/partner/cabinet?${partnerQuery()}`),
+      ])
+      Object.assign(state,{channels,partnerData})
       const metrics=state.partnerData.metrics
       Object.assign(state,{leads:state.partnerData.leads,dashboard:{total:metrics.total,new:metrics.accepted,active:metrics.active,unresolved:metrics.planned_banks,repeats:metrics.completed,duplicates:0}})
       render();return
     }
     const employee=['admin','manager'].includes(state.session.role)
-    const dashboard=await api('/api/dashboard')
-    const loadedLeads=await api(`/api/leads${state.leadScope==='mine'?'?mine=true':''}`)
+    const [dashboard,loadedLeads]=await Promise.all([
+      api('/api/dashboard'),
+      api(`/api/leads${state.leadScope==='mine'?'?mine=true':''}`),
+    ])
     const leads=state.session.role==='manager'&&state.leadScope==='queue'?loadedLeads.filter(lead=>lead.workflow_stage==='awaiting_manager'):loadedLeads
     state.banksLoading=employee
     state.banksError=false

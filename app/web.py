@@ -19,6 +19,9 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select, true
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
+from starlette.middleware.base import RequestResponseEndpoint
+from starlette.requests import Request
+from starlette.responses import Response
 
 from app.config import Settings
 from app.database import Database
@@ -215,6 +218,16 @@ def serialize_lead_bank(
 def create_web_app(database: Database, settings: Settings, bot: Bot | None = None) -> FastAPI:
     app = FastAPI(title="РКО", docs_url=None, redoc_url=None)
     app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
+
+    @app.middleware("http")
+    async def disable_mini_app_cache(
+        request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
+        response = await call_next(request)
+        if request.url.path == "/" or request.url.path.startswith("/assets/"):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+        return response
 
     async def current_user(
         telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data"),
