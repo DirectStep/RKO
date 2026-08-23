@@ -12,7 +12,7 @@ async function waitForTelegramContext(){
   telegramWebApp()?.ready();telegramWebApp()?.expand()
 }
 
-const state = { session: null, dashboard: {}, leads: [], partners: [], channels: [], banks: [], staff: [], duplicates: [], leadApplication: null, leadBanks: [], leadScope: 'queue', partnerData: null, currentScreen: 'summary' }
+const state = { session: null, dashboard: {}, leads: [], partners: [], channels: [], banks: [], banksLoading: false, banksError: false, staff: [], duplicates: [], leadApplication: null, leadBanks: [], leadScope: 'queue', partnerData: null, currentScreen: 'summary' }
 const leadLabels = { new:'Новая',manager_assigned:'Менеджер назначен',awaiting_first_contact:'Ждёт звонка',contacted:'Связались',awaiting_data:'Ждём данные',data_received:'Данные получены',selecting_banks:'Подбираем банки',preparing_applications:'Готовим заявки',applications_sent:'Заявки отправлены',opening_accounts:'Открытие счетов',partially_opened:'Часть счетов открыта',all_planned_opened:'Счета открыты',paused:'На паузе',no_response:'Нет ответа',lead_refused:'Отказ клиента',not_eligible:'Не подходит',completed:'Завершена',in_progress:'В работе',partially_completed:'Частично завершена',closed_without_result:'Закрыта без результата' }
 const internalLeadStatuses = ['new','manager_assigned','awaiting_first_contact','contacted','awaiting_data','data_received','selecting_banks','preparing_applications','applications_sent','opening_accounts','partially_opened','all_planned_opened','paused','no_response','lead_refused','not_eligible','completed']
 const questionLabels = { adult:'Совершеннолетие',has_ip:'ИП',city:'Город',full_name:'ФИО',email:'E-mail',has_bankruptcy_or_arrests:'Банкротства или аресты',is_civil_servant:'Госслужащий',has_social_benefits:'Социальные выплаты',no_bankruptcy:'Нет банкротств или арестов',not_civil_servant:'Не госслужащий',no_social_benefits:'Нет социальных выплат' }
@@ -112,7 +112,7 @@ function render(){
   document.querySelector('.tabbar').style.setProperty('--tab-count',admin?5:employee?4:3)
   document.querySelector('#partners-tab-label').textContent=partnerRole?'Каналы':'Партнёры'; document.querySelector('#partners-title').textContent=partnerRole?'Каналы':'Партнёры'; document.querySelector('#partners-eyebrow').textContent=partnerRole?'Источники твоего трафика':'Источники заявок'
   document.querySelector('#partners-list').innerHTML=partnerRole?(state.channels.length?state.channels.map(channel=>`<button class="list-row" type="button" data-copy-channel="${esc(channel.link)}"><span class="row-icon partner">${initials(channel.name)||'К'}</span><span class="row-content"><span class="row-title"><strong>${esc(channel.name)}</strong></span><span class="row-subtitle">${esc(channel.link)}</span></span><b>Скопировать</b></button>`).join(''):'<p class="empty">Добавь первый канал и получи ссылку для лидов</p>'):(state.partners.length?state.partners.map(p=>`<button class="list-row" type="button" data-partner="${p.id}"><span class="row-icon partner">${initials(p.name)||'П'}</span><span class="row-content"><span class="row-title"><strong>${esc(p.name)}</strong></span><span class="row-subtitle">${esc(p.commission)}% · каналов: ${p.channels}</span></span><i class="status-dot ${p.active?'':'off'}"></i></button>`).join(''):'<p class="empty">Партнёров пока нет</p>')
-  document.querySelector('#banks-list').innerHTML=state.banks.length?state.banks.map(b=>`<div class="list-row"><span class="row-icon">Б</span><span class="row-content"><span class="row-title"><strong>${esc(b.name)}</strong></span><span class="row-subtitle">${esc(b.online_text||'Уточняется')} · ${b.active?'доступен':'отключён'}${admin&&b.lead_payout!==null?` · лиду ${money(b.lead_payout)}`:''}</span></span><i class="status-dot ${b.active?'':'off'}"></i></div>`).join(''):'<p class="empty">Справочник пока не синхронизирован</p>'
+  document.querySelector('#banks-list').innerHTML=state.banksLoading?'<p class="empty">Загружаем справочник банков…</p>':state.banksError?'<p class="empty">Не удалось загрузить справочник. Открой кабинет заново.</p>':state.banks.length?state.banks.map(b=>`<div class="list-row"><span class="row-icon">Б</span><span class="row-content"><span class="row-title"><strong>${esc(b.name)}</strong></span><span class="row-subtitle">${esc(b.online_text||'Уточняется')} · ${b.active?'доступен':'отключён'}${admin&&b.lead_payout!==null?` · лиду ${money(b.lead_payout)}`:''}</span></span><i class="status-dot ${b.active?'':'off'}"></i></div>`).join(''):'<p class="empty">В справочнике пока нет банков</p>'
   document.querySelector('#staff-list').innerHTML=state.staff.length?state.staff.map(p=>`<button class="list-row" type="button" data-staff="${p.id}"><span class="row-icon partner">${p.role==='admin'?'А':'М'}</span><span class="row-content"><span class="row-title"><strong>${esc(p.username||p.telegram_id)}</strong></span><span class="row-subtitle">${p.role==='admin'?'Администратор':'Менеджер'} · ${p.status==='pending'?'ожидает первого входа':p.status==='active'?'доступ включён':'доступ отключён'}</span></span><i class="status-dot ${p.status==='active'?'':'off'}"></i></button>`).join(''):'<p class="empty">Сотрудников пока нет</p>'
   if(partnerRole)renderPartnerSummary();else{document.querySelector('#partner-summary').hidden=true;document.querySelector('#partner-filters').hidden=true}
   if(!document.querySelector('.screen.is-active'))showScreen(state.currentScreen)
@@ -169,6 +169,8 @@ async function load(){
     const dashboard=await api('/api/dashboard')
     const loadedLeads=await api(`/api/leads${state.leadScope==='mine'?'?mine=true':''}`)
     const leads=state.session.role==='manager'&&state.leadScope==='queue'?loadedLeads.filter(lead=>lead.workflow_stage==='awaiting_manager'):loadedLeads
+    state.banksLoading=employee
+    state.banksError=false
     Object.assign(state,{dashboard,leads});render()
     const optional=[
       ['partners',state.session.role==='admin'?'/api/partners':null],
@@ -177,10 +179,11 @@ async function load(){
       ['staff',employee?'/api/staff':null],
       ['duplicates',state.session.role==='admin'?'/api/duplicate-reviews':null],
     ]
-    for(const [key,path] of optional){
-      if(!path)continue
-      try{state[key]=await api(path);render()}catch(error){console.warn(`Не удалось загрузить ${key}`,error)}
-    }
+    await Promise.all(optional.map(async([key,path])=>{
+      if(!path)return
+      try{state[key]=await api(path)}catch(error){console.warn(`Не удалось загрузить ${key}`,error);if(key==='banks')state.banksError=true}
+      finally{if(key==='banks')state.banksLoading=false;render()}
+    }))
   }catch(error){ document.querySelector('#loading-state').hidden=true; document.querySelector('.tabbar').hidden=true; document.querySelectorAll('.screen').forEach(x=>x.classList.remove('is-active')); document.querySelector('#error-message').textContent=error.message; document.querySelector('#error-state').hidden=false }
 }
 

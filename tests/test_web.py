@@ -192,7 +192,7 @@ def test_repeat_applications_are_visible_in_summary_and_history() -> None:
     assert "lead.previous_applications" in script
 
 
-def test_mini_app_retries_and_loads_sections_sequentially() -> None:
+def test_mini_app_retries_and_loads_optional_sections_in_parallel() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 
     assert "controller.abort(),12000" in script
@@ -201,7 +201,8 @@ def test_mini_app_retries_and_loads_sections_sequentially() -> None:
     assert "const dashboard=await api('/api/dashboard')" in script
     assert "const loadedLeads=await api(" in script
     assert "Object.assign(state,{dashboard,leads});render()" in script
-    assert "for(const [key,path] of optional)" in script
+    assert "await Promise.all(optional.map" in script
+    assert "state.banksLoading=employee" in script
 
 
 def test_telegram_sdk_does_not_block_application_startup() -> None:
@@ -209,8 +210,10 @@ def test_telegram_sdk_does_not_block_application_startup() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 
     assert 'telegram-web-app.js?59" async' in markup
-    assert 'app.js?v=20260823-05"></script>' in markup
+    assert 'app.js?v=20260823-06"></script>' in markup
     assert markup.index('window.addEventListener("error"') < markup.index("/assets/app.js")
     assert "await waitForTelegramContext()" in script
+    assert "Загружаем справочник банков" in script
+    assert "await Promise.all(optional.map" in script
     assert "get('tgWebAppData')" in script
     assert "'X-Telegram-Init-Data':telegramInitData()" in script
