@@ -220,13 +220,15 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
     app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
 
     @app.middleware("http")
-    async def disable_mini_app_cache(
+    async def configure_mini_app_cache(
         request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
         response = await call_next(request)
-        if request.url.path == "/" or request.url.path.startswith("/assets/"):
+        if request.url.path == "/":
             response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
             response.headers["Pragma"] = "no-cache"
+        elif request.url.path.startswith("/assets/"):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
 
     async def current_user(
