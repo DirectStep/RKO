@@ -9,7 +9,7 @@ from urllib.parse import urlencode
 import pytest
 
 from app.domain.enums import BankExternalStatus, BankInternalStatus, PaymentStatus, UserRole
-from app.web import serialize_lead_bank, validate_telegram_init_data
+from app.web import build_mini_app_html, serialize_lead_bank, validate_telegram_init_data
 
 ASSETS_DIR = Path(__file__).parents[1] / "app" / "web_assets"
 
@@ -212,10 +212,19 @@ def test_telegram_sdk_does_not_block_application_startup() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 
     assert 'telegram-web-app.js?59" async' in markup
-    assert 'app.js?v=20260829-01"></script>' in markup
-    assert markup.index('window.addEventListener("error"') < markup.index("/assets/app.js")
+    assert 'app.js?v=20260829-01" data-inline="app"></script>' in markup
+    assert markup.index('window.addEventListener("error"') < markup.index('data-inline="app"')
     assert "await waitForTelegramContext()" in script
     assert "Загружаем справочник банков" in script
     assert "await Promise.all(optional.map" in script
     assert "get('tgWebAppData')" in script
     assert "'X-Telegram-Init-Data':telegramInitData()" in script
+
+
+def test_mini_app_is_delivered_without_separate_local_assets() -> None:
+    markup = build_mini_app_html()
+
+    assert '<script src="/assets/app.js' not in markup
+    assert '<link rel="stylesheet" href="/assets/styles.css' not in markup
+    assert "new XMLHttpRequest()" in markup
+    assert ".app-shell" in markup

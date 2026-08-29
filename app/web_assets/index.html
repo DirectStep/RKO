@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f1f2f3" />
     <meta name="description" content="Локальный рабочий кабинет РКО для заявок и партнёров" />
     <title>РКО</title>
-    <link rel="stylesheet" href="/assets/styles.css?v=20260829-01" />
+    <link rel="stylesheet" href="/assets/styles.css?v=20260829-01" data-inline="styles" />
     <script src="https://telegram.org/js/telegram-web-app.js?59" async></script>
   </head>
   <body>
@@ -196,7 +196,7 @@
     <div class="toast" id="toast" role="status" hidden></div>
     <script>
       window.addEventListener("error", (event) => {
-        if (!String(event.filename || "").includes("/assets/app.js")) return;
+        if (String(event.filename || "").includes("telegram-web-app.js")) return;
         document.querySelector("#loading-state").hidden = true;
         document.querySelector("#error-message").textContent =
           "Не удалось запустить кабинет. Закрой мини-приложение и открой его заново.";
@@ -211,6 +211,6 @@
         document.querySelector("#error-state").hidden = false;
       }, 25000);
     </script>
-    <script src="/assets/app.js?v=20260829-01"></script>
+    <script src="/assets/app.js?v=20260829-01" data-inline="app"></script>
   </body>
 </html>

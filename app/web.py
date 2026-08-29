@@ -14,7 +14,7 @@ from uuid import UUID
 
 from aiogram import Bot
 from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select, true
 from sqlalchemy.orm import aliased
@@ -82,6 +82,24 @@ EXTERNAL_STATUS_LABELS = {
     "paused": "На паузе",
     "closed_without_result": "Закрыта без результата",
 }
+
+
+def build_mini_app_html() -> str:
+    markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
+    styles = (ASSETS_DIR / "styles.css").read_text(encoding="utf-8")
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+    style_marker = (
+        '<link rel="stylesheet" href="/assets/styles.css?v=20260829-01" '
+        'data-inline="styles" />'
+    )
+    script_marker = (
+        '<script src="/assets/app.js?v=20260829-01" data-inline="app"></script>'
+    )
+    if style_marker not in markup or script_marker not in markup:
+        raise RuntimeError("Не найдены точки встраивания файлов мини-приложения")
+    return markup.replace(style_marker, f"<style>{styles}</style>", 1).replace(
+        script_marker, f"<script>{script}</script>", 1
+    )
 
 
 @dataclass(frozen=True)
@@ -217,6 +235,7 @@ def serialize_lead_bank(
 
 def create_web_app(database: Database, settings: Settings, bot: Bot | None = None) -> FastAPI:
     app = FastAPI(title="РКО", docs_url=None, redoc_url=None)
+    mini_app_html = build_mini_app_html()
     app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
 
     @app.middleware("http")
@@ -348,8 +367,8 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             logger.exception("Failed to notify partner for lead %s", lead_id)
 
     @app.get("/", include_in_schema=False)
-    async def index() -> FileResponse:
-        return FileResponse(ASSETS_DIR / "index.html")
+    async def index() -> HTMLResponse:
+        return HTMLResponse(mini_app_html)
 
     @app.get("/api/session")
     async def session(
