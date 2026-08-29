@@ -195,7 +195,8 @@ def test_repeat_applications_are_visible_in_summary_and_history() -> None:
 def test_mini_app_retries_and_loads_optional_sections_in_parallel() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 
-    assert "controller.abort(),10000" in script
+    assert "request.timeout=10000" in script
+    assert "new XMLHttpRequest()" in script
     assert "const attempts=(options.method||'GET').toUpperCase()==='GET'?2:1" in script
     assert "Сервер отвечает слишком долго" in script
     assert "const [dashboard,loadedLeads]=await Promise.all" in script
@@ -211,7 +212,7 @@ def test_telegram_sdk_does_not_block_application_startup() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 
     assert 'telegram-web-app.js?59" async' in markup
-    assert 'app.js?v=20260823-07"></script>' in markup
+    assert 'app.js?v=20260829-01"></script>' in markup
     assert markup.index('window.addEventListener("error"') < markup.index("/assets/app.js")
     assert "await waitForTelegramContext()" in script
     assert "Загружаем справочник банков" in script

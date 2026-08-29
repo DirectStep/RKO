@@ -1,5 +1,9 @@
 function telegramWebApp(){return window.Telegram?.WebApp}
-function telegramInitData(){return telegramWebApp()?.initData||new URLSearchParams(window.location.hash.slice(1)).get('tgWebAppData')||''}
+function telegramInitData(){
+  const hashData=new URLSearchParams(window.location.hash.slice(1)).get('tgWebAppData')
+  const queryData=new URLSearchParams(window.location.search).get('tgWebAppData')
+  return telegramWebApp()?.initData||hashData||queryData||''
+}
 telegramWebApp()?.ready(); telegramWebApp()?.expand()
 
 let telegramContextWaited=false
@@ -20,21 +24,39 @@ const bankLabels = { planned:'Запланирован',awaiting_data:'Ждём 
 const payLabels = { not_calculated:'Не рассчитана',calculated:'Рассчитана',awaiting_confirmation:'Ждёт подтверждения',confirmed:'Подтверждена',in_registry:'В реестре',paid:'Выплачена',cancelled:'Отменена' }
 const workflowLabels = { awaiting_admin:'Ожидает администратора',admin_processing:'Первичная обработка',awaiting_client_selection:'Клиент выбирает банки',awaiting_manager:'Ожидает менеджера',manager_processing:'В работе у менеджера',not_eligible:'Не подходит' }
 
+function jsonRequest(path, options={}){
+  return new Promise((resolve,reject)=>{
+    const request=new XMLHttpRequest()
+    request.open((options.method||'GET').toUpperCase(),path,true)
+    request.timeout=10000
+    request.setRequestHeader('Content-Type','application/json')
+    request.setRequestHeader('X-Telegram-Init-Data',telegramInitData())
+    Object.entries(options.headers||{}).forEach(([name,value])=>request.setRequestHeader(name,value))
+    request.onload=()=>{
+      if(request.status>=200&&request.status<300){
+        if(request.status===204)return resolve(null)
+        try{return resolve(JSON.parse(request.responseText))}catch(error){return reject(new Error('Сервер вернул некорректные данные'))}
+      }
+      let message='Не удалось выполнить действие'
+      try{message=JSON.parse(request.responseText).detail||message}catch(error){}
+      reject(new Error(message))
+    }
+    request.ontimeout=()=>reject(new Error('Сервер отвечает слишком долго. Нажми «Повторить».'))
+    request.onerror=()=>reject(new Error('Нет связи с сервером. Проверь интернет и нажми «Повторить».'))
+    request.send(options.body||null)
+  })
+}
 async function api(path, options={}) {
   const attempts=(options.method||'GET').toUpperCase()==='GET'?2:1
   for(let attempt=1;attempt<=attempts;attempt+=1){
-    const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000)
     try{
-      const response = await fetch(path, { ...options, cache:'no-store', signal:controller.signal, headers:{ 'Content-Type':'application/json','X-Telegram-Init-Data':telegramInitData(),...(options.headers||{}) } })
-      if (!response.ok) { const body=await response.json().catch(()=>({})); throw new Error(body.detail||'Не удалось выполнить действие') }
-      return response.status===204 ? null : response.json()
+      return await jsonRequest(path,options)
     }catch(error){
       if(attempt===attempts){
-        if(error.name==='AbortError')throw new Error('Сервер отвечает слишком долго. Нажми «Повторить».')
         throw error
       }
       await new Promise(resolve=>setTimeout(resolve,400*attempt))
-    }finally{clearTimeout(timeout)}
+    }
   }
 }
 function esc(value){ const n=document.createElement('span'); n.textContent=value??''; return n.innerHTML }
