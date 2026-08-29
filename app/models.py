@@ -329,6 +329,13 @@ class LeadBank(Base):
             "(partner_reward_fact IS NULL OR partner_reward_fact >= 0)",
             name="ck_lead_bank_nonnegative_money",
         ),
+        CheckConstraint(
+            "(lead_reward_estimate IS NULL OR lead_reward_estimate >= 0) AND "
+            "(lead_reward_fact IS NULL OR lead_reward_fact >= 0) AND "
+            "(team_profit_estimate IS NULL OR team_profit_estimate >= 0) AND "
+            "(team_profit_fact IS NULL OR team_profit_fact >= 0)",
+            name="ck_lead_bank_financial_snapshots_nonnegative",
+        ),
     )
     id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     lead_id: Mapped[UUID] = mapped_column(ForeignKey("leads.id"), nullable=False)

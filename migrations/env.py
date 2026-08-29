@@ -18,19 +18,39 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def include_object(
+    object_: object,
+    name: str | None,
+    type_: str,
+    reflected: bool,
+    compare_to: object | None,
+) -> bool:
+    # SQLAlchemy recreates non-native Enum checks from Python enums, while
+    # PostgreSQL reflects them as ordinary checks. Comparing those produces
+    # false "remove constraint" migrations even when the definitions match.
+    if type_ == "check_constraint" and reflected and name and name.endswith("_values"):
+        return False
+    return True
+
+
 def run_migrations_offline() -> None:
     context.configure(
         url=config.get_main_option("sqlalchemy.url"),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
 
 
 def configure_connection(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        include_object=include_object,
+    )
     with context.begin_transaction():
         context.run_migrations()
 
