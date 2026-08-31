@@ -263,14 +263,15 @@ button.list-row:active { background: color-mix(in srgb, var(--muted) 10%, transp
 .client-bank-card > input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .client-bank-card.is-selectable { cursor: pointer; border: 0.12rem solid transparent; }
 .client-bank-card.is-selectable:has(input:checked) { border-color: var(--accent); }
-.client-bank-card > header { display: flex; align-items: center; gap: 0.75rem; padding: 0.9rem; }
+.client-bank-card > header { display: grid; grid-template-columns: 2.75rem minmax(0, 1fr) 1.7rem; gap: 0.45rem 0.75rem; align-items: start; padding: 0.9rem; }
+.client-bank-card:not(.is-selectable) > header { grid-template-columns: 2.75rem minmax(0, 1fr); }
+.client-bank-copy { min-width: 0; }
 .client-bank-card h3, .empty-card h3 { margin: 0; font-size: 1rem; }
-.client-bank-card header p { margin: 0.15rem 0 0; color: var(--accent); font-size: 0.78rem; font-weight: 600; }
-.bank-payout { margin-left: auto; color: var(--positive); font-size: 0.82rem; white-space: nowrap; }
-.bank-payout + .choice-mark { margin-left: 0; }
+.client-bank-card header p { margin: 0.15rem 0 0; overflow-wrap: anywhere; color: var(--accent); font-size: 0.78rem; font-weight: 600; line-height: 1.3; }
+.bank-payout { grid-column: 2 / -1; margin: 0; color: var(--positive); font-size: 0.82rem; white-space: nowrap; }
 .client-bank-card > small { display: block; padding: 0 0.9rem 0.9rem; color: var(--muted); font-size: 0.7rem; }
-.client-bank-icon { display: grid; flex: none; width: 2.75rem; height: 2.75rem; place-items: center; border-radius: 0.75rem; color: #fff; background: var(--accent); font-weight: 750; }
-.choice-mark { display: grid; width: 1.7rem; height: 1.7rem; margin-left: auto; place-items: center; border: 0.1rem solid var(--separator); border-radius: 50%; color: transparent; }
+.client-bank-icon { display: grid; grid-row: 1 / span 2; width: 2.75rem; height: 2.75rem; place-items: center; border-radius: 0.75rem; color: #fff; background: var(--accent); font-weight: 750; }
+.choice-mark { display: grid; width: 1.7rem; height: 1.7rem; place-items: center; border: 0.1rem solid var(--separator); border-radius: 50%; color: transparent; }
 .client-bank-card input:checked ~ header .choice-mark { border-color: var(--accent); color: var(--accent-text); background: var(--accent); }
 .activation-action { margin: 0 0.9rem 0.75rem; padding: 0.85rem; border-radius: 0.7rem; background: var(--bg); }
 .activation-action span { color: var(--muted); font-size: 0.7rem; font-weight: 600; }
