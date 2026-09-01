@@ -35,6 +35,7 @@ from app.domain.enums import (
     UserRole,
 )
 from app.domain.operations import DomainError
+from app.integrations.bank_conditions import BankConditionRow, BankConditionsGateway
 from app.integrations.bank_rates import BankRateRow, BankRatesGateway
 from app.models import (
     Bank,
@@ -50,7 +51,7 @@ from app.models import (
 )
 from app.reports.partner_report import build_partner_report
 from app.services.admin_catalog import AdminCatalogService
-from app.services.bank_conditions import normalize_bank_name
+from app.services.bank_conditions import BankConditionsService, normalize_bank_name
 from app.services.bank_rates import BankRatesService
 from app.services.duplicate_reviews import DuplicateReviewService
 from app.services.lead_assignment import LeadAssignmentService
@@ -408,10 +409,23 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             settings.google_service_account_file,
         )
 
+    def require_bank_conditions_sheet() -> BankConditionsGateway:
+        if not settings.bank_conditions_sheet_id or not settings.google_service_account_file:
+            raise HTTPException(
+                status_code=503,
+                detail="Таблица условий банков не подключена. Проверь настройки Google Sheets",
+            )
+        return BankConditionsGateway(
+            settings.bank_conditions_sheet_id,
+            "Условия активации",
+            settings.google_service_account_file,
+        )
+
     async def write_bank_rate(
         payload: BankCreate | BankUpdate,
         *,
         original_offer_code: str | None = None,
+        original_bank_name: str | None = None,
     ) -> BankRate:
         row = BankRateRow(
             offer_code=payload.offer_code.strip(),
@@ -426,17 +440,84 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             source_row=0,
         )
         try:
+            conditions_gateway = await asyncio.to_thread(require_bank_conditions_sheet)
             gateway = await asyncio.to_thread(require_bank_rates_sheet)
-            rows = await asyncio.to_thread(
-                gateway.upsert,
+            condition_write = await asyncio.to_thread(
+                conditions_gateway.plan_upsert,
+                BankConditionRow(
+                    bank_name=row.bank_name,
+                    action_text=row.activation_condition,
+                    source_row=0,
+                ),
+                original_bank_name=original_bank_name,
+            )
+            rate_write = await asyncio.to_thread(
+                gateway.plan_upsert,
                 row,
                 original_offer_code=original_offer_code,
             )
-            await BankRatesService(database).replace_all(rows)
+            condition_write_started = False
+            rate_write_started = False
+            try:
+                condition_write_started = True
+                condition_rows = await asyncio.to_thread(
+                    conditions_gateway.apply, condition_write
+                )
+                rate_write_started = True
+                rows = await asyncio.to_thread(gateway.apply, rate_write)
+            except Exception:
+                if rate_write_started:
+                    try:
+                        await asyncio.to_thread(gateway.rollback, rate_write)
+                    except Exception:
+                        logger.exception("Failed to roll back Google Sheets bank rate")
+                if condition_write_started:
+                    try:
+                        await asyncio.to_thread(
+                            conditions_gateway.rollback, condition_write
+                        )
+                    except Exception:
+                        logger.exception("Failed to roll back Google Sheets bank condition")
+                raise
+            try:
+                await BankRatesService(database).replace_all(rows)
+                await BankConditionsService(database).replace_all(condition_rows)
+            except Exception:
+                restored_rows = None
+                restored_conditions = None
+                try:
+                    restored_rows = await asyncio.to_thread(gateway.rollback, rate_write)
+                except Exception:
+                    logger.exception("Failed to restore Google Sheets bank rates")
+                try:
+                    restored_conditions = await asyncio.to_thread(
+                        conditions_gateway.rollback, condition_write
+                    )
+                except Exception:
+                    logger.exception("Failed to restore Google Sheets bank conditions")
+                if restored_rows is not None:
+                    try:
+                        await BankRatesService(database).replace_all(restored_rows)
+                    except Exception:
+                        logger.exception("Failed to restore bank rates in database")
+                if restored_conditions is not None:
+                    try:
+                        await BankConditionsService(database).replace_all(
+                            restored_conditions
+                        )
+                    except Exception:
+                        logger.exception("Failed to restore bank conditions in database")
+                raise
         except HTTPException:
             raise
-        except (ValueError, OSError) as error:
+        except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
+        except Exception as error:
+            logger.exception("Failed to write bank data")
+            raise HTTPException(
+                status_code=503,
+                detail="Не удалось сохранить банк. Попробуй ещё раз позже.",
+            ) from error
         async with database.session() as db_session:
             rate = await db_session.scalar(
                 select(BankRate).where(BankRate.offer_code == row.offer_code)
@@ -1660,14 +1741,21 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             current = await db_session.scalar(
                 select(BankRate).where(BankRate.bank_id == bank_id)
             )
+            current_bank = await db_session.get(Bank, bank_id)
         if current is None:
             raise HTTPException(status_code=404, detail="Ставка банка не найдена")
+        if current_bank is None:
+            raise HTTPException(status_code=404, detail="Банк не найден")
         if current.offer_code.casefold() != payload.offer_code.strip().casefold():
             raise HTTPException(
                 status_code=400,
                 detail="Код предложения нельзя изменить после создания банка",
             )
-        rate = await write_bank_rate(payload, original_offer_code=current.offer_code)
+        rate = await write_bank_rate(
+            payload,
+            original_offer_code=current.offer_code,
+            original_bank_name=current_bank.name,
+        )
         return {
             "id": str(rate.bank_id),
             "offer_code": rate.offer_code,

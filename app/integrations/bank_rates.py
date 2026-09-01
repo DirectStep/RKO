@@ -33,6 +33,13 @@ class BankRateRow:
     source_row: int
 
 
+@dataclass(frozen=True)
+class BankRateWrite:
+    target_row: int
+    previous: tuple[str, ...]
+    serialized: tuple[str, ...]
+
+
 def _decimal(value: str, row: int, column: str) -> Decimal:
     clean = re.sub(r"[^0-9,.\-]", "", value).replace(",", ".")
     try:
@@ -118,12 +125,12 @@ class BankRatesGateway:
     def fetch(self) -> list[BankRateRow]:
         return parse_bank_rate_rows(self.worksheet.get_all_values())
 
-    def upsert(
+    def plan_upsert(
         self,
         row: BankRateRow,
         *,
         original_offer_code: str | None = None,
-    ) -> list[BankRateRow]:
+    ) -> BankRateWrite:
         values = self.worksheet.get_all_values()
         parse_bank_rate_rows(values)
         lookup = (original_offer_code or row.offer_code).casefold()
@@ -139,7 +146,7 @@ class BankRatesGateway:
             raise ValueError("Редактируемое предложение не найдено в Google Sheets")
         if target_row is None:
             target_row = len(values) + 1
-        serialized = [
+        serialized = (
             row.offer_code,
             row.bank_name,
             row.online_text,
@@ -148,15 +155,45 @@ class BankRatesGateway:
             "Да" if row.lead_payout_paid_separately else "Нет",
             "Да" if row.active else "Нет",
             str(row.display_order),
-            row.activation_condition,
-        ]
+        )
         prospective = [list(cells) for cells in values]
         while len(prospective) < target_row:
             prospective.append([])
-        prospective[target_row - 1] = serialized
+        previous = tuple([*prospective[target_row - 1], *("" for _ in range(8))][:8])
+        current_condition = (
+            prospective[target_row - 1][8]
+            if len(prospective[target_row - 1]) > 8
+            else ""
+        )
+        prospective[target_row - 1] = [*serialized, current_condition]
         parse_bank_rate_rows(prospective)
-        self.worksheet.update([serialized], f"A{target_row}:I{target_row}", raw=True)
+        return BankRateWrite(target_row, previous, serialized)
+
+    def apply(self, write: BankRateWrite) -> list[BankRateRow]:
+        self.worksheet.update(
+            [list(write.serialized)],
+            f"A{write.target_row}:H{write.target_row}",
+            raw=True,
+        )
         return self.fetch()
+
+    def rollback(self, write: BankRateWrite) -> list[BankRateRow]:
+        self.worksheet.update(
+            [list(write.previous)],
+            f"A{write.target_row}:H{write.target_row}",
+            raw=True,
+        )
+        return self.fetch()
+
+    def upsert(
+        self,
+        row: BankRateRow,
+        *,
+        original_offer_code: str | None = None,
+    ) -> list[BankRateRow]:
+        return self.apply(
+            self.plan_upsert(row, original_offer_code=original_offer_code)
+        )
 
     def set_active(self, offer_code: str, active: bool) -> list[BankRateRow]:
         values = self.worksheet.get_all_values()

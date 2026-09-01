@@ -124,12 +124,14 @@ async def test_manager_cannot_change_bank_financial_fields() -> None:
 class FakeWorksheet:
     def __init__(self, values: list[list[str]]) -> None:
         self.values = values
+        self.updated_ranges: list[str] = []
 
     def get_all_values(self) -> list[list[str]]:
         return self.values
 
     def update(self, values: list[list[str]], range_name: str, *, raw: bool) -> None:
         assert raw is True
+        self.updated_ranges.append(range_name)
         start = range_name.split(":", maxsplit=1)[0]
         row_number = int("".join(character for character in start if character.isdigit()))
         while len(self.values) < row_number:
@@ -139,7 +141,8 @@ class FakeWorksheet:
             row[6] = values[0][0]
             self.values[row_number - 1] = row
         else:
-            self.values[row_number - 1] = values[0]
+            previous = [*self.values[row_number - 1], *("" for _ in range(9))][:9]
+            self.values[row_number - 1] = [*values[0], previous[8]]
 
 
 def gateway_with(values: list[list[str]]) -> BankRatesGateway:
@@ -169,9 +172,72 @@ def test_bank_rate_gateway_updates_existing_sheet_row() -> None:
 
     rows = gateway.upsert(changed, original_offer_code="old-code")
 
-    assert rows == [changed]
+    assert rows == [
+        BankRateRow(
+            offer_code="new-code",
+            bank_name="Новое имя",
+            online_text="Да",
+            base_payout=Decimal("2500.00"),
+            lead_payout=Decimal("500.00"),
+            lead_payout_paid_separately=False,
+            active=True,
+            display_order=3,
+            activation_condition="Условие",
+            source_row=2,
+        )
+    ]
     assert values[1][0] == "new-code"
-    assert values[1][8] == "Новое условие"
+    assert values[1][8] == "Условие"
+    assert gateway.worksheet.updated_ranges == ["A2:H2"]
+
+
+def test_bank_rate_gateway_appends_without_writing_formula_column() -> None:
+    values = [
+        list(parse_bank_rate_rows.__globals__["EXPECTED_HEADERS"]),
+        ["old-code", "Старый банк", "Нет", "1000", "200", "Нет", "Да", "1", ""],
+    ]
+    created = BankRateRow(
+        offer_code="new-code",
+        bank_name="Новый банк",
+        online_text="Нет",
+        base_payout=Decimal("3000"),
+        lead_payout=Decimal("700"),
+        lead_payout_paid_separately=False,
+        active=True,
+        display_order=2,
+        activation_condition="Условие хранится во второй таблице",
+        source_row=0,
+    )
+
+    rows = gateway_with(values).upsert(created)
+
+    assert rows[-1].offer_code == "new-code"
+    assert rows[-1].activation_condition == ""
+    assert values[2] == ["new-code", "Новый банк", "Нет", "3000", "700", "Нет", "Да", "2", ""]
+
+
+def test_bank_rate_gateway_rolls_back_appended_bank() -> None:
+    values = [list(parse_bank_rate_rows.__globals__["EXPECTED_HEADERS"])]
+    gateway = gateway_with(values)
+    created = BankRateRow(
+        offer_code="new-code",
+        bank_name="Новый банк",
+        online_text="Нет",
+        base_payout=Decimal("3000"),
+        lead_payout=Decimal("700"),
+        lead_payout_paid_separately=False,
+        active=True,
+        display_order=2,
+        activation_condition="",
+        source_row=0,
+    )
+    write = gateway.plan_upsert(created)
+
+    gateway.apply(write)
+    rows = gateway.rollback(write)
+
+    assert rows == []
+    assert values[1][:8] == ["", "", "", "", "", "", "", ""]
 
 
 def test_bank_rate_gateway_deactivates_without_removing_row() -> None:
