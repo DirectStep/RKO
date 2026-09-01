@@ -136,6 +136,16 @@ def cabinet_keyboard(mini_app_url: str = "") -> InlineKeyboardMarkup | None:
     )
 
 
+def manager_menu_keyboard(mini_app_url: str = "") -> InlineKeyboardMarkup:
+    rows = [[InlineKeyboardButton(text="Мои заявки", callback_data="manager:leads")]]
+    if mini_app_url.startswith("https://"):
+        rows.insert(
+            0,
+            [InlineKeyboardButton(text="Открыть кабинет", web_app=WebAppInfo(url=mini_app_url))],
+        )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def partner_menu_keyboard(mini_app_url: str = "") -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     if mini_app_url.startswith("https://"):
@@ -146,11 +156,11 @@ def partner_menu_keyboard(mini_app_url: str = "") -> InlineKeyboardMarkup:
         [
             [InlineKeyboardButton(text="Сводка", callback_data="partner:summary")],
             [
-                InlineKeyboardButton(text="Мои лиды", callback_data="partner:leads"),
+                InlineKeyboardButton(text="Мои заявки", callback_data="partner:leads"),
                 InlineKeyboardButton(text="Активные", callback_data="partner:active"),
             ],
             [
-                InlineKeyboardButton(text="Открытые банки", callback_data="partner:opened"),
+                InlineKeyboardButton(text="Открытые счета", callback_data="partner:opened"),
                 InlineKeyboardButton(text="Выплаты", callback_data="partner:payments"),
             ],
             [
@@ -244,7 +254,7 @@ def admin_partner_keyboard(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="Ссылка активации кабинета",
+                    text="Ссылка для входа партнёра",
                     callback_data=f"admin:pa:{partner_id}",
                 )
             ],

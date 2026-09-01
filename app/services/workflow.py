@@ -208,6 +208,7 @@ class WorkflowService:
         *,
         actor_role: UserRole,
         lead_id: UUID,
+        actor_user_id: UUID | None = None,
         internal_status: LeadInternalStatus | None = None,
         manager_id: UUID | None = None,
         update_manager: bool = False,
@@ -220,6 +221,8 @@ class WorkflowService:
             lead = await session.scalar(select(Lead).where(Lead.id == lead_id).with_for_update())
             if lead is None:
                 raise DomainError("Заявка не найдена")
+            if actor_role is UserRole.MANAGER and lead.manager_id != actor_user_id:
+                raise DomainError("Эта заявка закреплена за другим менеджером")
             if update_manager:
                 self._require_admin(actor_role)
                 if manager_id is not None:
@@ -347,6 +350,7 @@ class WorkflowService:
         self,
         *,
         actor_role: UserRole,
+        actor_user_id: UUID,
         lead_bank_id: UUID,
         status: BankInternalStatus | None = None,
         close_reason: str | None = None,
@@ -354,6 +358,10 @@ class WorkflowService:
         income_fact: Decimal | None = None,
     ) -> LeadBank:
         self._require_employee(actor_role)
+        if actor_role is UserRole.MANAGER and (
+            income_estimate is not None or income_fact is not None
+        ):
+            raise DomainError("Менеджер не может изменять финансовые данные")
         self._validate_money(income_estimate)
         self._validate_money(income_fact)
         async with self.database.session() as session, session.begin():
@@ -362,6 +370,12 @@ class WorkflowService:
             )
             if lead_bank is None:
                 raise DomainError("Банк заявки не найден")
+            if actor_role is UserRole.MANAGER:
+                manager_id = await session.scalar(
+                    select(Lead.manager_id).where(Lead.id == lead_bank.lead_id)
+                )
+                if manager_id != actor_user_id:
+                    raise DomainError("Эта заявка закреплена за другим менеджером")
             if status is not None:
                 self._apply_bank_status(lead_bank, status, close_reason)
             if income_estimate is not None:
@@ -403,6 +417,46 @@ class WorkflowService:
                 payment.status = PaymentStatus.AWAITING_CONFIRMATION
             lead_bank.last_updated_at = datetime.now(UTC)
             return lead_bank
+
+    async def remove_bank_from_lead(
+        self,
+        *,
+        actor_role: UserRole,
+        actor_user_id: UUID,
+        lead_bank_id: UUID,
+    ) -> bool:
+        if actor_role is not UserRole.ADMIN:
+            raise DomainError("Убирать банки из заявки может только администратор")
+        async with self.database.session() as session, session.begin():
+            lead_bank = await session.scalar(
+                select(LeadBank).where(LeadBank.id == lead_bank_id).with_for_update()
+            )
+            if lead_bank is None:
+                raise DomainError("Банк заявки не найден")
+            lead = await session.get(Lead, lead_bank.lead_id)
+            if lead is None:
+                raise DomainError("Заявка не найдена")
+            if lead.primary_admin_id != actor_user_id:
+                raise DomainError("Изменять банки может только ответственный администратор")
+            payment = await session.scalar(
+                select(Payment.id).where(Payment.lead_bank_id == lead_bank.id).limit(1)
+            )
+            has_history = (
+                lead_bank.offered_to_lead
+                or lead_bank.selected_by_lead is not None
+                or payment is not None
+                or lead_bank.internal_status is not BankInternalStatus.PLANNED
+            )
+            if has_history:
+                self._apply_bank_status(
+                    lead_bank,
+                    BankInternalStatus.EXCLUDED,
+                    "Исключён администратором",
+                )
+                lead_bank.offered_to_lead = False
+                return False
+            await session.delete(lead_bank)
+            return True
 
     async def confirm_lead_bank_payment(
         self,
@@ -474,7 +528,7 @@ class WorkflowService:
             return payment
 
     async def delete_lead(self, *, actor_role: UserRole, lead_id: UUID) -> None:
-        self._require_employee(actor_role)
+        self._require_admin(actor_role)
         async with self.database.session() as session, session.begin():
             lead = await session.scalar(select(Lead).where(Lead.id == lead_id).with_for_update())
             if lead is None:

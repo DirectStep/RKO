@@ -30,6 +30,12 @@ class PartnerUpdate(BaseModel):
     update_assigned_admin: bool = False
 
 
+class PartnerCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=160)
+    commission_percent: Decimal = Field(ge=0, le=100)
+    telegram_username: str | None = None
+
+
 class ChannelCreate(BaseModel):
     name: str
     partner_id: UUID | None = None
@@ -53,8 +59,19 @@ class DuplicateReviewResolve(BaseModel):
 
 
 class BankCreate(BaseModel):
+    offer_code: str = Field(min_length=2, max_length=64)
     name: str
+    online_text: str = Field(default="Нет", max_length=120)
+    base_payout: Decimal = Field(ge=0)
+    lead_payout: Decimal = Field(ge=0)
+    lead_payout_paid_separately: bool = False
+    active: bool = True
     display_order: int = Field(default=0, ge=0, le=10_000)
+    activation_condition: str = ""
+
+
+class BankUpdate(BankCreate):
+    pass
 
 
 class LeadBankCreate(BaseModel):

@@ -18,6 +18,7 @@ from app.bot.keyboards import (
     consent_document_keyboard,
     consent_keyboard,
     continue_keyboard,
+    manager_menu_keyboard,
     partner_menu_keyboard,
     phone_keyboard,
     resubmit_application_keyboard,
@@ -28,7 +29,7 @@ from app.bot.states import LeadApplication
 from app.bot.texts import CONSENT_PROMPT, CONSENT_TEXT, START_TEXT
 from app.config import Settings
 from app.database import Database
-from app.domain.enums import LeadWorkflowStage, UserRole
+from app.domain.enums import AccessStatus, LeadWorkflowStage, UserRole
 from app.domain.intake import (
     QUESTIONS,
     QuestionKind,
@@ -48,6 +49,16 @@ router = Router(name="common")
 logger = logging.getLogger(__name__)
 
 QUESTION_REVIEW_LABELS = tuple(question.review_label for question in QUESTIONS)
+
+PARTNER_STATUS_LABELS = {
+    "new": "Новая",
+    "in_progress": "В работе",
+    "opening_accounts": "Открываем счета",
+    "partially_completed": "Часть счетов открыта",
+    "completed": "Завершена",
+    "paused": "Приостановлена",
+    "closed_without_result": "Закрыта без результата",
+}
 
 
 async def has_registered_lead(database: Database, telegram_id: str) -> bool:
@@ -98,7 +109,7 @@ async def start(
     clicked_at = datetime.now(UTC)
     requested_referral_code = command.args
     if user is None:
-        await message.answer("Не удалось определить Telegram-пользователя.")
+        await message.answer("Не удалось определить твой Telegram-аккаунт. Отправь /start ещё раз.")
         return
     role = await UserAccessService(database, settings).resolve_role(
         telegram_id=str(user.id), telegram_username=user.username
@@ -129,8 +140,8 @@ async def start(
         return
     if role is UserRole.MANAGER:
         await message.answer(
-            "Кабинет менеджера. Здесь доступны все заявки, статусы, банки и доходы.",
-            reply_markup=cabinet_keyboard(settings.mini_app_url),
+            "Кабинет менеджера. Здесь доступны твои заявки, банки и рабочие статусы.",
+            reply_markup=manager_menu_keyboard(settings.mini_app_url),
         )
         return
     if role is UserRole.PARTNER:
@@ -176,19 +187,56 @@ async def start(
         display_name=user.full_name if user else "Пользователь Telegram",
     )
     start_text = START_TEXT
-    if first_click.partner_name and first_click.channel_name:
-        start_text = (
-            f"Партнёрская ссылка применена: {first_click.partner_name}, "
-            f"канал «{first_click.channel_name}».\n\n{START_TEXT}"
-        )
-    elif requested_referral_code and not first_click.is_new:
-        start_text = (
-            "Партнёрская ссылка не изменила источник: он фиксируется при первом входе "
-            f"в бот. Для проверки используй новый Telegram-аккаунт.\n\n{START_TEXT}"
-        )
-    elif requested_referral_code:
+    if requested_referral_code and first_click.is_new and first_click.referral_code is None:
         start_text = f"Эта партнёрская ссылка недействительна или отключена.\n\n{START_TEXT}"
     await message.answer(start_text, reply_markup=continue_keyboard())
+
+
+@router.callback_query(F.data == "manager:leads")
+async def manager_leads(
+    callback: CallbackQuery,
+    database: Database,
+    settings: Settings,
+) -> None:
+    async with database.session() as session:
+        manager = await session.scalar(
+            select(User).where(
+                User.telegram_id == str(callback.from_user.id),
+                User.role == UserRole.MANAGER,
+                User.access_status == AccessStatus.ACTIVE,
+            )
+        )
+        leads = (
+            list(
+                await session.scalars(
+                    select(Lead)
+                    .where(
+                        Lead.manager_id == manager.id,
+                        Lead.archived_at.is_(None),
+                    )
+                    .order_by(Lead.last_updated_at.desc())
+                    .limit(20)
+                )
+            )
+            if manager is not None
+            else []
+        )
+    if callback.message is None:
+        await callback.answer()
+        return
+    if manager is None:
+        await callback.answer("Раздел доступен менеджеру", show_alert=True)
+        return
+    lines = [
+        f"{lead.short_id} · {lead.display_name} · "
+        f"{PARTNER_STATUS_LABELS.get(lead.external_status.value, 'Статус уточняется')}"
+        for lead in leads
+    ]
+    await callback.message.answer(
+        "Мои заявки\n\n" + ("\n".join(lines) if lines else "Закреплённых заявок пока нет"),
+        reply_markup=manager_menu_keyboard(settings.mini_app_url),
+    )
+    await callback.answer()
 
 
 async def partner_for_callback(callback: CallbackQuery, database: Database) -> Partner | None:
@@ -206,13 +254,13 @@ async def partner_summary(callback: CallbackQuery, database: Database, settings:
     metrics = (await partner_cabinet_data(database, partner.id))["metrics"]
     await callback.message.answer(
         "Сводка партнёра\n\n"
-        f"Подтверждённые лиды: {metrics['total']}\n"
+        f"Подтверждённые заявки: {metrics['total']}\n"
         f"Приняты в работу: {metrics['accepted']}\n"
-        f"Активные: {metrics['active']}\n"
-        f"Завершённые: {metrics['completed']}\n"
-        f"Открытые банки: {metrics['opened_banks']}\n"
-        f"Расчётная выплата: {metrics['estimated_payout']} ₽\n"
-        f"Подтверждено: {metrics['confirmed_payout']} ₽\n"
+        f"Активные заявки: {metrics['active']}\n"
+        f"Завершённые заявки: {metrics['completed']}\n"
+        f"Открытые счета: {metrics['opened_banks']}\n"
+        f"Ожидаемая выплата: {metrics['estimated_payout']} ₽\n"
+        f"Подтверждено к выплате: {metrics['confirmed_payout']} ₽\n"
         f"Выплачено: {metrics['paid']} ₽",
         reply_markup=partner_menu_keyboard(settings.mini_app_url),
     )
@@ -238,10 +286,11 @@ async def send_partner_leads(
             in {"new", "in_progress", "opening_accounts", "partially_completed", "paused"}
         ]
     lines = [
-        f"{lead['short_id']} · {lead['name']} · {lead['channel']} · {lead['status']}"
+        f"{lead['short_id']} · {lead['name']} · {lead['channel']} · "
+        f"{PARTNER_STATUS_LABELS.get(lead['status'], 'Статус уточняется')}"
         for lead in leads[:20]
     ]
-    title = "Активные лиды" if active_only else "Мои лиды"
+    title = "Активные заявки" if active_only else "Мои заявки"
     suffix = (
         f"\n\nПоказаны первые 20 из {len(leads)}. Полный список — в кабинете."
         if len(leads) > 20
@@ -277,13 +326,13 @@ async def partner_finances(callback: CallbackQuery, database: Database, settings
             for bank in lead["banks"]
             if bank["status"] == "opened"
         ]
-        text = "Открытые банки\n\n" + ("\n".join(rows[:30]) if rows else "Пока пусто")
+        text = "Открытые счета\n\n" + ("\n".join(rows[:30]) if rows else "Пока пусто")
     else:
         metrics = data["metrics"]
         text = (
             "Выплаты\n\n"
-            f"Расчётная: {metrics['estimated_payout']} ₽\n"
-            f"Подтверждено: {metrics['confirmed_payout']} ₽\n"
+            f"Ожидается: {metrics['estimated_payout']} ₽\n"
+            f"Подтверждено к выплате: {metrics['confirmed_payout']} ₽\n"
             f"Выплачено: {metrics['paid']} ₽"
         )
     await callback.message.answer(text, reply_markup=partner_menu_keyboard(settings.mini_app_url))
@@ -688,7 +737,8 @@ async def finish_application(
     except Exception:
         logger.error("Failed to submit lead application", exc_info=True)
         await message.answer(
-            "Не удалось сохранить заявку.", reply_markup=retry_submission_keyboard()
+            "Не удалось сохранить заявку. Нажми «Повторить отправку».",
+            reply_markup=retry_submission_keyboard(),
         )
         return
     await state.clear()
@@ -703,7 +753,7 @@ async def finish_application(
                 "Скоро с тобой свяжется специалист."
             )
             if result.lead_id is not None:
-                await notify_admin_group(bot, settings, database, result.lead_id)
+                await notify_responsible_admins(bot, database, result.lead_id)
         else:
             await message.answer(
                 f"Заявка {result.short_id} сохранена. К сожалению, по текущим "
@@ -728,11 +778,7 @@ async def retry_submission(
         await finish_application(callback.message, state, database, bot, settings)
 
 
-async def notify_admin_group(
-    bot: Bot, settings: Settings, database: Database, lead_id: UUID
-) -> None:
-    if settings.admin_group_id is None:
-        return
+async def notify_responsible_admins(bot: Bot, database: Database, lead_id: UUID) -> None:
     async with database.session() as session:
         lead = await session.get(Lead, lead_id)
         channel = (
@@ -740,21 +786,45 @@ async def notify_admin_group(
             if lead is not None and lead.channel_id is not None
             else None
         )
+        recipient_ids: list[str] = []
+        if lead is not None and lead.partner_id is not None:
+            recipient = await session.scalar(
+                select(User.telegram_id)
+                .join(Partner, Partner.assigned_manager_id == User.id)
+                .where(
+                    Partner.id == lead.partner_id,
+                    User.role == UserRole.ADMIN,
+                    User.access_status == AccessStatus.ACTIVE,
+                )
+            )
+            if recipient:
+                recipient_ids.append(recipient)
+        if lead is not None and not recipient_ids:
+            recipient_ids = list(
+                await session.scalars(
+                    select(User.telegram_id).where(
+                        User.role == UserRole.ADMIN,
+                        User.access_status == AccessStatus.ACTIVE,
+                        User.telegram_id.is_not(None),
+                    )
+                )
+            )
     if lead is None:
         return
     city = lead.questionnaire_answers.get("city") or "Не указан"
-    try:
-        await bot.send_message(
-            chat_id=settings.admin_group_id,
-            text=(
-                f"{'Повторная' if lead.is_repeat else 'Новая'} заявка {lead.short_id}\n\n"
-                f"Источник: {channel.name if channel else 'Прямой'}\n"
-                f"Город: {city}"
-            ),
-            reply_markup=admin_new_lead_keyboard(str(lead.id)),
-        )
-    except Exception:
-        logger.exception("Failed to notify admin group about lead %s", lead.id)
+    for telegram_id in recipient_ids:
+        try:
+            await bot.send_message(
+                chat_id=int(telegram_id),
+                text=(
+                    f"{'Повторная' if lead.is_repeat else 'Новая'} заявка {lead.short_id}\n\n"
+                    f"Источник: {channel.name if channel else 'Прямая заявка'}\n"
+                    f"Город: {city}"
+                ),
+                reply_markup=admin_new_lead_keyboard(str(lead.id)),
+            )
+        except Exception:
+            logger.exception("Failed to notify admin %s about lead %s", telegram_id, lead.id)
 
 
 def parse_answer_callback(value: str) -> tuple[int, str]:

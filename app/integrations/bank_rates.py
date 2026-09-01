@@ -61,6 +61,8 @@ def parse_bank_rate_rows(values: list[list[str]]) -> list[BankRateRow]:
         raise ValueError("Заголовки листа ставок банков не совпадают с шаблоном")
 
     rows: list[BankRateRow] = []
+    seen_codes: dict[str, int] = {}
+    seen_names: dict[str, int] = {}
     for source_row, values_row in enumerate(values[1:], start=2):
         cells = [*values_row, *("" for _ in EXPECTED_HEADERS)][: len(EXPECTED_HEADERS)]
         if not any(cell.strip() for cell in cells):
@@ -71,6 +73,18 @@ def parse_bank_rate_rows(values: list[list[str]]) -> list[BankRateRow]:
         offer_code, bank_name, online_text = (cell.strip() for cell in cells[:3])
         if not offer_code or not bank_name:
             raise ValueError(f"Строка {source_row}: заполни код и название предложения")
+        normalized_code = offer_code.casefold()
+        normalized_name = " ".join(bank_name.casefold().split())
+        if normalized_code in seen_codes:
+            raise ValueError(
+                f"Строки {seen_codes[normalized_code]} и {source_row}: код указан дважды"
+            )
+        if normalized_name in seen_names:
+            raise ValueError(
+                f"Строки {seen_names[normalized_name]} и {source_row}: название указано дважды"
+            )
+        seen_codes[normalized_code] = source_row
+        seen_names[normalized_name] = source_row
         try:
             display_order = int(cells[7].strip())
         except ValueError as error:
@@ -103,3 +117,59 @@ class BankRatesGateway:
 
     def fetch(self) -> list[BankRateRow]:
         return parse_bank_rate_rows(self.worksheet.get_all_values())
+
+    def upsert(
+        self,
+        row: BankRateRow,
+        *,
+        original_offer_code: str | None = None,
+    ) -> list[BankRateRow]:
+        values = self.worksheet.get_all_values()
+        parse_bank_rate_rows(values)
+        lookup = (original_offer_code or row.offer_code).casefold()
+        target_row = next(
+            (
+                number
+                for number, cells in enumerate(values[1:], start=2)
+                if cells and cells[0].strip().casefold() == lookup
+            ),
+            None,
+        )
+        if original_offer_code is not None and target_row is None:
+            raise ValueError("Редактируемое предложение не найдено в Google Sheets")
+        if target_row is None:
+            target_row = len(values) + 1
+        serialized = [
+            row.offer_code,
+            row.bank_name,
+            row.online_text,
+            str(row.base_payout),
+            str(row.lead_payout),
+            "Да" if row.lead_payout_paid_separately else "Нет",
+            "Да" if row.active else "Нет",
+            str(row.display_order),
+            row.activation_condition,
+        ]
+        prospective = [list(cells) for cells in values]
+        while len(prospective) < target_row:
+            prospective.append([])
+        prospective[target_row - 1] = serialized
+        parse_bank_rate_rows(prospective)
+        self.worksheet.update([serialized], f"A{target_row}:I{target_row}", raw=True)
+        return self.fetch()
+
+    def set_active(self, offer_code: str, active: bool) -> list[BankRateRow]:
+        values = self.worksheet.get_all_values()
+        parse_bank_rate_rows(values)
+        target_row = next(
+            (
+                number
+                for number, cells in enumerate(values[1:], start=2)
+                if cells and cells[0].strip().casefold() == offer_code.casefold()
+            ),
+            None,
+        )
+        if target_row is None:
+            raise ValueError("Предложение банка не найдено в листе «Справочник для бота»")
+        self.worksheet.update([["Да" if active else "Нет"]], f"G{target_row}", raw=True)
+        return self.fetch()

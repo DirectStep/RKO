@@ -101,7 +101,7 @@ def test_lead_cabinet_has_separate_read_only_sections() -> None:
     assert "api('/api/lead/banks')" in script
     assert "renderLeadCabinet();return" in script
     assert "money(item.lead_payout)" in script
-    assert "item.online_text" in script
+    assert "item.online_available" in script
 
 
 def test_financial_fields_are_split_by_role_in_mini_app() -> None:
@@ -110,10 +110,10 @@ def test_financial_fields_are_split_by_role_in_mini_app() -> None:
 
     assert 'data-sheet-link="bank_conditions_sheet_url"' in markup
     assert 'data-sheet-link="bank_rates_sheet_url"' in markup
-    assert "Выплата лиду" in script
+    assert "Выплата клиенту" in script
     assert "Выплата партнёру" in script
     assert "Командная прибыль" in script
-    assert 'admin?`<div class="value-row"><span>Командная прибыль' in script
+    assert 'const economics=admin?' in script
 
 
 def test_partner_api_does_not_receive_internal_financial_fields() -> None:
@@ -145,9 +145,11 @@ def test_partner_api_does_not_receive_internal_financial_fields() -> None:
 
     assert partner["payment_status"] == PaymentStatus.NOT_CALCULATED.value
     assert "income_estimate" not in partner
-    assert "lead_reward_estimate" not in partner
+    assert partner["lead_reward_estimate"] == "300"
     assert "team_profit_estimate" not in partner
-    assert manager["lead_reward_estimate"] == "300"
+    assert "lead_reward_estimate" not in manager
+    assert "reward_estimate" not in manager
+    assert "income_estimate" not in manager
     assert "team_profit_estimate" not in manager
     assert admin["team_profit_estimate"] == "600"
 

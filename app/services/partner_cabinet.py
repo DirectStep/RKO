@@ -9,7 +9,18 @@ from sqlalchemy import select
 
 from app.database import Database
 from app.domain.enums import AssignmentStatus, BankExternalStatus, LeadExternalStatus, PaymentStatus
-from app.models import Bank, Channel, Lead, LeadBank, Partner, Payment, User
+from app.models import (
+    Bank,
+    BankActivationCondition,
+    BankRate,
+    Channel,
+    Lead,
+    LeadBank,
+    Partner,
+    Payment,
+    User,
+)
+from app.services.bank_conditions import normalize_bank_name
 
 ACTIVE_LEAD_STATUSES = {
     LeadExternalStatus.NEW,
@@ -31,8 +42,13 @@ class PartnerBankData(TypedDict):
     status: str
     reward_estimate: str
     reward_fact: str
+    lead_reward_estimate: str
     payment_status: str
     paid_at: str | None
+    online_text: str
+    online_available: bool
+    online_help: str
+    action_text: str
 
 
 class PartnerLeadData(TypedDict):
@@ -137,6 +153,13 @@ async def partner_cabinet_data(
                 .order_by(Lead.application_at.desc(), Bank.name)
             )
         )
+        rates = list(await session.scalars(select(BankRate)))
+        conditions = list(await session.scalars(select(BankActivationCondition)))
+
+    rates_by_bank = {rate.bank_id: rate for rate in rates}
+    conditions_by_name = {
+        condition.normalized_bank_name: condition for condition in conditions
+    }
 
     grouped: dict[UUID, _LeadAccumulator] = {}
     normalized_search = search.strip().lower()
@@ -178,11 +201,25 @@ async def partner_cabinet_data(
         if payment_status is not None and effective_payment_status is not payment_status:
             continue
         estimate = _money(lead_bank.partner_reward_estimate)
+        lead_estimate = _money(lead_bank.lead_reward_estimate)
         actual = _money(
             payment.partner_reward_fact
             if payment and payment.partner_reward_fact is not None
             else lead_bank.partner_reward_fact
         )
+        online_text = (
+            rates_by_bank[bank.id].online_text if bank.id in rates_by_bank else "Уточняется"
+        )
+        online_available = online_text.strip().casefold().startswith("да")
+        is_ozon = any(name in bank.name.casefold() for name in {"озон", "ozon"})
+        online_help = ""
+        if online_available:
+            online_help = (
+                "Можно оформить онлайн даже без электронной подписи"
+                if is_ozon
+                else "Можно открыть онлайн, если есть КЭП (электронная подпись). "
+                "Оформить КЭП можно бесплатно в офисе Сбера или ВТБ после открытия счёта"
+            )
         item.lead["banks"].append(
             {
                 "id": str(lead_bank.id),
@@ -190,8 +227,17 @@ async def partner_cabinet_data(
                 "status": lead_bank.external_status.value,
                 "reward_estimate": str(estimate),
                 "reward_fact": str(actual),
+                "lead_reward_estimate": str(lead_estimate),
                 "payment_status": effective_payment_status.value,
                 "paid_at": payment.paid_at.isoformat() if payment and payment.paid_at else None,
+                "online_text": online_text,
+                "online_available": online_available,
+                "online_help": online_help,
+                "action_text": (
+                    conditions_by_name[normalize_bank_name(bank.name)].action_text
+                    if normalize_bank_name(bank.name) in conditions_by_name
+                    else ""
+                ),
             }
         )
         item.bank_counts[lead_bank.external_status.value] += 1

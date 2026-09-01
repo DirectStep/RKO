@@ -46,7 +46,7 @@ def test_normalize_russian_phone(raw: str, expected: str) -> None:
 
 @pytest.mark.parametrize("raw", ["123", "телефон", "+1234567890123456"])
 def test_invalid_phone_is_rejected(raw: str) -> None:
-    with pytest.raises(ValueError, match="корректный"):
+    with pytest.raises(ValueError, match="формате"):
         normalize_phone(raw)
 
 
@@ -212,7 +212,7 @@ def test_partner_card_uses_actions_instead_of_opening_referral_links() -> None:
         True,
     )
 
-    assert keyboard.inline_keyboard[0][0].text == "Ссылка активации кабинета"
+    assert keyboard.inline_keyboard[0][0].text == "Ссылка для входа партнёра"
     assert all(button.url is None for row in keyboard.inline_keyboard for button in row)
     callback_values = [
         button.callback_data

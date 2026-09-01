@@ -1,8 +1,10 @@
+from typing import cast
 from uuid import UUID
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
+from sqlalchemy import select
 
 from app.bot.admin_handlers import is_admin
 from app.bot.keyboards import (
@@ -18,10 +20,22 @@ from app.config import Settings
 from app.database import Database
 from app.domain.enums import UserRole
 from app.domain.operations import DomainError
-from app.models import Partner
+from app.models import Partner, User
 from app.services.admin_catalog import AdminCatalogService, ChannelSummary
 
 router = Router(name="admin_catalog")
+
+
+async def admin_user_id(event: CallbackQuery | Message, database: Database) -> UUID | None:
+    if event.from_user is None:
+        return None
+    async with database.session() as session:
+        return cast(
+            UUID | None,
+            await session.scalar(
+                select(User.id).where(User.telegram_id == str(event.from_user.id))
+            ),
+        )
 
 
 async def deny_if_not_admin(
@@ -110,6 +124,7 @@ async def partner_telegram_username(
         data = await state.get_data()
         partner = await service.create_partner(
             actor_role=UserRole.ADMIN,
+            actor_user_id=await admin_user_id(message, database),
             name=str(data["partner_name"]),
             commission_percent=service.parse_commission(str(data["partner_commission"])),
             telegram_username=username,
@@ -199,6 +214,7 @@ async def partner_activation_link(
             raise DomainError("У бота не настроен username")
         link = await AdminCatalogService(database).create_partner_activation_link(
             actor_role=UserRole.ADMIN,
+            actor_user_id=await admin_user_id(callback, database),
             partner_id=partner_id,
             bot_username=bot_user.username,
         )

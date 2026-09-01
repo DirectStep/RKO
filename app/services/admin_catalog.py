@@ -86,6 +86,7 @@ class AdminCatalogService:
         name: str,
         commission_percent: Decimal,
         telegram_username: str | None = None,
+        actor_user_id: UUID | None = None,
     ) -> Partner:
         self._require_admin(actor_role)
         clean_name = name.strip()
@@ -110,6 +111,7 @@ class AdminCatalogService:
                 telegram_username=telegram_username,
                 partner_type="other",
                 commission_percent=commission_percent,
+                assigned_manager_id=actor_user_id,
             )
             session.add(partner)
             await session.flush()
@@ -202,6 +204,7 @@ class AdminCatalogService:
         actor_role: UserRole,
         partner_id: UUID,
         bot_username: str,
+        actor_user_id: UUID | None = None,
     ) -> str:
         self._require_admin(actor_role)
         token = secrets.token_urlsafe(18)
@@ -214,11 +217,13 @@ class AdminCatalogService:
                 raise DomainError("Партнёр не найден")
             if partner.telegram_user_id is not None:
                 raise DomainError("Партнёрский кабинет уже активирован")
+            if actor_user_id is not None:
+                partner.assigned_manager_id = actor_user_id
             partner.activation_token_hash = token_hash
             partner.activation_created_at = datetime.now(UTC)
         return f"https://t.me/{bot_username.lstrip('@')}?start=partner_{token}"
 
-    async def delete_partner(self, *, actor_role: UserRole, partner_id: UUID) -> None:
+    async def delete_partner(self, *, actor_role: UserRole, partner_id: UUID) -> bool:
         self._require_admin(actor_role)
         async with self.database.session() as session, session.begin():
             partner = await session.scalar(
@@ -240,9 +245,10 @@ class AdminCatalogService:
                 select(LeadDraft.id).where(LeadDraft.proposed_partner_id == partner_id).limit(1)
             )
             if has_leads is not None or has_drafts is not None:
-                raise DomainError(
-                    "Партнёра с заявками удалить нельзя. Выключи его, чтобы сохранить историю"
-                )
+                partner.active = False
+                partner.activation_token_hash = None
+                partner.activation_created_at = None
+                return False
             linked_user = (
                 await session.get(User, partner.telegram_user_id)
                 if partner.telegram_user_id
@@ -253,6 +259,7 @@ class AdminCatalogService:
             if linked_user is not None:
                 linked_user.role = UserRole.LEAD
                 linked_user.access_status = AccessStatus.ACTIVE
+            return True
 
     async def list_channels(self) -> list[ChannelSummary]:
         async with self.database.session() as session:
@@ -336,6 +343,42 @@ class AdminCatalogService:
                 raise DomainError("Канал не найден")
             channel.active = not channel.active
             return channel
+
+    async def remove_channel(
+        self,
+        *,
+        actor_role: UserRole,
+        channel_id: UUID,
+        actor_partner_id: UUID | None = None,
+    ) -> bool:
+        async with self.database.session() as session, session.begin():
+            channel = await session.scalar(
+                select(Channel).where(Channel.id == channel_id).with_for_update()
+            )
+            if channel is None:
+                raise DomainError("Канал не найден")
+            if actor_role is not UserRole.ADMIN and not (
+                actor_role is UserRole.PARTNER and actor_partner_id == channel.partner_id
+            ):
+                raise DomainError("Можно удалить только свой канал")
+            has_history = await session.scalar(
+                select(Lead.id)
+                .where(
+                    or_(
+                        Lead.channel_id == channel_id,
+                        Lead.proposed_channel_id == channel_id,
+                    )
+                )
+                .limit(1)
+            )
+            has_draft = await session.scalar(
+                select(LeadDraft.id).where(LeadDraft.proposed_channel_id == channel_id).limit(1)
+            )
+            if has_history is not None or has_draft is not None:
+                channel.active = False
+                return False
+            await session.delete(channel)
+            return True
 
     @staticmethod
     def _require_admin(actor_role: UserRole) -> None:

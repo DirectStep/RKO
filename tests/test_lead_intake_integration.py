@@ -746,8 +746,12 @@ async def test_admin_creates_referral_channel_and_confirms_source() -> None:
             await session.flush()
             lead_id = lead.id
 
-        with pytest.raises(DomainError, match="с заявками удалить нельзя"):
-            await catalog.delete_partner(actor_role=UserRole.ADMIN, partner_id=partner.id)
+        deleted = await catalog.delete_partner(actor_role=UserRole.ADMIN, partner_id=partner.id)
+        assert deleted is False
+        async with database.session() as session:
+            disabled_partner = await session.get(Partner, partner.id)
+            assert disabled_partner is not None
+            assert disabled_partner.active is False
 
         confirmed = await assignments.confirm_proposed(actor_role=UserRole.ADMIN, lead_id=lead_id)
         assert confirmed.assignment_status is AssignmentStatus.CONFIRMED
@@ -988,8 +992,14 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
         ids["lead_bank"] = lead_bank.id
         lead_bank = await workflow.update_lead_bank(
             actor_role=UserRole.MANAGER,
+            actor_user_id=manager.id,
             lead_bank_id=lead_bank.id,
             status=BankInternalStatus.ACCOUNT_OPENED,
+        )
+        lead_bank = await workflow.update_lead_bank(
+            actor_role=UserRole.ADMIN,
+            actor_user_id=manager.id,
+            lead_bank_id=lead_bank.id,
             income_estimate=Decimal("12000.00"),
             income_fact=Decimal("10000.00"),
         )

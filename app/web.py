@@ -1,3 +1,4 @@
+import asyncio
 import csv
 import hashlib
 import hmac
@@ -34,6 +35,7 @@ from app.domain.enums import (
     UserRole,
 )
 from app.domain.operations import DomainError
+from app.integrations.bank_rates import BankRateRow, BankRatesGateway
 from app.models import (
     Bank,
     BankActivationCondition,
@@ -49,6 +51,7 @@ from app.models import (
 from app.reports.partner_report import build_partner_report
 from app.services.admin_catalog import AdminCatalogService
 from app.services.bank_conditions import normalize_bank_name
+from app.services.bank_rates import BankRatesService
 from app.services.duplicate_reviews import DuplicateReviewService
 from app.services.lead_assignment import LeadAssignmentService
 from app.services.lead_workflow import LeadWorkflowService
@@ -57,6 +60,7 @@ from app.services.user_access import UserAccessService
 from app.services.workflow import WorkflowService
 from app.web_schemas import (
     BankCreate,
+    BankUpdate,
     ChannelCreate,
     DuplicateReviewResolve,
     LeadBankCreate,
@@ -65,6 +69,7 @@ from app.web_schemas import (
     LeadSourceUpdate,
     LeadUpdate,
     PartnerAccessUpdate,
+    PartnerCreate,
     PartnerUpdate,
     PaymentConfirm,
     PaymentStatusUpdate,
@@ -82,6 +87,21 @@ EXTERNAL_STATUS_LABELS = {
     "paused": "На паузе",
     "closed_without_result": "Закрыта без результата",
 }
+
+
+def online_bank_info(bank_name: str, online_text: str) -> dict[str, object]:
+    normalized = online_text.strip().casefold()
+    available = normalized.startswith("да") or "можно онлайн" in normalized
+    is_ozon = any(name in bank_name.casefold() for name in {"озон", "ozon"})
+    help_text = ""
+    if available:
+        help_text = (
+            "Можно оформить онлайн даже без электронной подписи"
+            if is_ozon
+            else "Можно открыть онлайн, если есть КЭП (электронная подпись). "
+            "Оформить КЭП можно бесплатно в офисе Сбера или ВТБ после открытия счёта"
+        )
+    return {"online_available": available, "online_help": help_text}
 
 
 def build_mini_app_html() -> str:
@@ -154,6 +174,7 @@ def serialize_lead_bank(
     role: UserRole,
     rate: BankRate | None = None,
 ) -> dict[str, object]:
+    online_text = rate.online_text if rate is not None else "Уточняется"
     result: dict[str, object] = {
         "id": str(lead_bank.id),
         "bank_id": str(bank.id),
@@ -164,60 +185,83 @@ def serialize_lead_bank(
             else lead_bank.internal_status.value
         ),
         "opened_at": lead_bank.opened_at.isoformat() if lead_bank.opened_at else None,
-        "reward_estimate": (
-            str(lead_bank.partner_reward_estimate)
-            if lead_bank.partner_reward_estimate is not None
-            else None
+        "payment_status": (
+            payment.status.value if payment else PaymentStatus.NOT_CALCULATED.value
         ),
-        "reward_fact": (
-            str(lead_bank.partner_reward_fact)
-            if lead_bank.partner_reward_fact is not None
-            else None
-        ),
-        "payment_id": str(payment.id) if payment else None,
-        "payment_status": payment.status.value if payment else PaymentStatus.NOT_CALCULATED.value,
-        "paid_at": payment.paid_at.isoformat() if payment and payment.paid_at else None,
-        "online_text": rate.online_text if rate is not None else "Уточняется",
+        "online_text": online_text,
+        **online_bank_info(bank.name, online_text),
     }
-    if role is not UserRole.PARTNER:
+    if role is UserRole.PARTNER:
         result.update(
             {
-                "external_status": lead_bank.external_status.value,
-                "close_reason": lead_bank.close_reason or "",
-                "income_estimate": (
-                    str(lead_bank.bank_income_estimate)
-                    if lead_bank.bank_income_estimate is not None
+                "reward_estimate": (
+                    str(lead_bank.partner_reward_estimate)
+                    if lead_bank.partner_reward_estimate is not None
                     else None
                 ),
-                "income_fact": (
-                    str(lead_bank.bank_income_fact)
-                    if lead_bank.bank_income_fact is not None
+                "reward_fact": (
+                    str(lead_bank.partner_reward_fact)
+                    if lead_bank.partner_reward_fact is not None
                     else None
                 ),
-                "percent": (
-                    str(lead_bank.partner_percent_snapshot)
-                    if lead_bank.partner_percent_snapshot is not None
-                    else None
-                ),
-                "registry_number": payment.registry_number if payment else None,
-                "offered_to_lead": lead_bank.offered_to_lead,
-                "selected_by_lead": lead_bank.selected_by_lead,
                 "lead_reward_estimate": (
                     str(lead_bank.lead_reward_estimate)
                     if lead_bank.lead_reward_estimate is not None
                     else None
                 ),
-                "lead_reward_fact": (
-                    str(lead_bank.lead_reward_fact)
-                    if lead_bank.lead_reward_fact is not None
-                    else None
-                ),
-                "lead_reward_paid_separately": lead_bank.lead_reward_paid_separately,
+                "paid_at": payment.paid_at.isoformat() if payment and payment.paid_at else None,
+            }
+        )
+    else:
+        result.update(
+            {
+                "external_status": lead_bank.external_status.value,
+                "close_reason": lead_bank.close_reason or "",
+                "offered_to_lead": lead_bank.offered_to_lead,
+                "selected_by_lead": lead_bank.selected_by_lead,
             }
         )
         if role is UserRole.ADMIN:
             result.update(
                 {
+                    "payment_id": str(payment.id) if payment else None,
+                    "income_estimate": (
+                        str(lead_bank.bank_income_estimate)
+                        if lead_bank.bank_income_estimate is not None
+                        else None
+                    ),
+                    "income_fact": (
+                        str(lead_bank.bank_income_fact)
+                        if lead_bank.bank_income_fact is not None
+                        else None
+                    ),
+                    "percent": (
+                        str(lead_bank.partner_percent_snapshot)
+                        if lead_bank.partner_percent_snapshot is not None
+                        else None
+                    ),
+                    "reward_estimate": (
+                        str(lead_bank.partner_reward_estimate)
+                        if lead_bank.partner_reward_estimate is not None
+                        else None
+                    ),
+                    "reward_fact": (
+                        str(lead_bank.partner_reward_fact)
+                        if lead_bank.partner_reward_fact is not None
+                        else None
+                    ),
+                    "lead_reward_estimate": (
+                        str(lead_bank.lead_reward_estimate)
+                        if lead_bank.lead_reward_estimate is not None
+                        else None
+                    ),
+                    "lead_reward_fact": (
+                        str(lead_bank.lead_reward_fact)
+                        if lead_bank.lead_reward_fact is not None
+                        else None
+                    ),
+                    "lead_reward_paid_separately": lead_bank.lead_reward_paid_separately,
+                    "registry_number": payment.registry_number if payment else None,
                     "team_profit_estimate": (
                         str(lead_bank.team_profit_estimate)
                         if lead_bank.team_profit_estimate is not None
@@ -268,7 +312,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             username = None
             name = "Локальный администратор"
         else:
-            raise HTTPException(status_code=401, detail="Открой кабинет через Telegram")
+            raise HTTPException(status_code=401, detail="Открой кабинет кнопкой в Telegram-боте")
 
         role = await UserAccessService(database, settings).resolve_role(telegram_id, username)
         async with database.session() as session:
@@ -283,7 +327,10 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             raise HTTPException(status_code=403, detail="Доступ отключён")
         if role in {None, UserRole.LEAD}:
             if lead is None:
-                raise HTTPException(status_code=403, detail="Для этого пользователя нет кабинета")
+                raise HTTPException(
+                    status_code=403,
+                    detail="Кабинет не подключён. Отправь /start боту",
+                )
             return MiniAppUser(
                 telegram_id,
                 None,
@@ -292,7 +339,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 lead_id=lead.id,
             )
         if role not in {UserRole.ADMIN, UserRole.MANAGER, UserRole.PARTNER} or user is None:
-            raise HTTPException(status_code=403, detail="Для этого пользователя нет кабинета")
+            raise HTTPException(status_code=403, detail="Кабинет не подключён. Отправь /start боту")
         partner_id = None
         if role is UserRole.PARTNER:
             async with database.session() as session:
@@ -303,7 +350,10 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                     )
                 )
             if partner is None:
-                raise HTTPException(status_code=403, detail="Партнёрский кабинет не привязан")
+                raise HTTPException(
+                    status_code=403,
+                    detail="Партнёрский кабинет не подключён. Обратись к администратору",
+                )
             partner_id = partner.id
             name = partner.name
         return MiniAppUser(telegram_id, user.id, name, role, partner_id)
@@ -315,6 +365,8 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 & (Lead.assignment_status == AssignmentStatus.CONFIRMED)
                 & Lead.archived_at.is_(None)
             )
+        if user.role is UserRole.MANAGER:
+            return (Lead.manager_id == user.database_id) & Lead.archived_at.is_(None)
         return Lead.archived_at.is_(None)
 
     def require_operational_user(user: MiniAppUser) -> None:
@@ -344,6 +396,55 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
     def domain_error(error: DomainError) -> HTTPException:
         return HTTPException(status_code=400, detail=str(error))
 
+    def require_bank_rates_sheet() -> BankRatesGateway:
+        if not settings.bank_rates_enabled:
+            raise HTTPException(
+                status_code=503,
+                detail="Таблица банков не подключена. Проверь настройки Google Sheets",
+            )
+        return BankRatesGateway(
+            settings.bank_rates_sheet_id,
+            settings.bank_rates_worksheet,
+            settings.google_service_account_file,
+        )
+
+    async def write_bank_rate(
+        payload: BankCreate | BankUpdate,
+        *,
+        original_offer_code: str | None = None,
+    ) -> BankRate:
+        row = BankRateRow(
+            offer_code=payload.offer_code.strip(),
+            bank_name=payload.name.strip(),
+            online_text=payload.online_text.strip() or "Нет",
+            base_payout=payload.base_payout,
+            lead_payout=payload.lead_payout,
+            lead_payout_paid_separately=payload.lead_payout_paid_separately,
+            active=payload.active,
+            display_order=payload.display_order,
+            activation_condition=payload.activation_condition.strip(),
+            source_row=0,
+        )
+        try:
+            gateway = await asyncio.to_thread(require_bank_rates_sheet)
+            rows = await asyncio.to_thread(
+                gateway.upsert,
+                row,
+                original_offer_code=original_offer_code,
+            )
+            await BankRatesService(database).replace_all(rows)
+        except HTTPException:
+            raise
+        except (ValueError, OSError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        async with database.session() as db_session:
+            rate = await db_session.scalar(
+                select(BankRate).where(BankRate.offer_code == row.offer_code)
+            )
+        if rate is None:
+            raise HTTPException(status_code=500, detail="Банк записан, но не синхронизирован")
+        return rate
+
     async def notify_partner(lead_id: UUID, text: str) -> None:
         if bot is None:
             return
@@ -365,6 +466,47 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             await bot.send_message(chat_id=int(telegram_id), text=text)
         except Exception:
             logger.exception("Failed to notify partner for lead %s", lead_id)
+
+    async def notify_client(lead_id: UUID, text: str) -> None:
+        if bot is None:
+            return
+        async with database.session() as db_session:
+            telegram_id = await db_session.scalar(
+                select(Lead.telegram_id).where(Lead.id == lead_id)
+            )
+        if telegram_id is None:
+            return
+        try:
+            await bot.send_message(chat_id=int(telegram_id), text=text)
+        except Exception:
+            logger.exception("Failed to notify client for lead %s", lead_id)
+
+    async def notify_other_admins_about_claim(lead: Lead, actor_id: UUID) -> None:
+        if bot is None or lead.partner_id is not None:
+            return
+        async with database.session() as db_session:
+            telegram_ids = list(
+                await db_session.scalars(
+                    select(User.telegram_id).where(
+                        User.role == UserRole.ADMIN,
+                        User.access_status == AccessStatus.ACTIVE,
+                        User.id != actor_id,
+                        User.telegram_id.is_not(None),
+                    )
+                )
+            )
+        for telegram_id in telegram_ids:
+            try:
+                await bot.send_message(
+                    chat_id=int(cast(str, telegram_id)),
+                    text=f"Заявка {lead.short_id} уже взята в работу другим администратором.",
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to notify admin %s about claimed lead %s",
+                    telegram_id,
+                    lead.id,
+                )
 
     @app.get("/", include_in_schema=False)
     async def index() -> HTMLResponse:
@@ -473,6 +615,11 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         result: list[dict[str, object]] = []
         for lead_bank, bank in bank_rows:
             condition = conditions_by_name.get(normalize_bank_name(bank.name))
+            online_text = (
+                rates_by_bank[bank.id].online_text
+                if bank.id in rates_by_bank
+                else "Уточняется"
+            )
             result.append(
                 {
                     "bank": bank.name,
@@ -480,11 +627,8 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                     "status": lead_bank.external_status.value,
                     "selected": lead_bank.selected_by_lead,
                     "selection_locked": lead.bank_selection_submitted_at is not None,
-                    "online_text": (
-                        rates_by_bank[bank.id].online_text
-                        if bank.id in rates_by_bank
-                        else "Уточняется"
-                    ),
+                    "online_text": online_text,
+                    **online_bank_info(bank.name, online_text),
                     "lead_payout": (
                         str(lead_bank.lead_reward_estimate)
                         if lead_bank.lead_reward_estimate is not None
@@ -525,6 +669,12 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             )
         except DomainError as error:
             raise domain_error(error) from error
+        await notify_client(
+            lead.id,
+            "Спасибо, выбор отправлен. Скоро назначим персонального менеджера. "
+            "Для сопровождения создадим отдельную группу: там будут все инструкции, "
+            "и там можно будет задать любые вопросы.",
+        )
         return {"id": str(lead.id), "workflow_stage": lead.workflow_stage.value}
 
     @app.get("/api/partner/cabinet")
@@ -785,7 +935,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                                 ),
                             ]
                         )
-                    else:
+                    elif user.role is UserRole.ADMIN:
                         manager = (
                             await db_session.get(User, lead.manager_id) if lead.manager_id else None
                         )
@@ -810,6 +960,19 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                                 ),
                             ]
                         )
+                    else:
+                        rows.append(
+                            [
+                                lead.short_id,
+                                lead.display_name,
+                                lead.phone,
+                                lead.application_at.date().isoformat(),
+                                f"{'Повторная · ' if lead.is_repeat else ''}"
+                                f"{lead.internal_status.value}",
+                                bank.name if bank else "",
+                                lead_bank.internal_status.value if lead_bank else "",
+                            ]
+                        )
         output = io.StringIO(newline="")
         output.write("\ufeff")
         writer = csv.writer(output, delimiter=";")
@@ -826,7 +989,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                     "Выплата",
                 ]
             )
-        else:
+        elif user.role is UserRole.ADMIN:
             writer.writerow(
                 [
                     "Заявка",
@@ -843,6 +1006,18 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                     "Выплата",
                 ]
             )
+        else:
+            writer.writerow(
+                [
+                    "Заявка",
+                    "Клиент",
+                    "Телефон",
+                    "Дата",
+                    "Статус",
+                    "Банк",
+                    "Статус банка",
+                ]
+            )
         writer.writerows(rows)
         headers = {"Content-Disposition": 'attachment; filename="rko-leads.csv"'}
         return StreamingResponse(
@@ -857,9 +1032,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> dict[str, object]:
         require_operational_user(user)
-        detail_scope = (
-            true() if user.role in {UserRole.ADMIN, UserRole.MANAGER} else lead_scope(user)
-        )
+        detail_scope = true() if user.role is UserRole.ADMIN else lead_scope(user)
         async with database.session() as db_session:
             lead = await db_session.scalar(select(Lead).where(Lead.id == lead_id, detail_scope))
             if lead is None:
@@ -904,10 +1077,9 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             serialized = serialize_lead_bank(
                 lead_bank, bank, payment, user.role, rates_by_bank.get(bank.id)
             )
-            if user.role is not UserRole.PARTNER:
-                condition = conditions_by_name.get(normalize_bank_name(bank.name))
-                serialized["action_text"] = condition.action_text if condition else ""
-                serialized["payout_text"] = condition.payout_text if condition else "Уточняется"
+            condition = conditions_by_name.get(normalize_bank_name(bank.name))
+            serialized["action_text"] = condition.action_text if condition else ""
+            serialized["payout_text"] = condition.payout_text if condition else "Уточняется"
             banks.append(serialized)
         if user.role is UserRole.PARTNER:
             contact = await partner_contact(database, require_partner(user))
@@ -991,7 +1163,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         payload: LeadUpdate,
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> dict[str, str]:
-        require_employee(user)
+        actor_id = require_employee(user)
         previous_external_status = None
         if payload.internal_status is not None:
             async with database.session() as db_session:
@@ -1001,6 +1173,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         try:
             lead = await WorkflowService(database).update_lead(
                 actor_role=user.role,
+                actor_user_id=actor_id,
                 lead_id=lead_id,
                 internal_status=payload.internal_status,
                 manager_id=payload.manager_id,
@@ -1031,7 +1204,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         lead_id: UUID,
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> None:
-        require_employee(user)
+        require_admin(user)
         try:
             await WorkflowService(database).delete_lead(actor_role=user.role, lead_id=lead_id)
         except DomainError as error:
@@ -1146,6 +1319,36 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             ) in rows
         ]
 
+    @app.post("/api/partners")
+    async def create_partner(
+        payload: PartnerCreate,
+        user: Annotated[MiniAppUser, Depends(current_user)],
+    ) -> dict[str, object]:
+        actor_id = require_admin(user)
+        service = AdminCatalogService(database)
+        try:
+            username = (
+                service.parse_telegram_username(payload.telegram_username)
+                if payload.telegram_username
+                else None
+            )
+            partner = await service.create_partner(
+                actor_role=user.role,
+                actor_user_id=actor_id,
+                name=payload.name,
+                commission_percent=payload.commission_percent,
+                telegram_username=username,
+            )
+        except DomainError as error:
+            raise domain_error(error) from error
+        return {
+            "id": str(partner.id),
+            "name": partner.name,
+            "commission": str(partner.commission_percent),
+            "active": partner.active,
+            "assigned_admin_id": str(actor_id),
+        }
+
     @app.get("/api/channels")
     async def channels(
         user: Annotated[MiniAppUser, Depends(current_user)],
@@ -1206,6 +1409,31 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             "name": channel.name,
             "active": channel.active,
             "link": channel.referral_link,
+        }
+
+    @app.delete("/api/channels/{channel_id}")
+    async def remove_channel(
+        channel_id: UUID,
+        user: Annotated[MiniAppUser, Depends(current_user)],
+    ) -> dict[str, object]:
+        if user.role not in {UserRole.ADMIN, UserRole.PARTNER}:
+            raise HTTPException(status_code=403, detail="Удаление каналов недоступно")
+        try:
+            deleted = await AdminCatalogService(database).remove_channel(
+                actor_role=user.role,
+                actor_partner_id=user.partner_id,
+                channel_id=channel_id,
+            )
+        except DomainError as error:
+            raise domain_error(error) from error
+        return {
+            "id": str(channel_id),
+            "deleted": deleted,
+            "message": (
+                "Канал удалён"
+                if deleted
+                else "Канал отключён, история заявок сохранена"
+            ),
         }
 
     @app.put("/api/partners/{partner_id}/access")
@@ -1274,19 +1502,28 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             raise HTTPException(status_code=400, detail="Не указаны изменения")
         return {"id": str(partner.id), "commission": str(partner.commission_percent)}
 
-    @app.delete("/api/partners/{partner_id}", status_code=204)
+    @app.delete("/api/partners/{partner_id}")
     async def delete_partner(
         partner_id: UUID,
         user: Annotated[MiniAppUser, Depends(current_user)],
-    ) -> None:
+    ) -> dict[str, object]:
         require_admin(user)
         try:
-            await AdminCatalogService(database).delete_partner(
+            deleted = await AdminCatalogService(database).delete_partner(
                 actor_role=user.role,
                 partner_id=partner_id,
             )
         except DomainError as error:
             raise domain_error(error) from error
+        return {
+            "id": str(partner_id),
+            "deleted": deleted,
+            "message": (
+                "Партнёр удалён"
+                if deleted
+                else "Партнёр отключён, история заявок сохранена"
+            ),
+        }
 
     @app.get("/api/staff")
     async def staff(
@@ -1353,19 +1590,28 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                     .order_by(Bank.display_order, Bank.name)
                 )
             )
+            conditions = list(await db_session.scalars(select(BankActivationCondition)))
+        conditions_by_name = {
+            condition.normalized_bank_name: condition for condition in conditions
+        }
         result: list[dict[str, object]] = []
         for bank, rate in rows:
+            condition = conditions_by_name.get(normalize_bank_name(bank.name))
+            online_text = rate.online_text if rate else "Уточняется"
             item: dict[str, object] = {
                 "id": str(bank.id),
                 "name": bank.name,
                 "active": bank.active,
                 "order": bank.display_order,
-                "online_text": rate.online_text if rate else "Уточняется",
+                "online_text": online_text,
+                **online_bank_info(bank.name, online_text),
+                "action_text": condition.action_text if condition else "",
                 "synced": rate.synced_at.isoformat() if rate else None,
             }
             if user.role is UserRole.ADMIN:
                 item.update(
                     {
+                        "offer_code": rate.offer_code if rate else "",
                         "base_payout": str(rate.base_payout) if rate else None,
                         "lead_payout": str(rate.lead_payout) if rate else None,
                         "lead_payout_paid_separately": (
@@ -1382,15 +1628,51 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> dict[str, object]:
         require_admin(user)
-        try:
-            bank = await WorkflowService(database).create_bank(
-                actor_role=user.role,
-                name=payload.name,
-                display_order=payload.display_order,
+        async with database.session() as db_session:
+            duplicate_code = await db_session.scalar(
+                select(BankRate.id).where(
+                    func.lower(BankRate.offer_code) == payload.offer_code.strip().lower()
+                )
             )
-        except DomainError as error:
-            raise domain_error(error) from error
-        return {"id": str(bank.id), "name": bank.name, "active": bank.active}
+            duplicate_name = await db_session.scalar(
+                select(Bank.id).where(func.lower(Bank.name) == payload.name.strip().lower())
+            )
+        if duplicate_code is not None:
+            raise HTTPException(status_code=400, detail="Такой код предложения уже есть")
+        if duplicate_name is not None:
+            raise HTTPException(status_code=400, detail="Банк с таким названием уже есть")
+        rate = await write_bank_rate(payload)
+        return {
+            "id": str(rate.bank_id),
+            "offer_code": rate.offer_code,
+            "name": payload.name.strip(),
+            "active": rate.active,
+        }
+
+    @app.patch("/api/banks/{bank_id}")
+    async def update_bank(
+        bank_id: UUID,
+        payload: BankUpdate,
+        user: Annotated[MiniAppUser, Depends(current_user)],
+    ) -> dict[str, object]:
+        require_admin(user)
+        async with database.session() as db_session:
+            current = await db_session.scalar(
+                select(BankRate).where(BankRate.bank_id == bank_id)
+            )
+        if current is None:
+            raise HTTPException(status_code=404, detail="Ставка банка не найдена")
+        if current.offer_code.casefold() != payload.offer_code.strip().casefold():
+            raise HTTPException(
+                status_code=400,
+                detail="Код предложения нельзя изменить после создания банка",
+            )
+        rate = await write_bank_rate(payload, original_offer_code=current.offer_code)
+        return {
+            "id": str(rate.bank_id),
+            "offer_code": rate.offer_code,
+            "active": rate.active,
+        }
 
     @app.post("/api/banks/{bank_id}/toggle")
     async def toggle_bank(
@@ -1398,13 +1680,43 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> dict[str, object]:
         require_admin(user)
+        async with database.session() as db_session:
+            rate = await db_session.scalar(select(BankRate).where(BankRate.bank_id == bank_id))
+        if rate is None:
+            raise HTTPException(status_code=404, detail="Ставка банка не найдена")
         try:
-            bank = await WorkflowService(database).toggle_bank(
-                actor_role=user.role, bank_id=bank_id
-            )
-        except DomainError as error:
-            raise domain_error(error) from error
-        return {"id": str(bank.id), "active": bank.active}
+            gateway = await asyncio.to_thread(require_bank_rates_sheet)
+            rows = await asyncio.to_thread(gateway.set_active, rate.offer_code, not rate.active)
+            await BankRatesService(database).replace_all(rows)
+        except HTTPException:
+            raise
+        except (ValueError, OSError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return {"id": str(bank_id), "active": not rate.active}
+
+    @app.delete("/api/banks/{bank_id}")
+    async def remove_bank(
+        bank_id: UUID,
+        user: Annotated[MiniAppUser, Depends(current_user)],
+    ) -> dict[str, object]:
+        require_admin(user)
+        async with database.session() as db_session:
+            rate = await db_session.scalar(select(BankRate).where(BankRate.bank_id == bank_id))
+        if rate is None:
+            raise HTTPException(status_code=404, detail="Ставка банка не найдена")
+        try:
+            gateway = await asyncio.to_thread(require_bank_rates_sheet)
+            rows = await asyncio.to_thread(gateway.set_active, rate.offer_code, False)
+            await BankRatesService(database).replace_all(rows)
+        except HTTPException:
+            raise
+        except (ValueError, OSError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return {
+            "id": str(bank_id),
+            "active": False,
+            "message": "Банк отключён, история заявок сохранена",
+        }
 
     @app.post("/api/leads/{lead_id}/banks")
     async def add_lead_bank(
@@ -1424,6 +1736,30 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             raise domain_error(error) from error
         return {"id": str(lead_bank.id), "status": lead_bank.internal_status.value}
 
+    @app.delete("/api/lead-banks/{lead_bank_id}")
+    async def remove_lead_bank(
+        lead_bank_id: UUID,
+        user: Annotated[MiniAppUser, Depends(current_user)],
+    ) -> dict[str, object]:
+        actor_id = require_admin(user)
+        try:
+            deleted = await WorkflowService(database).remove_bank_from_lead(
+                actor_role=user.role,
+                actor_user_id=actor_id,
+                lead_bank_id=lead_bank_id,
+            )
+        except DomainError as error:
+            raise domain_error(error) from error
+        return {
+            "id": str(lead_bank_id),
+            "deleted": deleted,
+            "message": (
+                "Банк удалён из заявки"
+                if deleted
+                else "Банк исключён, история сохранена"
+            ),
+        }
+
     @app.post("/api/leads/{lead_id}/claim-admin")
     async def claim_lead_by_admin(
         lead_id: UUID,
@@ -1438,6 +1774,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             )
         except DomainError as error:
             raise domain_error(error) from error
+        await notify_other_admins_about_claim(lead, actor_id)
         return {"id": str(lead.id), "workflow_stage": lead.workflow_stage.value}
 
     @app.post("/api/leads/{lead_id}/banks/publish")
@@ -1470,6 +1807,14 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             )
         except DomainError as error:
             raise domain_error(error) from error
+        async with database.session() as db_session:
+            manager = await db_session.get(User, actor_id)
+        manager_name = format_user_name(manager)
+        await notify_client(
+            lead.id,
+            f"Твой персональный менеджер — {manager_name}. "
+            "Скоро он свяжется с тобой и создаст отдельную группу для сопровождения.",
+        )
         return {"id": str(lead.id), "workflow_stage": lead.workflow_stage.value}
 
     @app.patch("/api/lead-banks/{lead_bank_id}")
@@ -1478,10 +1823,11 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         payload: LeadBankUpdate,
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> dict[str, object]:
-        require_employee(user)
+        actor_id = require_employee(user)
         try:
             lead_bank = await WorkflowService(database).update_lead_bank(
                 actor_role=user.role,
+                actor_user_id=actor_id,
                 lead_bank_id=lead_bank_id,
                 status=payload.status,
                 close_reason=payload.close_reason,
@@ -1490,12 +1836,18 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             )
         except DomainError as error:
             raise domain_error(error) from error
-        return {
+        result: dict[str, object] = {
             "id": str(lead_bank.id),
             "status": lead_bank.internal_status.value,
-            "reward_estimate": str(lead_bank.partner_reward_estimate or ""),
-            "reward_fact": str(lead_bank.partner_reward_fact or ""),
         }
+        if user.role is UserRole.ADMIN:
+            result.update(
+                {
+                    "reward_estimate": str(lead_bank.partner_reward_estimate or ""),
+                    "reward_fact": str(lead_bank.partner_reward_fact or ""),
+                }
+            )
+        return result
 
     @app.post("/api/lead-banks/{lead_bank_id}/payment/confirm")
     async def confirm_bank_payment(
