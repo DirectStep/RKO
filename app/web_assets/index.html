@@ -92,13 +92,30 @@
             <span>Показывать</span>
             <select id="lead-scope"><option value="queue">Ожидают менеджера</option><option value="mine">Только мои</option><option value="all">Все заявки</option></select>
           </label>
-          <div class="partner-filters" id="partner-filters" hidden>
-            <select id="partner-period"><option value="month">Текущий месяц</option><option value="all">За всё время</option><option value="custom">Выбрать даты</option></select>
-            <input id="partner-date-from" type="date" aria-label="Начало периода" hidden />
-            <input id="partner-date-to" type="date" aria-label="Конец периода" hidden />
-            <select id="partner-channel"><option value="">Все каналы</option></select>
-            <select id="partner-lead-status"><option value="">Все статусы заявок</option><option value="new">Новая</option><option value="in_progress">В работе</option><option value="opening_accounts">Открытие счетов</option><option value="partially_completed">Частично завершена</option><option value="completed">Завершена</option><option value="paused">На паузе</option><option value="closed_without_result">Закрыта без результата</option></select>
-            <select id="partner-payment-status"><option value="">Все выплаты</option><option value="not_calculated">Не рассчитана</option><option value="calculated">Рассчитана</option><option value="awaiting_confirmation">Ждёт подтверждения</option><option value="confirmed">Подтверждена</option><option value="in_registry">В реестре</option><option value="paid">Выплачена</option><option value="cancelled">Отменена</option></select>
+          <div class="filter-panel" id="partner-filters" hidden>
+            <label class="filter-field"><span>Период</span><select id="partner-period"><option value="month">Текущий месяц</option><option value="all">За всё время</option><option value="custom">Выбрать даты</option></select></label>
+            <div class="date-range" id="partner-date-range" hidden>
+              <label class="filter-field"><span>Дата с</span><input id="partner-date-from" type="date" /></label>
+              <label class="filter-field"><span>Дата по</span><input id="partner-date-to" type="date" /></label>
+            </div>
+            <label class="filter-field"><span>Канал</span><select id="partner-channel"><option value="">Все каналы</option></select></label>
+            <div class="filter-grid">
+              <label class="filter-field"><span>Статус заявки</span><select id="partner-lead-status"><option value="">Все статусы</option><option value="new">Новая</option><option value="in_progress">В работе</option><option value="opening_accounts">Открытие счетов</option><option value="partially_completed">Частично завершена</option><option value="completed">Завершена</option><option value="paused">На паузе</option><option value="closed_without_result">Закрыта без результата</option></select></label>
+              <label class="filter-field"><span>Статус выплаты</span><select id="partner-payment-status"><option value="">Все выплаты</option><option value="not_calculated">Не рассчитана</option><option value="calculated">Рассчитана</option><option value="awaiting_confirmation">Ждёт подтверждения</option><option value="confirmed">Подтверждена</option><option value="in_registry">В реестре</option><option value="paid">Выплачена</option><option value="cancelled">Отменена</option></select></label>
+            </div>
+          </div>
+          <div class="filter-panel" id="admin-filters" hidden>
+            <label class="filter-field"><span>Партнёр</span><select id="admin-partner"><option value="">Все источники</option></select></label>
+            <label class="filter-field"><span>Канал партнёра</span><select id="admin-channel" disabled><option value="">Сначала выбери партнёра</option></select></label>
+            <label class="filter-field"><span>Период</span><select id="admin-period"><option value="all">За всё время</option><option value="month">Текущий месяц</option><option value="custom">Выбрать даты</option></select></label>
+            <div class="date-range" id="admin-date-range" hidden>
+              <label class="filter-field"><span>Дата с</span><input id="admin-date-from" type="date" /></label>
+              <label class="filter-field"><span>Дата по</span><input id="admin-date-to" type="date" /></label>
+            </div>
+            <div class="filter-grid">
+              <label class="filter-field"><span>Статус заявки</span><select id="admin-lead-status"><option value="">Все статусы</option><option value="new">Новая</option><option value="manager_assigned">Менеджер назначен</option><option value="awaiting_first_contact">Ждёт звонка</option><option value="contacted">Связались</option><option value="awaiting_data">Ждём данные</option><option value="data_received">Данные получены</option><option value="selecting_banks">Подбираем банки</option><option value="preparing_applications">Готовим заявки</option><option value="applications_sent">Заявки отправлены</option><option value="opening_accounts">Открытие счетов</option><option value="partially_opened">Часть счетов открыта</option><option value="all_planned_opened">Счета открыты</option><option value="paused">На паузе</option><option value="no_response">Нет ответа</option><option value="lead_refused">Отказ клиента</option><option value="not_eligible">Не подходит</option><option value="completed">Завершена</option></select></label>
+              <label class="filter-field"><span>Статус выплаты</span><select id="admin-payment-status"><option value="">Все выплаты</option><option value="not_calculated">Не рассчитана</option><option value="calculated">Рассчитана</option><option value="awaiting_confirmation">Ждёт подтверждения</option><option value="confirmed">Подтверждена</option><option value="in_registry">В реестре</option><option value="paid">Выплачена</option><option value="cancelled">Отменена</option></select></label>
+            </div>
           </div>
           <div class="telegram-list" id="all-leads"></div>
         </section>

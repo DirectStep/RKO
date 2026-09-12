@@ -65,6 +65,50 @@ def test_partner_channel_controls_are_present() -> None:
     assert "state.session.role==='partner'?api('/api/channels')" not in script
     assert "['admin','partner'].includes(state.session.role)?'/api/channels':null" in script
     assert "method:'POST'" in script and "api('/api/channels'" in script
+    assert 'class="contact-row channel-link-row" data-channel=' in script
+    assert 'id="copy-channel-link"' in script
+    assert 'id="remove-channel"' in script
+
+
+def test_admin_partner_activation_and_lead_filters_are_present() -> None:
+    markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
+    for control_id in (
+        "admin-filters",
+        "admin-partner",
+        "admin-channel",
+        "admin-period",
+        "admin-date-from",
+        "admin-date-to",
+        "admin-lead-status",
+        "admin-payment-status",
+    ):
+        assert f'id="{control_id}"' in markup
+    assert "function renderAdminFilters" in script
+    assert "function filteredLeads" in script
+    assert "/activation-link" in script
+    assert 'id="copy-partner-activation-link"' in script
+
+
+def test_admin_can_delete_one_application_from_mini_app() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert 'id="show-delete-lead"' in script
+    assert 'id="delete-lead-confirm"' in script
+    assert "method:'DELETE'" in script
+    assert "Telegram-аккаунт клиента и другие его заявки останутся" in script
+
+
+def test_online_badge_content_is_centered() -> None:
+    styles = (ASSETS_DIR / "styles.css").read_text(encoding="utf-8")
+
+    assert ".online-badge { display: flex; align-items: center;" in styles
+    assert "line-height: 1; white-space: nowrap;" in styles
+    assert (
+        ".online-badge button, .online-badge [role=\"button\"] "
+        "{ display: grid; flex: none;"
+    ) in styles
 
 
 def test_partner_cabinet_has_section_seven_controls() -> None:

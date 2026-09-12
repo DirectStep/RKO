@@ -4,7 +4,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import Database
@@ -18,7 +18,7 @@ from app.domain.enums import (
 )
 from app.domain.operations import DomainError, confirm_payment, validate_payment_transition
 from app.domain.statuses import external_bank_status, external_lead_status
-from app.models import Bank, BankRate, Lead, LeadBank, Partner, Payment, User
+from app.models import Bank, BankRate, DuplicateLeadReview, Lead, LeadBank, Partner, Payment, User
 
 
 class WorkflowService:
@@ -549,6 +549,14 @@ class WorkflowService:
             lead_bank_ids = select(LeadBank.id).where(LeadBank.lead_id == lead_id)
             await session.execute(delete(Payment).where(Payment.lead_bank_id.in_(lead_bank_ids)))
             await session.execute(delete(LeadBank).where(LeadBank.lead_id == lead_id))
+            await session.execute(
+                update(DuplicateLeadReview)
+                .where(DuplicateLeadReview.original_lead_id == lead_id)
+                .values(original_lead_id=None)
+            )
+            await session.execute(
+                update(Lead).where(Lead.previous_lead_id == lead_id).values(previous_lead_id=None)
+            )
             await session.delete(lead)
 
     @staticmethod

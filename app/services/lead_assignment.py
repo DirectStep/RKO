@@ -1,12 +1,14 @@
 from datetime import UTC, datetime
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import Database
-from app.domain.enums import AssignmentStatus, UserRole
+from app.domain.enums import AssignmentStatus, PaymentStatus, UserRole
 from app.domain.operations import DomainError, confirm_assignment, mark_assignment_direct
-from app.models import Channel, Lead
+from app.models import Channel, Lead, LeadBank, Partner, Payment
 
 
 class LeadAssignmentService:
@@ -76,6 +78,14 @@ class LeadAssignmentService:
             channel = await session.get(Channel, channel_id)
             if channel is None or channel.partner_id != partner_id or not channel.active:
                 raise DomainError("Активный канал партнёра не найден")
+            partner = await session.get(Partner, partner_id)
+            if partner is None or not partner.active:
+                raise DomainError("Активный партнёр не найден")
+            await self._apply_partner_economics(
+                session,
+                lead_id=lead.id,
+                percent=partner.commission_percent,
+            )
             now = datetime.now(UTC)
             lead.proposed_partner_id = partner_id
             lead.proposed_channel_id = channel_id
@@ -86,6 +96,93 @@ class LeadAssignmentService:
             lead.source_updated_by_user_id = actor_id
             lead.source_updated_at = now
             return lead
+
+    @classmethod
+    async def _apply_partner_economics(
+        cls,
+        session: AsyncSession,
+        *,
+        lead_id: UUID,
+        percent: Decimal | None,
+    ) -> None:
+        lead_banks = list(
+            await session.scalars(
+                select(LeadBank).where(LeadBank.lead_id == lead_id).with_for_update()
+            )
+        )
+        if not lead_banks:
+            return
+        payments = list(
+            await session.scalars(
+                select(Payment)
+                .where(Payment.lead_bank_id.in_([item.id for item in lead_banks]))
+                .with_for_update()
+            )
+        )
+        payments_by_bank = {payment.lead_bank_id: payment for payment in payments}
+        if any(
+            payment.status
+            in {PaymentStatus.CONFIRMED, PaymentStatus.IN_REGISTRY, PaymentStatus.PAID}
+            for payment in payments
+        ):
+            raise DomainError(
+                "Источник нельзя изменить после подтверждения партнёрской выплаты"
+            )
+        now = datetime.now(UTC)
+        for lead_bank in lead_banks:
+            lead_bank.partner_percent_snapshot = percent
+            lead_bank.partner_reward_estimate = cls._reward(
+                lead_bank.bank_income_estimate, percent
+            )
+            lead_bank.team_profit_estimate = cls._team_profit(
+                income=lead_bank.bank_income_estimate,
+                partner_reward=lead_bank.partner_reward_estimate,
+                lead_reward=lead_bank.lead_reward_estimate,
+                lead_reward_paid_separately=lead_bank.lead_reward_paid_separately,
+            )
+            if lead_bank.bank_income_fact is not None:
+                lead_bank.partner_reward_fact = cls._reward(
+                    lead_bank.bank_income_fact, percent
+                )
+                lead_bank.team_profit_fact = cls._team_profit(
+                    income=lead_bank.bank_income_fact,
+                    partner_reward=lead_bank.partner_reward_fact,
+                    lead_reward=lead_bank.lead_reward_fact,
+                    lead_reward_paid_separately=lead_bank.lead_reward_paid_separately,
+                )
+                payment = payments_by_bank.get(lead_bank.id)
+                if payment is not None:
+                    payment.partner_reward_fact = lead_bank.partner_reward_fact
+            else:
+                lead_bank.partner_reward_fact = None
+                lead_bank.team_profit_fact = None
+                payment = payments_by_bank.get(lead_bank.id)
+                if payment is not None:
+                    payment.partner_reward_fact = None
+            lead_bank.last_updated_at = now
+
+    @staticmethod
+    def _reward(income: Decimal | None, percent: Decimal | None) -> Decimal | None:
+        if income is None or percent is None:
+            return None
+        return (income * percent / Decimal("100")).quantize(Decimal("0.01"))
+
+    @staticmethod
+    def _team_profit(
+        *,
+        income: Decimal | None,
+        partner_reward: Decimal | None,
+        lead_reward: Decimal | None,
+        lead_reward_paid_separately: bool,
+    ) -> Decimal | None:
+        if income is None:
+            return None
+        profit = income - (partner_reward or Decimal("0"))
+        if not lead_reward_paid_separately:
+            profit -= lead_reward or Decimal("0")
+        if profit < 0:
+            raise DomainError("Ставки дают отрицательную командную прибыль")
+        return profit.quantize(Decimal("0.01"))
 
     async def mark_direct(self, *, actor_role: UserRole, lead_id: UUID) -> Lead:
         async with self.database.session() as session, session.begin():
@@ -106,6 +203,7 @@ class LeadAssignmentService:
             lead = await session.scalar(select(Lead).where(Lead.id == lead_id).with_for_update())
             if lead is None:
                 raise DomainError("Заявка не найдена")
+            await self._apply_partner_economics(session, lead_id=lead.id, percent=None)
             lead.proposed_partner_id = None
             lead.proposed_channel_id = None
             lead.partner_id = None

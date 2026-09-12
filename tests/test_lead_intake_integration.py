@@ -38,6 +38,7 @@ from app.services.duplicate_reviews import DuplicateReviewService
 from app.services.lead_assignment import LeadAssignmentService
 from app.services.lead_intake import LeadIntakeService, SubmissionStatus
 from app.services.lead_workflow import LeadWorkflowService
+from app.services.partner_cabinet import partner_cabinet_data
 from app.services.sheets_snapshot import SheetsSnapshotService
 from app.services.user_access import UserAccessService
 from app.services.workflow import WorkflowService
@@ -71,7 +72,8 @@ async def test_admin_reassigns_source_and_resolves_duplicate_as_separate_lead() 
                 name=f"Партнёр {suffix}",
                 commission_percent=Decimal("5"),
             )
-            session.add_all([admin, partner])
+            bank = Bank(name=f"Банк переназначения {suffix}", display_order=1)
+            session.add_all([admin, partner, bank])
             await session.flush()
             channel = Channel(
                 partner_id=partner.id,
@@ -93,6 +95,16 @@ async def test_admin_reassigns_source_and_resolves_duplicate_as_separate_lead() 
             )
             session.add_all([channel, lead])
             await session.flush()
+            lead_bank = LeadBank(
+                lead_id=lead.id,
+                bank_id=bank.id,
+                planned_at=now,
+                bank_income_estimate=Decimal("10000.00"),
+                lead_reward_estimate=Decimal("2000.00"),
+                lead_reward_paid_separately=False,
+                team_profit_estimate=Decimal("8000.00"),
+            )
+            session.add(lead_bank)
             review = DuplicateLeadReview(
                 telegram_id=f"94{suffix}",
                 telegram_username=f"duplicate_{suffix}",
@@ -115,6 +127,8 @@ async def test_admin_reassigns_source_and_resolves_duplicate_as_separate_lead() 
                 partner=partner.id,
                 channel=channel.id,
                 lead=lead.id,
+                lead_bank=lead_bank.id,
+                bank=bank.id,
                 review=review.id,
             )
 
@@ -127,6 +141,15 @@ async def test_admin_reassigns_source_and_resolves_duplicate_as_separate_lead() 
         )
         assert assigned.assignment_status is AssignmentStatus.CONFIRMED
         assert assigned.source_updated_by_user_id == ids["admin"]
+        async with database.session() as session:
+            reassigned_bank = await session.get(LeadBank, ids["lead_bank"])
+            assert reassigned_bank is not None
+            assert reassigned_bank.partner_percent_snapshot == Decimal("5.00")
+            assert reassigned_bank.partner_reward_estimate == Decimal("500.00")
+            assert reassigned_bank.team_profit_estimate == Decimal("7500.00")
+        partner_data = await partner_cabinet_data(database, ids["partner"])
+        assert [item["id"] for item in partner_data["leads"]] == [str(ids["lead"])]
+        assert partner_data["leads"][0]["reward_estimate"] == "500.00"
 
         review, separate = await DuplicateReviewService(database).resolve(
             actor_role=UserRole.ADMIN,
@@ -140,11 +163,22 @@ async def test_admin_reassigns_source_and_resolves_duplicate_as_separate_lead() 
         assert separate.assignment_status is AssignmentStatus.CONFIRMED
         assert separate.channel_id == ids["channel"]
         ids["separate"] = separate.id
+        await WorkflowService(database).delete_lead(
+            actor_role=UserRole.ADMIN,
+            lead_id=ids["lead"],
+        )
+        async with database.session() as session:
+            assert await session.get(Lead, ids["lead"]) is None
+            saved_review = await session.get(DuplicateLeadReview, ids["review"])
+            assert saved_review is not None
+            assert saved_review.original_lead_id is None
     finally:
         async with database.session() as session, session.begin():
             await session.execute(
                 delete(DuplicateLeadReview).where(DuplicateLeadReview.id == ids.get("review"))
             )
+            if ids.get("lead_bank"):
+                await session.execute(delete(LeadBank).where(LeadBank.id == ids["lead_bank"]))
             lead_ids = [ids[key] for key in ("lead", "separate") if ids.get(key)]
             if lead_ids:
                 await session.execute(delete(Lead).where(Lead.id.in_(lead_ids)))
@@ -152,6 +186,8 @@ async def test_admin_reassigns_source_and_resolves_duplicate_as_separate_lead() 
                 await session.execute(delete(Channel).where(Channel.id == ids["channel"]))
             if ids.get("partner"):
                 await session.execute(delete(Partner).where(Partner.id == ids["partner"]))
+            if ids.get("bank"):
+                await session.execute(delete(Bank).where(Bank.id == ids["bank"]))
             if ids.get("admin"):
                 await session.execute(delete(User).where(User.id == ids["admin"]))
         await database.close()
@@ -1044,6 +1080,12 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
         assert lead.phone not in values
         assert "10000" not in values
         assert "Первичный контакт" not in values
+        with pytest.raises(DomainError, match="Источник нельзя изменить"):
+            await LeadAssignmentService(database).assign_direct(
+                actor_role=UserRole.ADMIN,
+                actor_id=manager.id,
+                lead_id=lead.id,
+            )
         with pytest.raises(DomainError, match="удалить нельзя"):
             await workflow.delete_lead(actor_role=UserRole.ADMIN, lead_id=lead.id)
     finally:

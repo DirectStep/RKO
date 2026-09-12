@@ -145,10 +145,13 @@ button { color: inherit; }
 .metric-grid strong { display: block; margin-top: 0.25rem; font-size: 1.2rem; }
 .quick-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.55rem; }
 .quick-actions button { min-height: 3rem; padding: 0.65rem; border: 0; border-radius: 0.72rem; color: var(--accent); background: var(--surface); font-weight: 650; }
-.partner-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; margin-bottom: 0.75rem; }
-.partner-filters[hidden] { display: none; }
-.partner-filters select, .partner-filters input { width: 100%; min-height: 2.75rem; padding: 0 0.65rem; border: 1px solid var(--separator); border-radius: 0.65rem; color: var(--text); background: var(--surface); }
-.partner-filters input[hidden] { display: none; }
+.filter-panel { display: grid; gap: 0.65rem; margin-bottom: 0.8rem; padding: 0.8rem; border-radius: 0.8rem; background: var(--surface); }
+.filter-panel[hidden], .date-range[hidden] { display: none; }
+.filter-field { display: grid; min-width: 0; gap: 0.3rem; }
+.filter-field > span { color: var(--muted); font-size: 0.72rem; }
+.filter-field select, .filter-field input { width: 100%; min-height: 2.75rem; padding: 0 0.7rem; border: 1px solid var(--separator); border-radius: 0.65rem; color: var(--text); background: var(--background); font: inherit; }
+.filter-field select:disabled { opacity: 0.55; }
+.filter-grid, .date-range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.65rem; }
 .sheet-link-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.55rem; margin-bottom: 0.75rem; }
 .sheet-link-grid[hidden] { display: none; }
 .sheet-link-grid button { min-height: 2.75rem; padding: 0.55rem; border: 0; border-radius: 0.7rem; color: var(--accent); background: var(--surface); font-weight: 650; }
@@ -273,8 +276,8 @@ button.list-row:active { background: color-mix(in srgb, var(--muted) 10%, transp
 .client-bank-card header .client-bank-online { color: var(--muted); font-weight: 500; }
 .bank-payout { grid-column: 3; grid-row: 1 / span 2; align-self: center; margin: 0; color: var(--positive); font-size: 0.82rem; white-space: nowrap; }
 .client-bank-card > small { display: block; padding: 0 0.9rem 0.9rem; color: var(--muted); font-size: 0.7rem; }
-.online-badge { display: flex; align-items: center; width: fit-content; min-height: 2.75rem; margin: 0.7rem 0.7rem 0 auto; padding-left: 0.75rem; border-radius: 999rem; color: #167746; background: color-mix(in srgb, #33b978 15%, var(--surface)); font-size: 0.75rem; font-weight: 700; }
-.online-badge button, .online-badge [role="button"] { display: grid; width: 2.75rem; height: 2.75rem; margin-left: 0.35rem; place-items: center; border: 0; border-radius: 50%; color: #fff; background: #238b5b; font-weight: 800; }
+.online-badge { display: flex; align-items: center; width: fit-content; min-height: 2.75rem; margin: 0.7rem 0.7rem 0 auto; padding-left: 0.75rem; border-radius: 999rem; color: #167746; background: color-mix(in srgb, #33b978 15%, var(--surface)); font-size: 0.75rem; font-weight: 700; line-height: 1; white-space: nowrap; }
+.online-badge button, .online-badge [role="button"] { display: grid; flex: none; width: 2.75rem; height: 2.75rem; margin-left: 0.35rem; padding: 0; place-items: center; border: 0; border-radius: 50%; color: #fff; background: #238b5b; font-weight: 800; line-height: 1; }
 .online-badge.compact { margin: 0 0 0.55rem auto; }
 .client-bank-icon { display: grid; grid-row: 1 / span 2; width: 2.75rem; height: 2.75rem; place-items: center; border-radius: 0.75rem; color: #fff; background: var(--accent); font-weight: 750; }
 .choice-mark { display: grid; grid-column: 4; grid-row: 1 / span 2; align-self: center; width: 1.7rem; height: 1.7rem; place-items: center; border: 0.1rem solid var(--separator); border-radius: 50%; color: transparent; }
@@ -387,6 +390,10 @@ button.list-row:active { background: color-mix(in srgb, var(--muted) 10%, transp
   color: inherit;
   text-decoration: none;
 }
+button.contact-row { width: 100%; border-right: 0; border-bottom: 0; border-left: 0; background: transparent; text-align: left; }
+.channel-link-row { align-items: center; }
+.channel-link-row span { overflow: hidden; }
+.channel-link-row b { margin-left: 0.75rem; }
 .contact-row:active { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .contact-row span { display: grid; min-width: 0; gap: 0.12rem; }
 .contact-row small { color: var(--muted); font-size: 0.72rem; }

@@ -955,6 +955,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 ),
                 "date": lead.application_at.isoformat(),
                 "is_repeat": lead.is_repeat,
+                "payment_status": lead.payment_status.value,
             }
             if user.role is not UserRole.PARTNER:
                 item["workflow_stage"] = lead.workflow_stage.value
@@ -964,6 +965,8 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 item["primary_admin_id"] = (
                     str(lead.primary_admin_id) if lead.primary_admin_id else None
                 )
+                item["source_partner_id"] = str(lead.partner_id) if lead.partner_id else None
+                item["source_channel_id"] = str(lead.channel_id) if lead.channel_id else None
             response.append(item)
         return response
 
@@ -1384,6 +1387,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                     else ""
                 ),
                 "channels": channel_count,
+                "activated": partner.telegram_user_id is not None,
                 "assigned_admin_id": str(admin_id) if admin_id else "",
                 "assigned_admin": (
                     f"@{admin_username}" if admin_username else (admin_telegram_id or "Не назначен")
@@ -1429,6 +1433,28 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             "active": partner.active,
             "assigned_admin_id": str(actor_id),
         }
+
+    @app.post("/api/partners/{partner_id}/activation-link")
+    async def create_partner_activation_link(
+        partner_id: UUID,
+        user: Annotated[MiniAppUser, Depends(current_user)],
+    ) -> dict[str, str]:
+        admin_id = require_admin(user)
+        if bot is None:
+            raise HTTPException(status_code=503, detail="Бот временно недоступен")
+        bot_user = await bot.get_me()
+        if not bot_user.username:
+            raise HTTPException(status_code=503, detail="У бота не настроен username")
+        try:
+            link = await AdminCatalogService(database).create_partner_activation_link(
+                actor_role=user.role,
+                actor_user_id=admin_id,
+                partner_id=partner_id,
+                bot_username=bot_user.username,
+            )
+        except DomainError as error:
+            raise domain_error(error) from error
+        return {"link": link}
 
     @app.get("/api/channels")
     async def channels(
