@@ -134,6 +134,32 @@ def test_partner_cabinet_has_section_seven_controls() -> None:
     assert ".scope-filter[hidden] { display: none; }" in styles
 
 
+def test_partner_summary_uses_clear_application_and_payment_metrics() -> None:
+    markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
+    for label in (
+        "Ожидаемая выплата",
+        "Последняя выплата",
+        "Выплачено всего",
+        "Завершённые заявки",
+        "Отменённые заявки",
+    ):
+        assert label in markup
+    for label in (
+        "Всего заявок",
+        "Новые заявки",
+        "Заявки в работе",
+        "Счета в процессе открытия",
+        "Открытые счета",
+    ):
+        assert label in script
+    assert "metrics.last_payout" in script
+    assert "metrics.cancelled" in script
+    assert "Подтверждено к выплате" not in markup
+    assert "Конверсия" not in markup
+
+
 def test_lead_cabinet_has_separate_read_only_sections() -> None:
     markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")

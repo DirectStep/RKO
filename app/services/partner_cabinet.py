@@ -23,7 +23,6 @@ from app.models import (
 from app.services.bank_conditions import normalize_bank_name
 
 ACTIVE_LEAD_STATUSES = {
-    LeadExternalStatus.NEW,
     LeadExternalStatus.IN_PROGRESS,
     LeadExternalStatus.OPENING_ACCOUNTS,
     LeadExternalStatus.PARTIALLY_COMPLETED,
@@ -71,14 +70,14 @@ class PartnerLeadData(TypedDict):
 
 class PartnerMetrics(TypedDict):
     total: int
-    accepted: int
+    new: int
     active: int
     completed: int
-    closed: int
+    cancelled: int
     opened_banks: int
     planned_banks: int
     estimated_payout: str
-    confirmed_payout: str
+    last_payout: str
     paid: str
 
 
@@ -260,8 +259,8 @@ async def partner_cabinet_data(
     opened_banks = 0
     planned_banks = 0
     estimated_payout = Decimal("0")
-    confirmed_payout = Decimal("0")
     paid = Decimal("0")
+    paid_by_date: defaultdict[date, Decimal] = defaultdict(lambda: Decimal("0"))
     for lead_item in leads:
         for bank in lead_item["banks"]:
             if bank["status"] == BankExternalStatus.OPENED.value:
@@ -276,13 +275,16 @@ async def partner_cabinet_data(
             actual = Decimal(bank["reward_fact"])
             if status not in CONFIRMED_PAYMENT_STATUSES and status is not PaymentStatus.CANCELLED:
                 estimated_payout += estimate
-            if status in CONFIRMED_PAYMENT_STATUSES:
-                confirmed_payout += actual
             if status is PaymentStatus.PAID:
                 paid += actual
+                if bank["paid_at"]:
+                    paid_by_date[date.fromisoformat(bank["paid_at"])] += actual
+    last_payout = paid_by_date[max(paid_by_date)] if paid_by_date else Decimal("0")
     metrics: PartnerMetrics = {
         "total": len(leads),
-        "accepted": sum(lead_item["status"] != LeadExternalStatus.NEW.value for lead_item in leads),
+        "new": sum(
+            lead_item["status"] == LeadExternalStatus.NEW.value for lead_item in leads
+        ),
         "active": sum(
             lead_item["status"] in {status.value for status in ACTIVE_LEAD_STATUSES}
             for lead_item in leads
@@ -290,14 +292,14 @@ async def partner_cabinet_data(
         "completed": sum(
             lead_item["status"] == LeadExternalStatus.COMPLETED.value for lead_item in leads
         ),
-        "closed": sum(
+        "cancelled": sum(
             lead_item["status"] == LeadExternalStatus.CLOSED_WITHOUT_RESULT.value
             for lead_item in leads
         ),
         "opened_banks": opened_banks,
         "planned_banks": planned_banks,
         "estimated_payout": str(estimated_payout),
-        "confirmed_payout": str(confirmed_payout),
+        "last_payout": str(last_payout),
         "paid": str(paid),
     }
     return {"metrics": metrics, "leads": leads}

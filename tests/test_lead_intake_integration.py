@@ -1068,6 +1068,10 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
             paid_at=date(2026, 8, 17),
         )
         assert payment.status is PaymentStatus.PAID
+        metrics = (await partner_cabinet_data(database, ids["partner"]))["metrics"]
+        assert metrics["estimated_payout"] == "0"
+        assert metrics["last_payout"] == "2000.00"
+        assert metrics["paid"] == "2000.00"
         from io import BytesIO
 
         from openpyxl import load_workbook

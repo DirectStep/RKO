@@ -254,14 +254,16 @@ async def partner_summary(callback: CallbackQuery, database: Database, settings:
     metrics = (await partner_cabinet_data(database, partner.id))["metrics"]
     await callback.message.answer(
         "Сводка партнёра\n\n"
-        f"Подтверждённые заявки: {metrics['total']}\n"
-        f"Приняты в работу: {metrics['accepted']}\n"
-        f"Активные заявки: {metrics['active']}\n"
-        f"Завершённые заявки: {metrics['completed']}\n"
+        f"Всего заявок: {metrics['total']}\n"
+        f"Новые заявки: {metrics['new']}\n"
+        f"Заявки в работе: {metrics['active']}\n"
+        f"Счета в процессе открытия: {metrics['planned_banks']}\n"
         f"Открытые счета: {metrics['opened_banks']}\n"
         f"Ожидаемая выплата: {metrics['estimated_payout']} ₽\n"
-        f"Подтверждено к выплате: {metrics['confirmed_payout']} ₽\n"
-        f"Выплачено: {metrics['paid']} ₽",
+        f"Последняя выплата: {metrics['last_payout']} ₽\n"
+        f"Выплачено всего: {metrics['paid']} ₽\n"
+        f"Завершённые заявки: {metrics['completed']}\n"
+        f"Отменённые заявки: {metrics['cancelled']}",
         reply_markup=partner_menu_keyboard(settings.mini_app_url),
     )
     await callback.answer()
@@ -283,7 +285,7 @@ async def send_partner_leads(
             lead
             for lead in leads
             if lead["status"]
-            in {"new", "in_progress", "opening_accounts", "partially_completed", "paused"}
+            in {"in_progress", "opening_accounts", "partially_completed", "paused"}
         ]
     lines = [
         f"{lead['short_id']} · {lead['name']} · {lead['channel']} · "
@@ -332,8 +334,8 @@ async def partner_finances(callback: CallbackQuery, database: Database, settings
         text = (
             "Выплаты\n\n"
             f"Ожидается: {metrics['estimated_payout']} ₽\n"
-            f"Подтверждено к выплате: {metrics['confirmed_payout']} ₽\n"
-            f"Выплачено: {metrics['paid']} ₽"
+            f"Последняя выплата: {metrics['last_payout']} ₽\n"
+            f"Выплачено всего: {metrics['paid']} ₽"
         )
     await callback.message.answer(text, reply_markup=partner_menu_keyboard(settings.mini_app_url))
     await callback.answer()

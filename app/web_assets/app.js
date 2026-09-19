@@ -101,21 +101,20 @@ function renderPartnerSummary(){
   const metrics=state.partnerData.metrics
   document.querySelector('#partner-summary').hidden=false
   document.querySelector('#partner-filters').hidden=false
-  document.querySelector('#partner-active').textContent=metrics.active
-  document.querySelector('#partner-opened').textContent=metrics.opened_banks
   document.querySelector('#partner-estimated').textContent=money(metrics.estimated_payout)
-  document.querySelector('#partner-confirmed').textContent=money(metrics.confirmed_payout)
+  document.querySelector('#partner-last-paid').textContent=money(metrics.last_payout)
   document.querySelector('#partner-paid').textContent=money(metrics.paid)
-  document.querySelector('#partner-closed').textContent=metrics.closed
+  document.querySelector('#partner-completed').textContent=metrics.completed
+  document.querySelector('#partner-cancelled').textContent=metrics.cancelled
   document.querySelector('#lead-search').placeholder='Имя, username или номер'
   const channelSelect=document.querySelector('#partner-channel'), selected=channelSelect.value
   channelSelect.innerHTML='<option value="">Все каналы</option>'+state.channels.map(channel=>`<option value="${channel.id}">${esc(channel.name)}</option>`).join('')
   channelSelect.value=selected
   const custom=document.querySelector('#partner-period').value==='custom'
   document.querySelector('#partner-date-range').hidden=!custom
-  document.querySelector('.primary-stat span').textContent='Подтверждённые заявки'
+  document.querySelector('.primary-stat span').textContent='Всего заявок'
   const labels=document.querySelectorAll('.stat-grid span')
-  ;['Приняты в работу','Активные','Банки в плане','Завершённые'].forEach((label,index)=>labels[index].textContent=label)
+  ;['Новые заявки','Заявки в работе','Счета в процессе открытия','Открытые счета'].forEach((label,index)=>labels[index].textContent=label)
 }
 function renderAdminFilters(){
   const panel=document.querySelector('#admin-filters'),partnerSelect=document.querySelector('#admin-partner'),channelSelect=document.querySelector('#admin-channel')
@@ -224,7 +223,7 @@ async function load(){
       ])
       Object.assign(state,{channels,partnerData})
       const metrics=state.partnerData.metrics
-      Object.assign(state,{leads:state.partnerData.leads,dashboard:{total:metrics.total,new:metrics.accepted,active:metrics.active,unresolved:metrics.planned_banks,repeats:metrics.completed,duplicates:0}})
+      Object.assign(state,{leads:state.partnerData.leads,dashboard:{total:metrics.total,new:metrics.new,active:metrics.active,unresolved:metrics.planned_banks,repeats:metrics.opened_banks,duplicates:0}})
       render();return
     }
     const employee=['admin','manager'].includes(state.session.role)
@@ -445,7 +444,6 @@ document.querySelectorAll('#partner-date-from, #partner-date-to').forEach(input=
 document.querySelector('#admin-partner').addEventListener('change',()=>{document.querySelector('#admin-channel').value='';renderAdminFilters();renderVisibleLeads()})
 document.querySelectorAll('#admin-channel, #admin-period, #admin-lead-status, #admin-payment-status').forEach(select=>select.addEventListener('change',()=>{renderAdminFilters();renderVisibleLeads()}))
 document.querySelectorAll('#admin-date-from, #admin-date-to').forEach(input=>input.addEventListener('change',renderVisibleLeads))
-document.querySelectorAll('[data-partner-list]').forEach(button=>button.addEventListener('click',()=>{const mode=button.dataset.partnerList;let items=state.leads;if(mode==='active')items=items.filter(lead=>['new','in_progress','opening_accounts','partially_completed','paused'].includes(lead.status));if(mode==='opened')items=items.filter(lead=>Number(lead.bank_counts?.opened||0)>0);renderLeads(items,document.querySelector('#all-leads'));updateLeadCount(items.length);showScreen('leads')}))
 document.querySelector('#open-google-sheet').addEventListener('click',()=>{const url=state.session?.google_sheet_url;if(!url)return;const tg=telegramWebApp();tg?.openLink?tg.openLink(url):window.open(url,'_blank','noopener')})
 document.querySelector('#open-duplicate-reviews').addEventListener('click',openDuplicateQueue)
 document.querySelector('#add-partner-button').addEventListener('click',openNewPartner)
