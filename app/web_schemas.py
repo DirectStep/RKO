@@ -67,7 +67,6 @@ class BankCreate(BaseModel):
     lead_payout_paid_separately: bool = False
     active: bool = True
     display_order: int = Field(default=0, ge=0, le=10_000)
-    activation_condition: str = ""
 
 
 class BankUpdate(BankCreate):

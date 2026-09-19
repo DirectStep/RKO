@@ -13,7 +13,6 @@ EXPECTED_HEADERS = (
     "Выплату лиду платит банк отдельно",
     "Активно",
     "Порядок",
-    "Условие активации",
 )
 
 FORMULA_ERRORS = ("#REF!", "#N/A", "#VALUE!", "#NAME?", "#DIV/0!")
@@ -29,7 +28,6 @@ class BankRateRow:
     lead_payout_paid_separately: bool
     active: bool
     display_order: int
-    activation_condition: str
     source_row: int
 
 
@@ -110,7 +108,6 @@ def parse_bank_rate_rows(values: list[list[str]]) -> list[BankRateRow]:
                 ),
                 active=_boolean(cells[6], source_row, "Активно"),
                 display_order=display_order,
-                activation_condition=cells[8].strip(),
                 source_row=source_row,
             )
         )

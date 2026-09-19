@@ -20,7 +20,6 @@ def test_bank_rate_rows_are_parsed() -> None:
             "Выплату лиду платит банк отдельно",
             "Активно",
             "Порядок",
-            "Условие активации",
         ],
         [
             "alpha-ip",
@@ -31,7 +30,6 @@ def test_bank_rate_rows_are_parsed() -> None:
             "Да",
             "Да",
             "10",
-            "Совершить первую оплату",
         ],
     ]
 
@@ -45,7 +43,6 @@ def test_bank_rate_rows_are_parsed() -> None:
             lead_payout_paid_separately=True,
             active=True,
             display_order=10,
-            activation_condition="Совершить первую оплату",
             source_row=2,
         )
     ]
@@ -56,23 +53,33 @@ def test_bank_rate_rows_are_parsed() -> None:
     [(3, "не число"), (5, "может быть"), (6, "включено"), (7, "1.5")],
 )
 def test_invalid_bank_rate_rows_are_rejected(column: int, value: str) -> None:
-    row = ["code", "Банк", "Да", "1000", "200", "Нет", "Да", "1", "Условие"]
+    row = ["code", "Банк", "Да", "1000", "200", "Нет", "Да", "1"]
     row[column] = value
     with pytest.raises(ValueError):
         parse_bank_rate_rows([list(parse_bank_rate_rows.__globals__["EXPECTED_HEADERS"]), row])
 
 
-def test_formula_errors_are_rejected_without_replacing_snapshot() -> None:
-    row = ["code", "Банк", "Да", "1000", "200", "Нет", "Да", "1", "#REF!"]
+def test_formula_errors_in_rate_columns_are_rejected_without_replacing_snapshot() -> None:
+    row = ["code", "Банк", "Да", "#REF!", "200", "Нет", "Да", "1"]
 
     with pytest.raises(ValueError, match="ошибка формулы"):
         parse_bank_rate_rows([list(parse_bank_rate_rows.__globals__["EXPECTED_HEADERS"]), row])
 
 
+def test_legacy_condition_formula_error_is_ignored() -> None:
+    row = ["code", "Банк", "Да", "1000", "200", "Нет", "Да", "1", "#REF!"]
+
+    parsed = parse_bank_rate_rows(
+        [list(parse_bank_rate_rows.__globals__["EXPECTED_HEADERS"]), row]
+    )
+
+    assert parsed[0].offer_code == "code"
+
+
 @pytest.mark.parametrize("duplicate_column", [0, 1])
 def test_duplicate_bank_codes_and_names_are_rejected(duplicate_column: int) -> None:
-    first = ["code-a", "Банк А", "Да", "1000", "200", "Нет", "Да", "1", "Условие"]
-    second = ["code-b", "Банк Б", "Нет", "900", "100", "Нет", "Да", "2", "Условие"]
+    first = ["code-a", "Банк А", "Да", "1000", "200", "Нет", "Да", "1"]
+    second = ["code-b", "Банк Б", "Нет", "900", "100", "Нет", "Да", "2"]
     second[duplicate_column] = first[duplicate_column]
 
     with pytest.raises(ValueError, match="дважды"):
@@ -166,7 +173,6 @@ def test_bank_rate_gateway_updates_existing_sheet_row() -> None:
         lead_payout_paid_separately=False,
         active=True,
         display_order=3,
-        activation_condition="Новое условие",
         source_row=2,
     )
 
@@ -182,7 +188,6 @@ def test_bank_rate_gateway_updates_existing_sheet_row() -> None:
             lead_payout_paid_separately=False,
             active=True,
             display_order=3,
-            activation_condition="Условие",
             source_row=2,
         )
     ]
@@ -205,14 +210,12 @@ def test_bank_rate_gateway_appends_without_writing_formula_column() -> None:
         lead_payout_paid_separately=False,
         active=True,
         display_order=2,
-        activation_condition="Условие хранится во второй таблице",
         source_row=0,
     )
 
     rows = gateway_with(values).upsert(created)
 
     assert rows[-1].offer_code == "new-code"
-    assert rows[-1].activation_condition == ""
     assert values[2] == ["new-code", "Новый банк", "Нет", "3000", "700", "Нет", "Да", "2", ""]
 
 
@@ -228,7 +231,6 @@ def test_bank_rate_gateway_rolls_back_appended_bank() -> None:
         lead_payout_paid_separately=False,
         active=True,
         display_order=2,
-        activation_condition="",
         source_row=0,
     )
     write = gateway.plan_upsert(created)

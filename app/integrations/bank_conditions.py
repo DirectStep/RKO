@@ -1,11 +1,24 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import gspread
 
-EXPECTED_HEADERS = (
-    "Название банка",
-    "Целевое действие для клиента",
-)
+WORKSHEET_HEADERS = {
+    "Оборот": ("Название банка", "Сумма оборота, ₽", "Количество платежей"),
+    "Открытие": ("Название банка",),
+    "Холд": ("Название банка", "Сумма холда, ₽", "Количество дней"),
+    "Тариф": ("Название банка", "Тариф, ₽"),
+}
+
+BANK_ALIASES = {
+    "ак барс банк": ("Акбарс",),
+    "альфа-банк": (
+        "Альфа (ИП+РКО) +5к лиду бонусами сама альфа платит",
+        "Альфа счёт (без открытия ИП в Альфе)",
+    ),
+    "банк санкт-петербург": ("БСПБ (гео маленькое)",),
+    "ozon банк": ("Озон (можно онлайн даже без КЭП)",),
+}
 
 
 @dataclass(frozen=True)
@@ -15,122 +28,107 @@ class BankConditionRow:
     source_row: int
 
 
-@dataclass(frozen=True)
-class BankConditionWrite:
-    target_row: int | None
-    previous: tuple[str, str]
-    serialized: tuple[str, str]
+def _normalize(value: str) -> str:
+    return " ".join(value.casefold().replace("ё", "е").split())
 
 
-def parse_bank_condition_rows(values: list[list[str]]) -> list[BankConditionRow]:
-    if not values:
-        raise ValueError("Лист условий банков пуст")
-    headers = tuple(cell.strip() for cell in values[0][: len(EXPECTED_HEADERS)])
-    if headers != EXPECTED_HEADERS:
-        raise ValueError("Заголовки листа условий банков не совпадают с шаблоном")
+def _clean(value: str) -> str:
+    return " ".join(value.split())
 
-    rows: list[BankConditionRow] = []
-    seen_names: dict[str, int] = {}
-    for source_row, values_row in enumerate(values[1:], start=2):
-        cells = [*values_row, "", ""][:2]
-        if not any(cell.strip() for cell in cells):
-            continue
-        bank_name, action_text = (cell.strip() for cell in cells)
-        if not bank_name or not action_text:
-            raise ValueError(f"Строка {source_row}: заполните банк и целевое действие")
-        normalized_name = _normalize(bank_name)
-        if normalized_name in seen_names:
-            raise ValueError(
-                f"Строки {seen_names[normalized_name]} и {source_row}: банк указан дважды"
-            )
-        seen_names[normalized_name] = source_row
-        rows.append(
-            BankConditionRow(
-                bank_name=bank_name,
-                action_text=action_text,
-                source_row=source_row,
-            )
+
+def _positive_int(value: str, sheet: str, row: int, column: str) -> int:
+    try:
+        result = int(_clean(value))
+    except ValueError as error:
+        raise ValueError(
+            f"Лист «{sheet}», строка {row}: «{column}» должно быть целым числом"
+        ) from error
+    if result <= 0:
+        raise ValueError(
+            f"Лист «{sheet}», строка {row}: «{column}» должно быть больше нуля"
         )
-    return rows
+    return result
+
+
+def _plural(number: int, one: str, few: str, many: str) -> str:
+    if number % 10 == 1 and number % 100 != 11:
+        return one
+    if number % 10 in {2, 3, 4} and number % 100 not in {12, 13, 14}:
+        return few
+    return many
+
+
+def _condition_text(sheet: str, cells: list[str], row: int) -> str:
+    if sheet == "Оборот":
+        count = _positive_int(cells[2], sheet, row, "Количество платежей")
+        return (
+            f"Сделать оборот {_clean(cells[1])} — минимум {count} "
+            f"{_plural(count, 'платёж', 'платежа', 'платежей')}"
+        )
+    if sheet == "Открытие":
+        return "Открыть расчётный счёт"
+    if sheet == "Холд":
+        count = _positive_int(cells[2], sheet, row, "Количество дней")
+        return (
+            f"Пополнить счёт на {_clean(cells[1])} и удерживать сумму {count} "
+            f"{_plural(count, 'день', 'дня', 'дней')}"
+        )
+    return f"Оплатить тариф стоимостью {_clean(cells[1])}"
+
+
+def parse_bank_condition_sheets(
+    sheets: Mapping[str, list[list[str]]],
+) -> list[BankConditionRow]:
+    conditions: dict[str, list[str]] = {}
+    display_names: dict[str, str] = {}
+    source_rows: dict[str, int] = {}
+
+    for sheet, expected_headers in WORKSHEET_HEADERS.items():
+        values = sheets.get(sheet)
+        if not values:
+            raise ValueError(f"Лист «{sheet}» пуст или не найден")
+        headers = tuple(cell.strip() for cell in values[0][: len(expected_headers)])
+        if headers != expected_headers:
+            raise ValueError(f"Заголовки листа «{sheet}» не совпадают с шаблоном")
+        seen_in_sheet: set[str] = set()
+        for row_number, values_row in enumerate(values[1:], start=2):
+            cells = [*values_row, *("" for _ in expected_headers)][: len(expected_headers)]
+            if not any(cell.strip() for cell in cells):
+                continue
+            if any(not cell.strip() for cell in cells):
+                raise ValueError(f"Лист «{sheet}», строка {row_number}: заполните все поля")
+            source_name = _clean(cells[0])
+            source_key = _normalize(source_name)
+            if source_key in seen_in_sheet:
+                raise ValueError(
+                    f"Лист «{sheet}», строка {row_number}: банк указан дважды"
+                )
+            seen_in_sheet.add(source_key)
+            text = _condition_text(sheet, cells, row_number)
+            for target_name in BANK_ALIASES.get(source_key, (source_name,)):
+                target_key = _normalize(target_name)
+                conditions.setdefault(target_key, []).append(text)
+                display_names[target_key] = target_name
+                source_rows.setdefault(target_key, row_number)
+
+    return [
+        BankConditionRow(
+            bank_name=display_names[key],
+            action_text=(texts[0] if len(texts) == 1 else "\n".join(f"• {text}" for text in texts)),
+            source_row=source_rows[key],
+        )
+        for key, texts in conditions.items()
+    ]
 
 
 class BankConditionsGateway:
-    def __init__(self, spreadsheet_id: str, worksheet_title: str, credentials_file: str) -> None:
+    def __init__(self, spreadsheet_id: str, credentials_file: str) -> None:
         client = gspread.service_account(filename=credentials_file)
-        self.worksheet = client.open_by_key(spreadsheet_id).worksheet(worksheet_title)
+        self.spreadsheet = client.open_by_key(spreadsheet_id)
 
     def fetch(self) -> list[BankConditionRow]:
-        return parse_bank_condition_rows(self.worksheet.get_all_values())
-
-    def plan_upsert(
-        self,
-        row: BankConditionRow,
-        *,
-        original_bank_name: str | None = None,
-    ) -> BankConditionWrite:
-        values = self.worksheet.get_all_values()
-        parse_bank_condition_rows(values)
-        lookup = _normalize(original_bank_name or row.bank_name)
-        target_row = next(
-            (
-                number
-                for number, cells in enumerate(values[1:], start=2)
-                if cells and _normalize(cells[0]) == lookup
-            ),
-            None,
-        )
-        clean_name = row.bank_name.strip()
-        clean_action = row.action_text.strip()
-        if not clean_action:
-            if target_row is None:
-                return BankConditionWrite(None, ("", ""), ("", ""))
-            previous = tuple([*values[target_row - 1], "", ""][:2])
-            prospective = [list(cells) for cells in values]
-            prospective[target_row - 1] = []
-            parse_bank_condition_rows(prospective)
-            return BankConditionWrite(target_row, previous, ("", ""))
-
-        serialized = (clean_name, clean_action)
-        if target_row is None:
-            target_row = len(values) + 1
-            previous = ("", "")
-        else:
-            previous = tuple([*values[target_row - 1], "", ""][:2])
-        prospective = [list(cells) for cells in values]
-        while len(prospective) < target_row:
-            prospective.append([])
-        prospective[target_row - 1] = list(serialized)
-        parse_bank_condition_rows(prospective)
-        return BankConditionWrite(target_row, previous, serialized)
-
-    def apply(self, write: BankConditionWrite) -> list[BankConditionRow]:
-        if write.target_row is not None:
-            self.worksheet.update(
-                [list(write.serialized)],
-                f"A{write.target_row}:B{write.target_row}",
-                raw=True,
-            )
-        return self.fetch()
-
-    def rollback(self, write: BankConditionWrite) -> list[BankConditionRow]:
-        if write.target_row is not None:
-            self.worksheet.update(
-                [list(write.previous)],
-                f"A{write.target_row}:B{write.target_row}",
-                raw=True,
-            )
-        return self.fetch()
-
-    def upsert(
-        self,
-        row: BankConditionRow,
-        *,
-        original_bank_name: str | None = None,
-    ) -> list[BankConditionRow]:
-        return self.apply(
-            self.plan_upsert(row, original_bank_name=original_bank_name)
-        )
-
-
-def _normalize(value: str) -> str:
-    return " ".join(value.casefold().replace("ё", "е").split())
+        values = {
+            title: self.spreadsheet.worksheet(title).get_all_values()
+            for title in WORKSHEET_HEADERS
+        }
+        return parse_bank_condition_sheets(values)

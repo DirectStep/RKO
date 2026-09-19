@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     google_service_account_file: str = ""
     sheets_sync_interval_seconds: int = 10
     bank_rates_sync_interval_seconds: int = 60
+    bank_conditions_sync_interval_seconds: int = 60
 
     @property
     def admin_ids(self) -> frozenset[str]:
@@ -60,6 +61,14 @@ class Settings(BaseSettings):
     def bank_rates_enabled(self) -> bool:
         return bool(
             self.bank_rates_sheet_id
+            and self.google_service_account_file
+            and Path(self.google_service_account_file).is_file()
+        )
+
+    @property
+    def bank_conditions_enabled(self) -> bool:
+        return bool(
+            self.bank_conditions_sheet_id
             and self.google_service_account_file
             and Path(self.google_service_account_file).is_file()
         )

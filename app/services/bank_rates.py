@@ -1,11 +1,11 @@
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from app.database import Database
 from app.integrations.bank_rates import BankRateRow
-from app.models import Bank, BankActivationCondition, BankRate, Lead, LeadBank, Partner
+from app.models import Bank, BankRate, Lead, LeadBank, Partner
 from app.services.bank_conditions import normalize_bank_name
 
 
@@ -36,13 +36,7 @@ class BankRatesService:
             rates_by_code = {rate.offer_code.casefold(): rate for rate in rates}
             banks = list(await session.scalars(select(Bank)))
             banks_by_name = {normalize_bank_name(bank.name): bank for bank in banks}
-            conditions = list(await session.scalars(select(BankActivationCondition)))
-            conditions_by_name = {
-                condition.normalized_bank_name: condition for condition in conditions
-            }
-
             seen_rate_ids = set()
-            seen_condition_names: set[str] = set()
             current_rates_by_bank: dict[object, BankRate] = {}
             for row in rows:
                 normalized_name = normalize_bank_name(row.bank_name)
@@ -61,20 +55,6 @@ class BankRatesService:
                     bank.active = row.active
                     bank.display_order = row.display_order
                 banks_by_name[normalized_name] = bank
-
-                if row.activation_condition:
-                    condition = conditions_by_name.get(normalized_name)
-                    if condition is None:
-                        condition = BankActivationCondition(normalized_bank_name=normalized_name)
-                        session.add(condition)
-                    condition.bank_name = row.bank_name
-                    condition.action_text = row.activation_condition
-                    condition.payout_text = "Уточняется"
-                    condition.active = row.active
-                    condition.display_order = row.display_order
-                    condition.source_row = row.source_row
-                    condition.synced_at = synced_at
-                    seen_condition_names.add(normalized_name)
 
                 if rate is None:
                     rate = BankRate(offer_code=row.offer_code, bank_id=bank.id)
@@ -99,12 +79,6 @@ class BankRatesService:
                     bank = await session.get(Bank, rate.bank_id)
                     if bank is not None:
                         bank.active = False
-
-            await session.execute(
-                delete(BankActivationCondition).where(
-                    BankActivationCondition.normalized_bank_name.not_in(seen_condition_names)
-                )
-            )
 
             unsnapshotted = list(
                 await session.scalars(select(LeadBank).where(LeadBank.bank_rate_id.is_(None)))

@@ -186,6 +186,14 @@ def test_financial_fields_are_split_by_role_in_mini_app() -> None:
     assert 'const economics=admin?' in script
 
 
+def test_activation_condition_is_read_only_in_bank_editor() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert 'id="catalog-condition"' not in script
+    assert "activation_condition:" not in script
+    assert "Условие активации берётся из Google Sheets" in script
+
+
 def test_partner_api_does_not_receive_internal_financial_fields() -> None:
     lead_bank = SimpleNamespace(
         id="lead-bank",
