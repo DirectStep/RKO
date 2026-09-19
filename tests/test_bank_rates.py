@@ -17,6 +17,7 @@ def test_bank_rate_rows_are_parsed() -> None:
             "Можно открыть онлайн",
             "База выплаты",
             "Выплата лиду",
+            "Выплата лиду без округления",
             "Выплату лиду платит банк отдельно",
             "Активно",
             "Порядок",
@@ -27,6 +28,7 @@ def test_bank_rate_rows_are_parsed() -> None:
             "Нет",
             "10 000,00 ₽",
             "5 000",
+            "5 123,45",
             "Да",
             "Да",
             "10",
@@ -50,36 +52,34 @@ def test_bank_rate_rows_are_parsed() -> None:
 
 @pytest.mark.parametrize(
     ("column", "value"),
-    [(3, "не число"), (5, "может быть"), (6, "включено"), (7, "1.5")],
+    [(3, "не число"), (6, "может быть"), (7, "включено"), (8, "1.5")],
 )
 def test_invalid_bank_rate_rows_are_rejected(column: int, value: str) -> None:
-    row = ["code", "Банк", "Да", "1000", "200", "Нет", "Да", "1"]
+    row = ["code", "Банк", "Да", "1000", "200", "205", "Нет", "Да", "1"]
     row[column] = value
     with pytest.raises(ValueError):
         parse_bank_rate_rows([list(parse_bank_rate_rows.__globals__["EXPECTED_HEADERS"]), row])
 
 
 def test_formula_errors_in_rate_columns_are_rejected_without_replacing_snapshot() -> None:
-    row = ["code", "Банк", "Да", "#REF!", "200", "Нет", "Да", "1"]
+    row = ["code", "Банк", "Да", "#REF!", "200", "205", "Нет", "Да", "1"]
 
     with pytest.raises(ValueError, match="ошибка формулы"):
         parse_bank_rate_rows([list(parse_bank_rate_rows.__globals__["EXPECTED_HEADERS"]), row])
 
 
-def test_legacy_condition_formula_error_is_ignored() -> None:
-    row = ["code", "Банк", "Да", "1000", "200", "Нет", "Да", "1", "#REF!"]
+def test_unrounded_lead_payout_and_condition_errors_are_ignored() -> None:
+    row = ["code", "Банк", "Да", "1000", "200", "#REF!", "Нет", "Да", "1", "#REF!"]
 
-    parsed = parse_bank_rate_rows(
-        [list(parse_bank_rate_rows.__globals__["EXPECTED_HEADERS"]), row]
-    )
+    parsed = parse_bank_rate_rows([list(parse_bank_rate_rows.__globals__["EXPECTED_HEADERS"]), row])
 
     assert parsed[0].offer_code == "code"
 
 
 @pytest.mark.parametrize("duplicate_column", [0, 1])
 def test_duplicate_bank_codes_and_names_are_rejected(duplicate_column: int) -> None:
-    first = ["code-a", "Банк А", "Да", "1000", "200", "Нет", "Да", "1"]
-    second = ["code-b", "Банк Б", "Нет", "900", "100", "Нет", "Да", "2"]
+    first = ["code-a", "Банк А", "Да", "1000", "200", "205", "Нет", "Да", "1"]
+    second = ["code-b", "Банк Б", "Нет", "900", "100", "110", "Нет", "Да", "2"]
     second[duplicate_column] = first[duplicate_column]
 
     with pytest.raises(ValueError, match="дважды"):
@@ -143,13 +143,16 @@ class FakeWorksheet:
         row_number = int("".join(character for character in start if character.isdigit()))
         while len(self.values) < row_number:
             self.values.append([])
-        if range_name.startswith("G"):
-            row = [*self.values[row_number - 1], *("" for _ in range(9))][:9]
-            row[6] = values[0][0]
-            self.values[row_number - 1] = row
+        row = [*self.values[row_number - 1], *("" for _ in range(10))][:10]
+        if range_name.startswith("A"):
+            row[:5] = values[0]
+        elif range_name.startswith("G"):
+            row[6:9] = values[0]
+        elif range_name.startswith("H"):
+            row[7] = values[0][0]
         else:
-            previous = [*self.values[row_number - 1], *("" for _ in range(9))][:9]
-            self.values[row_number - 1] = [*values[0], previous[8]]
+            raise AssertionError(f"Неожиданный диапазон: {range_name}")
+        self.values[row_number - 1] = row
 
 
 def gateway_with(values: list[list[str]]) -> BankRatesGateway:
@@ -161,7 +164,7 @@ def gateway_with(values: list[list[str]]) -> BankRatesGateway:
 def test_bank_rate_gateway_updates_existing_sheet_row() -> None:
     values = [
         list(parse_bank_rate_rows.__globals__["EXPECTED_HEADERS"]),
-        ["old-code", "Старое имя", "Нет", "1000", "200", "Нет", "Да", "1", "Условие"],
+        ["old-code", "Старое имя", "Нет", "1000", "200", "205", "Нет", "Да", "1", "Условие"],
     ]
     gateway = gateway_with(values)
     changed = BankRateRow(
@@ -192,14 +195,15 @@ def test_bank_rate_gateway_updates_existing_sheet_row() -> None:
         )
     ]
     assert values[1][0] == "new-code"
-    assert values[1][8] == "Условие"
-    assert gateway.worksheet.updated_ranges == ["A2:H2"]
+    assert values[1][5] == "205"
+    assert values[1][9] == "Условие"
+    assert gateway.worksheet.updated_ranges == ["A2:E2", "G2:I2"]
 
 
 def test_bank_rate_gateway_appends_without_writing_formula_column() -> None:
     values = [
         list(parse_bank_rate_rows.__globals__["EXPECTED_HEADERS"]),
-        ["old-code", "Старый банк", "Нет", "1000", "200", "Нет", "Да", "1", ""],
+        ["old-code", "Старый банк", "Нет", "1000", "200", "205", "Нет", "Да", "1", ""],
     ]
     created = BankRateRow(
         offer_code="new-code",
@@ -216,7 +220,18 @@ def test_bank_rate_gateway_appends_without_writing_formula_column() -> None:
     rows = gateway_with(values).upsert(created)
 
     assert rows[-1].offer_code == "new-code"
-    assert values[2] == ["new-code", "Новый банк", "Нет", "3000", "700", "Нет", "Да", "2", ""]
+    assert values[2] == [
+        "new-code",
+        "Новый банк",
+        "Нет",
+        "3000",
+        "700",
+        "",
+        "Нет",
+        "Да",
+        "2",
+        "",
+    ]
 
 
 def test_bank_rate_gateway_rolls_back_appended_bank() -> None:
@@ -239,15 +254,15 @@ def test_bank_rate_gateway_rolls_back_appended_bank() -> None:
     rows = gateway.rollback(write)
 
     assert rows == []
-    assert values[1][:8] == ["", "", "", "", "", "", "", ""]
+    assert [values[1][index] for index in (0, 1, 2, 3, 4, 6, 7, 8)] == [""] * 8
 
 
 def test_bank_rate_gateway_deactivates_without_removing_row() -> None:
     values = [
         list(parse_bank_rate_rows.__globals__["EXPECTED_HEADERS"]),
-        ["bank", "Банк", "Нет", "1000", "200", "Нет", "Да", "1", "Условие"],
+        ["bank", "Банк", "Нет", "1000", "200", "205", "Нет", "Да", "1", "Условие"],
     ]
     rows = gateway_with(values).set_active("bank", False)
 
     assert rows[0].active is False
-    assert values[1][6] == "Нет"
+    assert values[1][7] == "Нет"

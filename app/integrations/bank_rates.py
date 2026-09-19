@@ -10,10 +10,13 @@ EXPECTED_HEADERS = (
     "Можно открыть онлайн",
     "База выплаты",
     "Выплата лиду",
+    "Выплата лиду без округления",
     "Выплату лиду платит банк отдельно",
     "Активно",
     "Порядок",
 )
+
+WRITABLE_COLUMN_INDEXES = (0, 1, 2, 3, 4, 6, 7, 8)
 
 FORMULA_ERRORS = ("#REF!", "#N/A", "#VALUE!", "#NAME?", "#DIV/0!")
 
@@ -72,7 +75,8 @@ def parse_bank_rate_rows(values: list[list[str]]) -> list[BankRateRow]:
         cells = [*values_row, *("" for _ in EXPECTED_HEADERS)][: len(EXPECTED_HEADERS)]
         if not any(cell.strip() for cell in cells):
             continue
-        for cell in cells:
+        for index in WRITABLE_COLUMN_INDEXES:
+            cell = cells[index]
             if cell.strip().upper().startswith(FORMULA_ERRORS):
                 raise ValueError(f"Строка {source_row}: ошибка формулы Google Sheets")
         offer_code, bank_name, online_text = (cell.strip() for cell in cells[:3])
@@ -91,7 +95,7 @@ def parse_bank_rate_rows(values: list[list[str]]) -> list[BankRateRow]:
         seen_codes[normalized_code] = source_row
         seen_names[normalized_name] = source_row
         try:
-            display_order = int(cells[7].strip())
+            display_order = int(cells[8].strip())
         except ValueError as error:
             raise ValueError(f"Строка {source_row}: «Порядок» должен быть целым числом") from error
         if display_order < 0:
@@ -104,9 +108,9 @@ def parse_bank_rate_rows(values: list[list[str]]) -> list[BankRateRow]:
                 base_payout=_decimal(cells[3], source_row, "База выплаты"),
                 lead_payout=_decimal(cells[4], source_row, "Выплата лиду"),
                 lead_payout_paid_separately=_boolean(
-                    cells[5], source_row, "Выплату лиду платит банк отдельно"
+                    cells[6], source_row, "Выплату лиду платит банк отдельно"
                 ),
-                active=_boolean(cells[6], source_row, "Активно"),
+                active=_boolean(cells[7], source_row, "Активно"),
                 display_order=display_order,
                 source_row=source_row,
             )
@@ -156,28 +160,39 @@ class BankRatesGateway:
         prospective = [list(cells) for cells in values]
         while len(prospective) < target_row:
             prospective.append([])
-        previous = tuple([*prospective[target_row - 1], *("" for _ in range(8))][:8])
-        current_condition = (
-            prospective[target_row - 1][8]
-            if len(prospective[target_row - 1]) > 8
-            else ""
-        )
-        prospective[target_row - 1] = [*serialized, current_condition]
+        current = [
+            *prospective[target_row - 1],
+            *("" for _ in range(len(EXPECTED_HEADERS))),
+        ][: len(EXPECTED_HEADERS)]
+        previous = tuple(current[index] for index in WRITABLE_COLUMN_INDEXES)
+        for index, value in zip(WRITABLE_COLUMN_INDEXES, serialized, strict=True):
+            current[index] = value
+        prospective[target_row - 1] = current
         parse_bank_rate_rows(prospective)
         return BankRateWrite(target_row, previous, serialized)
 
     def apply(self, write: BankRateWrite) -> list[BankRateRow]:
         self.worksheet.update(
-            [list(write.serialized)],
-            f"A{write.target_row}:H{write.target_row}",
+            [list(write.serialized[:5])],
+            f"A{write.target_row}:E{write.target_row}",
+            raw=True,
+        )
+        self.worksheet.update(
+            [list(write.serialized[5:])],
+            f"G{write.target_row}:I{write.target_row}",
             raw=True,
         )
         return self.fetch()
 
     def rollback(self, write: BankRateWrite) -> list[BankRateRow]:
         self.worksheet.update(
-            [list(write.previous)],
-            f"A{write.target_row}:H{write.target_row}",
+            [list(write.previous[:5])],
+            f"A{write.target_row}:E{write.target_row}",
+            raw=True,
+        )
+        self.worksheet.update(
+            [list(write.previous[5:])],
+            f"G{write.target_row}:I{write.target_row}",
             raw=True,
         )
         return self.fetch()
@@ -188,9 +203,7 @@ class BankRatesGateway:
         *,
         original_offer_code: str | None = None,
     ) -> list[BankRateRow]:
-        return self.apply(
-            self.plan_upsert(row, original_offer_code=original_offer_code)
-        )
+        return self.apply(self.plan_upsert(row, original_offer_code=original_offer_code))
 
     def set_active(self, offer_code: str, active: bool) -> list[BankRateRow]:
         values = self.worksheet.get_all_values()
@@ -205,5 +218,5 @@ class BankRatesGateway:
         )
         if target_row is None:
             raise ValueError("Предложение банка не найдено в листе «Справочник для бота»")
-        self.worksheet.update([["Да" if active else "Нет"]], f"G{target_row}", raw=True)
+        self.worksheet.update([["Да" if active else "Нет"]], f"H{target_row}", raw=True)
         return self.fetch()
