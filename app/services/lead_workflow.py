@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.database import Database
 from app.domain.enums import (
@@ -87,7 +87,10 @@ class LeadWorkflowService:
                     .where(
                         LeadBank.lead_id == lead_id,
                         LeadBank.offered_to_lead.is_(True),
-                        LeadBank.selected_by_lead.is_(None),
+                        or_(
+                            LeadBank.selected_by_lead.is_(None),
+                            LeadBank.selected_by_lead.is_(False),
+                        ),
                     )
                     .with_for_update()
                 )
@@ -98,7 +101,10 @@ class LeadWorkflowService:
             if not selected_bank_ids.issubset(pending_ids):
                 raise DomainError("В списке есть недоступный банк")
             for lead_bank in lead_banks:
-                lead_bank.selected_by_lead = lead_bank.bank_id in selected_bank_ids
+                if lead_bank.bank_id in selected_bank_ids:
+                    lead_bank.selected_by_lead = True
+                elif lead_bank.selected_by_lead is None:
+                    lead_bank.selected_by_lead = False
             now = datetime.now(UTC)
             if lead.workflow_stage is LeadWorkflowStage.AWAITING_CLIENT_SELECTION:
                 lead.workflow_stage = LeadWorkflowStage.AWAITING_MANAGER

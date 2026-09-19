@@ -17,7 +17,7 @@ from aiogram import Bot
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import func, or_, select, true
+from sqlalchemy import func, select, true
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 from starlette.middleware.base import RequestResponseEndpoint
@@ -107,12 +107,9 @@ def build_mini_app_html() -> str:
     styles = (ASSETS_DIR / "styles.css").read_text(encoding="utf-8")
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
     style_marker = (
-        '<link rel="stylesheet" href="/assets/styles.css?v=20260829-01" '
-        'data-inline="styles" />'
+        '<link rel="stylesheet" href="/assets/styles.css?v=20260829-01" data-inline="styles" />'
     )
-    script_marker = (
-        '<script src="/assets/app.js?v=20260829-01" data-inline="app"></script>'
-    )
+    script_marker = '<script src="/assets/app.js?v=20260829-01" data-inline="app"></script>'
     if style_marker not in markup or script_marker not in markup:
         raise RuntimeError("Не найдены точки встраивания файлов мини-приложения")
     return markup.replace(style_marker, f"<style>{styles}</style>", 1).replace(
@@ -183,9 +180,7 @@ def serialize_lead_bank(
             else lead_bank.internal_status.value
         ),
         "opened_at": lead_bank.opened_at.isoformat() if lead_bank.opened_at else None,
-        "payment_status": (
-            payment.status.value if payment else PaymentStatus.NOT_CALCULATED.value
-        ),
+        "payment_status": (payment.status.value if payment else PaymentStatus.NOT_CALCULATED.value),
         "online_text": online_text,
         **online_bank_info(bank.name, online_text),
     }
@@ -555,14 +550,8 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         lead_id = require_lead(user)
         async with database.session() as db_session:
             lead = await db_session.get(Lead, lead_id)
-            manager_id = (
-                lead.manager_id or lead.primary_admin_id if lead is not None else None
-            )
-            manager = (
-                await db_session.get(User, manager_id)
-                if manager_id is not None
-                else None
-            )
+            manager_id = lead.manager_id or lead.primary_admin_id if lead is not None else None
+            manager = await db_session.get(User, manager_id) if manager_id is not None else None
         if lead is None:
             raise HTTPException(status_code=404, detail="Заявка не найдена")
         manager_username = manager.telegram_username if manager else None
@@ -591,13 +580,6 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 LeadBank.lead_id == lead_id,
                 LeadBank.offered_to_lead.is_(True),
             ]
-            if lead.bank_selection_submitted_at is not None:
-                bank_scope.append(
-                    or_(
-                        LeadBank.selected_by_lead.is_(True),
-                        LeadBank.selected_by_lead.is_(None),
-                    )
-                )
             bank_rows = list(
                 await db_session.execute(
                     select(LeadBank, Bank)
@@ -614,9 +596,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         for lead_bank, bank in bank_rows:
             condition = conditions_by_name.get(normalize_bank_name(bank.name))
             online_text = (
-                rates_by_bank[bank.id].online_text
-                if bank.id in rates_by_bank
-                else "Уточняется"
+                rates_by_bank[bank.id].online_text if bank.id in rates_by_bank else "Уточняется"
             )
             result.append(
                 {
@@ -624,7 +604,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                     "bank_id": str(bank.id),
                     "status": lead_bank.external_status.value,
                     "selected": lead_bank.selected_by_lead,
-                    "selection_locked": lead_bank.selected_by_lead is not None,
+                    "selection_locked": lead_bank.selected_by_lead is True,
                     "online_text": online_text,
                     **online_bank_info(bank.name, online_text),
                     "lead_payout": (
@@ -632,6 +612,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                         if lead_bank.lead_reward_estimate is not None
                         else "0"
                     ),
+                    "lead_payout_paid_separately": lead_bank.lead_reward_paid_separately,
                     "action_text": (
                         condition.action_text if condition is not None and condition.active else ""
                     ),
@@ -874,9 +855,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 "payment_status": lead.payment_status.value,
             }
             if user.role is not UserRole.PARTNER:
-                item["username"] = (
-                    f"@{lead.telegram_username}" if lead.telegram_username else ""
-                )
+                item["username"] = f"@{lead.telegram_username}" if lead.telegram_username else ""
                 item["workflow_stage"] = lead.workflow_stage.value
                 item["phone"] = lead.phone
                 item["source"] = lead.assignment_status.value
@@ -1405,11 +1384,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         return {
             "id": str(channel_id),
             "deleted": deleted,
-            "message": (
-                "Канал удалён"
-                if deleted
-                else "Канал отключён, история заявок сохранена"
-            ),
+            "message": ("Канал удалён" if deleted else "Канал отключён, история заявок сохранена"),
         }
 
     @app.put("/api/partners/{partner_id}/access")
@@ -1495,9 +1470,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             "id": str(partner_id),
             "deleted": deleted,
             "message": (
-                "Партнёр удалён"
-                if deleted
-                else "Партнёр отключён, история заявок сохранена"
+                "Партнёр удалён" if deleted else "Партнёр отключён, история заявок сохранена"
             ),
         }
 
@@ -1563,13 +1536,12 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 await db_session.execute(
                     select(Bank, BankRate)
                     .outerjoin(BankRate, BankRate.bank_id == Bank.id)
+                    .where(Bank.active.is_(True))
                     .order_by(Bank.display_order, Bank.name)
                 )
             )
             conditions = list(await db_session.scalars(select(BankActivationCondition)))
-        conditions_by_name = {
-            condition.normalized_bank_name: condition for condition in conditions
-        }
+        conditions_by_name = {condition.normalized_bank_name: condition for condition in conditions}
         result: list[dict[str, object]] = []
         for bank, rate in rows:
             condition = conditions_by_name.get(normalize_bank_name(bank.name))
@@ -1633,9 +1605,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
     ) -> dict[str, object]:
         require_admin(user)
         async with database.session() as db_session:
-            current = await db_session.scalar(
-                select(BankRate).where(BankRate.bank_id == bank_id)
-            )
+            current = await db_session.scalar(select(BankRate).where(BankRate.bank_id == bank_id))
             current_bank = await db_session.get(Bank, bank_id)
         if current is None:
             raise HTTPException(status_code=404, detail="Ставка банка не найдена")
@@ -1697,7 +1667,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         return {
             "id": str(bank_id),
             "active": False,
-            "message": "Банк отключён, история заявок сохранена",
+            "message": "Банк убран из справочника, история заявок сохранена",
         }
 
     @app.post("/api/leads/{lead_id}/banks")
@@ -1738,11 +1708,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         return {
             "id": str(lead_bank_id),
             "deleted": deleted,
-            "message": (
-                "Банк удалён из заявки"
-                if deleted
-                else "Банк исключён, история сохранена"
-            ),
+            "message": ("Банк удалён из заявки" if deleted else "Банк исключён, история сохранена"),
         }
 
     @app.post("/api/leads/{lead_id}/claim-manager")

@@ -110,8 +110,7 @@ async def start(
     requested_referral_code = command.args
     if user is None:
         await message.answer(
-            "Не удалось определить ваш Telegram-аккаунт. "
-            "Отправьте /start ещё раз."
+            "Не удалось определить ваш Telegram-аккаунт. Отправьте /start ещё раз."
         )
         return
     role = await UserAccessService(database, settings).resolve_role(
@@ -261,7 +260,7 @@ async def partner_summary(callback: CallbackQuery, database: Database, settings:
         f"Новые заявки: {metrics['new']}\n"
         f"Заявки в работе: {metrics['active']}\n"
         f"Счета в процессе открытия: {metrics['planned_banks']}\n"
-        f"Открытые счета: {metrics['opened_banks']}\n"
+        f"Активированные счета: {metrics['opened_banks']}\n"
         f"Ожидаемая выплата: {metrics['estimated_payout']} ₽\n"
         f"Последняя выплата: {metrics['last_payout']} ₽\n"
         f"Выплачено всего: {metrics['paid']} ₽\n"
@@ -331,7 +330,7 @@ async def partner_finances(callback: CallbackQuery, database: Database, settings
             for bank in lead["banks"]
             if bank["status"] == "opened"
         ]
-        text = "Открытые счета\n\n" + ("\n".join(rows[:30]) if rows else "Пока пусто")
+        text = "Активированные счета\n\n" + ("\n".join(rows[:30]) if rows else "Пока пусто")
     else:
         metrics = data["metrics"]
         text = (

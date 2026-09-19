@@ -16,7 +16,7 @@ async function waitForTelegramContext(){
   telegramWebApp()?.ready();telegramWebApp()?.expand()
 }
 
-const state = { session: null, dashboard: {}, leads: [], partners: [], channels: [], banks: [], banksLoading: false, banksError: false, staff: [], duplicates: [], leadApplication: null, leadBanks: [], leadScope: 'queue', partnerData: null, currentScreen: 'summary' }
+const state = { session: null, dashboard: {}, leads: [], partners: [], channels: [], banks: [], banksLoading: false, banksError: false, staff: [], duplicates: [], leadApplication: null, leadBanks: [], leadAddingBanks: false, leadScope: 'queue', partnerData: null, currentScreen: 'summary' }
 const leadLabels = { new:'Новая',manager_assigned:'Менеджер назначен',awaiting_first_contact:'Ждёт звонка',contacted:'Связались',awaiting_data:'Ждём данные',data_received:'Данные получены',selecting_banks:'Подбираем банки',preparing_applications:'Готовим заявки',applications_sent:'Заявки отправлены',opening_accounts:'Открытие счетов',partially_opened:'Часть счетов открыта',all_planned_opened:'Счета открыты',paused:'На паузе',no_response:'Нет ответа',lead_refused:'Отказ клиента',not_eligible:'Не подходит',completed:'Завершена',in_progress:'В работе',partially_completed:'Частично завершена',closed_without_result:'Закрыта без результата' }
 const internalLeadStatuses = ['new','manager_assigned','awaiting_first_contact','contacted','awaiting_data','data_received','selecting_banks','preparing_applications','applications_sent','opening_accounts','partially_opened','all_planned_opened','paused','no_response','lead_refused','not_eligible','completed']
 const questionLabels = { adult:'Совершеннолетие',has_ip:'ИП',city:'Город',full_name:'ФИО',email:'E-mail',has_bankruptcy_or_arrests:'Банкротства или аресты',is_civil_servant:'Госслужащий',has_social_benefits:'Социальные выплаты',no_bankruptcy:'Нет банкротств или арестов',not_civil_servant:'Не госслужащий',no_social_benefits:'Нет социальных выплат' }
@@ -66,6 +66,7 @@ function date(value){ return value ? new Intl.DateTimeFormat('ru-RU').format(new
 function dateTime(value){ return value ? new Intl.DateTimeFormat('ru-RU',{dateStyle:'medium',timeStyle:'short'}).format(new Date(value)) : '—' }
 function localISODate(){ const now=new Date(),pad=value=>String(value).padStart(2,'0');return `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}` }
 function money(value){ return value===null||value===undefined||value==='' ? '—' : `${new Intl.NumberFormat('ru-RU').format(Number(value))} ₽` }
+function leadPayout(item){ const value=money(item.lead_payout);return item.lead_payout_paid_separately?`до ${value}`:value }
 function answer(value){ if(value===true||value==='yes'||value==='Да')return 'Да';if(value===false||value==='no'||value==='Нет')return 'Нет';return value||'—' }
 function sentence(value,fallback){ const text=String(value||fallback).trim();return text?text[0].toUpperCase()+text.slice(1):fallback }
 function toast(message){ const el=document.querySelector('#toast'); el.textContent=message; el.hidden=false; clearTimeout(toast.timer); toast.timer=setTimeout(()=>el.hidden=true,2400) }
@@ -114,7 +115,7 @@ function renderPartnerSummary(){
   document.querySelector('#partner-date-range').hidden=!custom
   document.querySelector('.primary-stat span').textContent='Всего заявок'
   const labels=document.querySelectorAll('.stat-grid span')
-  ;['Новые заявки','Заявки в работе','Счета в процессе открытия','Открытые счета'].forEach((label,index)=>labels[index].textContent=label)
+  ;['Новые заявки','Заявки в работе','Счета в процессе открытия','Активированные счета'].forEach((label,index)=>labels[index].textContent=label)
 }
 function renderAdminFilters(){
   const panel=document.querySelector('#admin-filters'),partnerSelect=document.querySelector('#admin-partner'),channelSelect=document.querySelector('#admin-channel')
@@ -176,7 +177,9 @@ function render(){
 }
 function renderLeadCabinet(){
   const application=state.leadApplication
-  const canSelect=state.leadBanks.some(item=>item.selected===null)
+  const initialSelection=state.leadBanks.some(item=>item.selected===null)
+  const addable=state.leadBanks.some(item=>item.selected===false)
+  const canSelect=initialSelection||state.leadAddingBanks
   document.querySelector('#loading-state').hidden=true
   document.querySelector('.tabbar').hidden=false
   document.querySelector('#cabinet-label').textContent='Кабинет клиента'
@@ -191,18 +194,21 @@ function renderLeadCabinet(){
     ? `<a class="contact-row" href="${esc(application.manager_url)}" target="_blank" rel="noopener"><span><small>Менеджер</small><strong>${esc(application.manager)}</strong></span><b>Написать</b></a>`
     : `<div class="value-row"><span>Менеджер</span><strong>${esc(application.manager||'Ещё не назначен')}</strong></div>`
   document.querySelector('#client-application-card').innerHTML=`<section class="client-hero"><span>Что сейчас с заявкой</span><strong>${esc(clientWorkflowLabels[application.workflow_stage]||leadLabels[application.status]||application.status)}</strong><small>Обновлено ${dateTime(application.updated)}</small></section><section class="detail-section"><h3>Данные заявки</h3><div class="value-row"><span>Номер</span><strong>${esc(application.short_id)}</strong></div><div class="value-row"><span>Подана</span><strong>${date(application.date)}</strong></div>${manager}</section><p class="client-note">Здесь всегда виден текущий этап заявки.</p>`
-  const cards=state.leadBanks.map(item=>{const selectable=item.selected===null;return `<label class="client-bank-card ${selectable?'is-selectable':''}">${selectable?`<input class="bank-choice" type="checkbox" value="${esc(item.bank_id)}">`:''}${item.online_available?`<span class="online-badge">Можно онлайн <button type="button" data-online-help="${esc(item.online_help)}" aria-label="Условия открытия онлайн">?</button></span>`:''}<header><span class="client-bank-icon">${esc(initials(item.bank).slice(0,1)||'Б')}</span><div class="client-bank-copy"><h3>${esc(item.bank)}</h3><p>${selectable?'Доступен для открытия':esc(bankLabels[item.status]||item.status)}</p></div>${selectable?'<span class="choice-mark">✓</span>':''}<strong class="bank-payout">${money(item.lead_payout)}</strong></header><section class="activation-action"><span>Условие активации</span><p>${esc(item.action_text||'Условие уточняется')}</p></section><small>Обновлено ${dateTime(item.updated)}</small></label>`}).join('')
+  const cards=state.leadBanks.map(item=>{const selectable=item.selected===null||(state.leadAddingBanks&&item.selected===false);const dimmed=item.selected===false&&!state.leadAddingBanks;const status=selectable?'Доступен для открытия':item.selected===false?'Не выбран':(bankLabels[item.status]||item.status);return `<label class="client-bank-card ${selectable?'is-selectable':''} ${dimmed?'is-unselected':''}">${selectable?`<input class="bank-choice" type="checkbox" value="${esc(item.bank_id)}">`:''}${item.online_available?`<span class="online-badge">Можно онлайн <button type="button" data-online-help="${esc(item.online_help)}" aria-label="Условия открытия онлайн">ℹ️</button></span>`:''}<header><span class="client-bank-icon">${esc(initials(item.bank).slice(0,1)||'Б')}</span><div class="client-bank-copy"><h3>${esc(item.bank)}</h3><p>${esc(status)}</p></div>${selectable?'<span class="choice-mark">✓</span>':''}<strong class="bank-payout">${leadPayout(item)}</strong></header><section class="activation-action"><span>Условие активации</span><p>${esc(item.action_text||'Условие уточняется')}</p></section><small>Обновлено ${dateTime(item.updated)}</small></label>`}).join('')
   const emptyText=application.workflow_stage==='not_eligible'?'По текущим условиям подбор банков недоступен.':'Когда специалист сформирует доступные варианты, они появятся здесь.'
-  document.querySelector('#client-banks-list').innerHTML=state.leadBanks.length?`${canSelect?'<p class="selection-intro">Отметьте все банки, которые хотите открыть.</p>':''}${cards}${canSelect?'<button class="primary-button selection-submit" id="submit-bank-selection">Продолжить</button>':''}`:`<section class="empty-card"><span class="client-bank-icon">Б</span><h3>Банки пока недоступны</h3><p>${emptyText}</p></section>`
+  const selectionActions=canSelect?`<button class="primary-button selection-submit" id="submit-bank-selection">${state.leadAddingBanks?'Добавить выбранные':'Продолжить'}</button>${state.leadAddingBanks?'<button class="secondary-button selection-submit" id="cancel-bank-selection">Отмена</button>':''}`:addable?'<button class="primary-button selection-submit" id="add-more-banks">Добавить ещё</button>':''
+  document.querySelector('#client-banks-list').innerHTML=state.leadBanks.length?`${canSelect?'<p class="selection-intro">Отметьте банки, которые хотите открыть.</p>':''}${cards}${selectionActions}`:`<section class="empty-card"><span class="client-bank-icon">Б</span><h3>Банки пока недоступны</h3><p>${emptyText}</p></section>`
   document.querySelector('#submit-bank-selection')?.addEventListener('click',confirmLeadBankSelection)
+  document.querySelector('#add-more-banks')?.addEventListener('click',()=>{state.leadAddingBanks=true;renderLeadCabinet();showScreen('client-banks')})
+  document.querySelector('#cancel-bank-selection')?.addEventListener('click',()=>{state.leadAddingBanks=false;renderLeadCabinet();showScreen('client-banks')})
   showScreen('client-application')
 }
 function confirmLeadBankSelection(){
   const selected=[...document.querySelectorAll('.bank-choice:checked')].map(input=>input.value)
   if(!selected.length)return toast('Выберите хотя бы один банк')
   const names=state.leadBanks.filter(item=>selected.includes(item.bank_id)).map(item=>item.bank)
-  openSheet('Проверьте выбор','Перед отправкой',`<section class="detail-section"><h3>Выбранные банки</h3>${names.map(name=>`<div class="value-row"><span>Банк</span><strong>${esc(name)}</strong></div>`).join('')}</section><p class="confirmation-note">После отправки изменить этот выбор самостоятельно нельзя. Если передумаете — сообщите менеджеру.</p><button class="primary-button" id="confirm-bank-selection">Отправить менеджеру</button>`)
-  document.querySelector('#confirm-bank-selection').addEventListener('click',async()=>{try{await api('/api/lead/banks/selection',{method:'POST',body:JSON.stringify({bank_ids:selected})});closeSheet();toast('Выбор отправлен менеджеру');await load()}catch(error){toast(error.message)}})
+  openSheet('Проверьте выбор','Перед отправкой',`<section class="detail-section"><h3>Выбранные банки</h3>${names.map(name=>`<div class="value-row"><span>Банк</span><strong>${esc(name)}</strong></div>`).join('')}</section><p class="confirmation-note">Выбранные банки останутся в заявке. Остальные можно будет добавить позже.</p><button class="primary-button" id="confirm-bank-selection">${state.leadAddingBanks?'Добавить банки':'Отправить менеджеру'}</button>`)
+  document.querySelector('#confirm-bank-selection').addEventListener('click',async()=>{try{await api('/api/lead/banks/selection',{method:'POST',body:JSON.stringify({bank_ids:selected})});state.leadAddingBanks=false;closeSheet();toast('Выбор банков сохранён');await load();showScreen('client-banks')}catch(error){toast(error.message)}})
 }
 async function load(){
   await waitForTelegramContext()
@@ -381,7 +387,7 @@ function openCatalogBank(id=null){
   ;['catalog-base','catalog-lead','catalog-preview-percent','catalog-lead-separate'].forEach(id=>document.querySelector(`#${id}`).addEventListener('input',updateCatalogPreview))
   updateCatalogPreview()
   document.querySelector('#save-catalog-bank').addEventListener('click',async()=>{const payload=bankFormValues();if(!payload.offer_code||payload.name.length<2)return toast('Заполни код и название');if(payload.base_payout===''||payload.lead_payout==='')return toast('Заполни ставки');await api(bank?`/api/banks/${bank.id}`:'/api/banks',{method:bank?'PATCH':'POST',body:JSON.stringify(payload)});toast(bank?'Банк обновлён':'Банк добавлен');closeSheet();await load();showScreen('banks')})
-  document.querySelector('#remove-catalog-bank')?.addEventListener('click',async()=>{if(!window.confirm('Убрать банк из новых заявок? История сохранится.'))return;const result=await api(`/api/banks/${bank.id}`,{method:'DELETE'});toast(result.message);closeSheet();await load();showScreen('banks')})
+  document.querySelector('#remove-catalog-bank')?.addEventListener('click',async()=>{if(!window.confirm('Убрать банк из справочника? В старых заявках история сохранится.'))return;const result=await api(`/api/banks/${bank.id}`,{method:'DELETE'});toast(result.message);closeSheet();await load();showScreen('banks')})
 }
 function openDuplicateQueue(){
   const rows=state.duplicates.map(item=>`<button class="list-row" type="button" data-duplicate="${item.id}"><span class="row-icon">Д</span><span class="row-content"><span class="row-title"><strong>${esc(item.name)}</strong><time>${date(item.date).slice(0,5)}</time></span><span class="row-subtitle">${esc(item.phone)} · исходная ${esc(item.original?.short_id||'не найдена')}</span></span><i class="status-dot off"></i></button>`).join('')

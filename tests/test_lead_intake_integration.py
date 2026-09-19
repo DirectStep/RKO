@@ -550,17 +550,6 @@ async def test_two_stage_lead_claim_and_bank_selection() -> None:
             lead_id=lead_id,
             bank_id=bank_id,
         )
-        await workflow.submit_bank_selection(lead_id=lead_id, selected_bank_ids={bank_id})
-        lead = await workflow.claim_by_manager(
-            actor_role=UserRole.MANAGER,
-            actor_id=manager_id,
-            lead_id=lead_id,
-        )
-
-        assert lead.workflow_stage is LeadWorkflowStage.MANAGER_PROCESSING
-        assert lead.primary_admin_id == admin_id
-        assert lead.manager_id == manager_id
-
         second_bank = await WorkflowService(database).create_bank(
             actor_role=UserRole.ADMIN, name=f"Второй банк {suffix}"
         )
@@ -586,6 +575,29 @@ async def test_two_stage_lead_claim_and_bank_selection() -> None:
             lead_id=lead_id,
             bank_ids=[second_bank_id],
         )
+
+        await workflow.submit_bank_selection(lead_id=lead_id, selected_bank_ids={bank_id})
+        async with database.session() as session:
+            first_selections = dict(
+                (
+                    await session.execute(
+                        select(LeadBank.bank_id, LeadBank.selected_by_lead).where(
+                            LeadBank.lead_id == lead_id
+                        )
+                    )
+                ).all()
+            )
+        assert first_selections == {bank_id: True, second_bank_id: False}
+
+        lead = await workflow.claim_by_manager(
+            actor_role=UserRole.MANAGER,
+            actor_id=manager_id,
+            lead_id=lead_id,
+        )
+        assert lead.workflow_stage is LeadWorkflowStage.MANAGER_PROCESSING
+        assert lead.primary_admin_id == admin_id
+        assert lead.manager_id == manager_id
+
         lead = await workflow.submit_bank_selection(
             lead_id=lead_id, selected_bank_ids={second_bank_id}
         )
@@ -594,10 +606,10 @@ async def test_two_stage_lead_claim_and_bank_selection() -> None:
             selections = dict(
                 (
                     await session.execute(
-                    select(LeadBank.bank_id, LeadBank.selected_by_lead).where(
-                        LeadBank.lead_id == lead_id
+                        select(LeadBank.bank_id, LeadBank.selected_by_lead).where(
+                            LeadBank.lead_id == lead_id
+                        )
                     )
-                )
                 ).all()
             )
         assert selections == {bank_id: True, second_bank_id: True}
@@ -1101,6 +1113,9 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
         assert lead_bank.team_profit_estimate == Decimal("6600.00")
         assert lead_bank.team_profit_fact == Decimal("5000.00")
         assert lead_bank.opened_at is not None
+
+        partner_data = await partner_cabinet_data(database, ids["partner"])
+        assert partner_data["metrics"]["estimated_payout"] == "2400.00"
 
         payment = await workflow.confirm_lead_bank_payment(
             actor_role=UserRole.ADMIN,

@@ -155,9 +155,7 @@ async def partner_cabinet_data(
         conditions = list(await session.scalars(select(BankActivationCondition)))
 
     rates_by_bank = {rate.bank_id: rate for rate in rates}
-    conditions_by_name = {
-        condition.normalized_bank_name: condition for condition in conditions
-    }
+    conditions_by_name = {condition.normalized_bank_name: condition for condition in conditions}
 
     grouped: dict[UUID, _LeadAccumulator] = {}
     normalized_search = search.strip().lower()
@@ -271,7 +269,11 @@ async def partner_cabinet_data(
             status = PaymentStatus(bank["payment_status"])
             estimate = Decimal(bank["reward_estimate"])
             actual = Decimal(bank["reward_fact"])
-            if status not in CONFIRMED_PAYMENT_STATUSES and status is not PaymentStatus.CANCELLED:
+            if (
+                bank["status"] == BankExternalStatus.OPENED.value
+                and status not in CONFIRMED_PAYMENT_STATUSES
+                and status is not PaymentStatus.CANCELLED
+            ):
                 estimated_payout += estimate
             if status is PaymentStatus.PAID:
                 paid += actual
@@ -280,9 +282,7 @@ async def partner_cabinet_data(
     last_payout = paid_by_date[max(paid_by_date)] if paid_by_date else Decimal("0")
     metrics: PartnerMetrics = {
         "total": len(leads),
-        "new": sum(
-            lead_item["status"] == LeadExternalStatus.NEW.value for lead_item in leads
-        ),
+        "new": sum(lead_item["status"] == LeadExternalStatus.NEW.value for lead_item in leads),
         "active": sum(
             lead_item["status"] in {status.value for status in ACTIVE_LEAD_STATUSES}
             for lead_item in leads

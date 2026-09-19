@@ -140,7 +140,7 @@ button { color: inherit; }
 .partner-summary[hidden] { display: none; }
 .metric-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: hidden; border-radius: 0.85rem; background: var(--surface); }
 .metric-grid > * { min-height: 4.5rem; padding: 0.8rem; border: 0; border-right: 1px solid var(--separator); border-bottom: 1px solid var(--separator); color: inherit; background: transparent; text-align: left; }
-.metric-grid > *:nth-child(2n) { border-right: 0; }
+.metric-grid > *:nth-child(2n + 1) { border-right: 0; }
 .metric-grid > .metric-wide { grid-column: 1 / -1; border-right: 0; }
 .metric-grid span { display: block; color: var(--muted); font-size: 0.72rem; }
 .metric-grid strong { display: block; margin-top: 0.25rem; font-size: 1.2rem; }
@@ -266,6 +266,7 @@ button.list-row:active { background: color-mix(in srgb, var(--muted) 10%, transp
 .client-info-link > span { display: grid; flex: none; width: 2rem; height: 2rem; place-items: center; border-radius: 50%; color: var(--accent-text); background: var(--accent); }
 .client-bank-card, .empty-card { overflow: hidden; border-radius: 0.9rem; background: var(--surface); }
 .client-bank-card { position: relative; display: block; }
+.client-bank-card.is-unselected { opacity: 0.5; filter: saturate(0.45); }
 .client-bank-card > input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .client-bank-card.is-selectable { cursor: pointer; border: 0.12rem solid transparent; }
 .client-bank-card.is-selectable:has(input:checked) { border-color: var(--accent); }

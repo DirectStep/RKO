@@ -160,7 +160,7 @@ def partner_menu_keyboard(mini_app_url: str = "") -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="Активные", callback_data="partner:active"),
             ],
             [
-                InlineKeyboardButton(text="Открытые счета", callback_data="partner:opened"),
+                InlineKeyboardButton(text="Активированные счета", callback_data="partner:opened"),
                 InlineKeyboardButton(text="Выплаты", callback_data="partner:payments"),
             ],
             [

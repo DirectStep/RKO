@@ -106,8 +106,7 @@ def test_online_badge_content_is_centered() -> None:
     assert ".online-badge { display: flex; align-items: center;" in styles
     assert "line-height: 1; white-space: nowrap;" in styles
     assert (
-        ".online-badge button, .online-badge [role=\"button\"] "
-        "{ display: grid; flex: none;"
+        '.online-badge button, .online-badge [role="button"] { display: grid; flex: none;'
     ) in styles
 
 
@@ -151,7 +150,7 @@ def test_partner_summary_uses_clear_application_and_payment_metrics() -> None:
         "Новые заявки",
         "Заявки в работе",
         "Счета в процессе открытия",
-        "Открытые счета",
+        "Активированные счета",
     ):
         assert label in script
     assert "metrics.last_payout" in script
@@ -170,8 +169,22 @@ def test_lead_cabinet_has_separate_read_only_sections() -> None:
     assert "api('/api/lead/application')" in script
     assert "api('/api/lead/banks')" in script
     assert "renderLeadCabinet();return" in script
-    assert "money(item.lead_payout)" in script
+    assert "leadPayout(item)" in script
+    assert "lead_payout_paid_separately" in script
+    assert "`до ${value}`" in script
     assert "item.online_available" in script
+    assert "ℹ️</button>" in script
+    assert "Добавить ещё" in script
+    assert "is-unselected" in script
+
+
+def test_partner_paid_total_is_the_first_full_width_metric() -> None:
+    markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
+
+    paid = markup.index('class="metric-wide"><span>Выплачено всего')
+    expected = markup.index("Ожидаемая выплата")
+    last = markup.index("Последняя выплата")
+    assert paid < expected < last
 
 
 def test_financial_fields_are_split_by_role_in_mini_app() -> None:
@@ -183,7 +196,7 @@ def test_financial_fields_are_split_by_role_in_mini_app() -> None:
     assert "Выплата клиенту" in script
     assert "Выплата партнёру" in script
     assert "Командная прибыль" in script
-    assert 'const economics=admin?' in script
+    assert "const economics=admin?" in script
 
 
 def test_activation_condition_is_read_only_in_bank_editor() -> None:
