@@ -226,9 +226,12 @@ def test_partner_api_does_not_receive_internal_financial_fields() -> None:
 
 def test_bank_selection_is_one_step_and_supports_multiple_banks() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+    backend = (ASSETS_DIR.parent / "web.py").read_text(encoding="utf-8")
 
     assert "/claim-admin" not in script
     assert "/banks/publish" not in script
+    assert '"/api/leads/{lead_id}/claim-admin"' not in backend
+    assert '"/api/leads/{lead_id}/banks/publish"' not in backend
     assert "api('/api/lead/banks/selection'" in script
     assert "/claim-manager" in script
     assert "Отправить менеджеру" in script

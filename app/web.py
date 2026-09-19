@@ -563,33 +563,6 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         except Exception:
             logger.exception("Failed to notify client for lead %s", lead_id)
 
-    async def notify_other_admins_about_claim(lead: Lead, actor_id: UUID) -> None:
-        if bot is None or lead.partner_id is not None:
-            return
-        async with database.session() as db_session:
-            telegram_ids = list(
-                await db_session.scalars(
-                    select(User.telegram_id).where(
-                        User.role == UserRole.ADMIN,
-                        User.access_status == AccessStatus.ACTIVE,
-                        User.id != actor_id,
-                        User.telegram_id.is_not(None),
-                    )
-                )
-            )
-        for telegram_id in telegram_ids:
-            try:
-                await bot.send_message(
-                    chat_id=int(cast(str, telegram_id)),
-                    text=f"Заявка {lead.short_id} уже взята в работу другим администратором.",
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to notify admin %s about claimed lead %s",
-                    telegram_id,
-                    lead.id,
-                )
-
     @app.get("/", include_in_schema=False)
     async def index() -> HTMLResponse:
         return HTMLResponse(mini_app_html)
@@ -1837,39 +1810,6 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 else "Банк исключён, история сохранена"
             ),
         }
-
-    @app.post("/api/leads/{lead_id}/claim-admin")
-    async def claim_lead_by_admin(
-        lead_id: UUID,
-        user: Annotated[MiniAppUser, Depends(current_user)],
-    ) -> dict[str, str]:
-        actor_id = require_admin(user)
-        try:
-            lead = await LeadWorkflowService(database).claim_by_admin(
-                actor_role=user.role,
-                actor_id=actor_id,
-                lead_id=lead_id,
-            )
-        except DomainError as error:
-            raise domain_error(error) from error
-        await notify_other_admins_about_claim(lead, actor_id)
-        return {"id": str(lead.id), "workflow_stage": lead.workflow_stage.value}
-
-    @app.post("/api/leads/{lead_id}/banks/publish")
-    async def publish_lead_banks(
-        lead_id: UUID,
-        user: Annotated[MiniAppUser, Depends(current_user)],
-    ) -> dict[str, str]:
-        actor_id = require_admin(user)
-        try:
-            lead = await LeadWorkflowService(database).publish_banks(
-                actor_role=user.role,
-                actor_id=actor_id,
-                lead_id=lead_id,
-            )
-        except DomainError as error:
-            raise domain_error(error) from error
-        return {"id": str(lead.id), "workflow_stage": lead.workflow_stage.value}
 
     @app.post("/api/leads/{lead_id}/claim-manager")
     async def claim_lead_by_manager(
