@@ -286,65 +286,114 @@ class WorkflowService:
         bank_id: UUID,
         actor_user_id: UUID | None = None,
     ) -> LeadBank:
+        lead_banks = await self.add_banks_to_lead(
+            actor_role=actor_role,
+            lead_id=lead_id,
+            bank_ids=[bank_id],
+            actor_user_id=actor_user_id,
+        )
+        return lead_banks[0]
+
+    async def add_banks_to_lead(
+        self,
+        *,
+        actor_role: UserRole,
+        lead_id: UUID,
+        bank_ids: list[UUID],
+        actor_user_id: UUID | None = None,
+    ) -> list[LeadBank]:
         self._require_employee(actor_role)
+        unique_bank_ids = list(dict.fromkeys(bank_ids))
+        if not unique_bank_ids:
+            raise DomainError("Выберите хотя бы один банк")
         async with self.database.session() as session, session.begin():
-            lead = await session.get(Lead, lead_id)
-            bank = await session.get(Bank, bank_id)
+            lead = await session.scalar(select(Lead).where(Lead.id == lead_id).with_for_update())
             if lead is None:
                 raise DomainError("Заявка не найдена")
-            if bank is None or not bank.active:
-                raise DomainError("Активный банк не найден")
+            if lead.archived_at is not None:
+                raise DomainError("В архивную заявку нельзя добавлять банки")
             if actor_user_id is not None:
                 if actor_role is UserRole.ADMIN and lead.primary_admin_id != actor_user_id:
-                    raise DomainError("Сначала возьми заявку в работу")
+                    raise DomainError("Добавлять банки может только ответственный администратор")
                 if actor_role is UserRole.MANAGER and (
                     lead.manager_id != actor_user_id
                     or lead.workflow_stage is not LeadWorkflowStage.MANAGER_PROCESSING
                 ):
-                    raise DomainError("Этот лид не находится у тебя в работе")
-            existing = await session.scalar(
-                select(LeadBank).where(LeadBank.lead_id == lead_id, LeadBank.bank_id == bank_id)
+                    raise DomainError("Эта заявка не находится у вас в работе")
+            banks = list(
+                await session.scalars(
+                    select(Bank).where(Bank.id.in_(unique_bank_ids), Bank.active.is_(True))
+                )
             )
-            if existing is not None:
-                raise DomainError("Этот банк уже добавлен к заявке")
+            if len(banks) != len(unique_bank_ids):
+                raise DomainError("Один из выбранных банков недоступен")
+            existing_ids = set(
+                await session.scalars(
+                    select(LeadBank.bank_id).where(
+                        LeadBank.lead_id == lead_id,
+                        LeadBank.bank_id.in_(unique_bank_ids),
+                    )
+                )
+            )
+            if existing_ids:
+                raise DomainError("Один из выбранных банков уже добавлен к заявке")
             percent = None
             if lead.partner_id is not None:
                 partner = await session.get(Partner, lead.partner_id)
                 percent = partner.commission_percent if partner else None
-            rate = await session.scalar(
-                select(BankRate).where(
-                    BankRate.bank_id == bank_id,
-                    BankRate.active.is_(True),
+            rates = list(
+                await session.scalars(
+                    select(BankRate).where(
+                        BankRate.bank_id.in_(unique_bank_ids),
+                        BankRate.active.is_(True),
+                    )
                 )
             )
-            if rate is None:
-                raise DomainError("У банка нет актуальной ставки из таблицы")
-            partner_reward = self._reward(rate.base_payout, percent)
-            team_profit = self._team_profit(
-                income=rate.base_payout,
-                partner_reward=partner_reward,
-                lead_reward=rate.lead_payout,
-                lead_reward_paid_separately=rate.lead_payout_paid_separately,
-            )
-            lead_bank = LeadBank(
-                lead_id=lead_id,
-                bank_id=bank_id,
-                bank_rate_id=rate.id,
-                internal_status=BankInternalStatus.PLANNED,
-                external_status=external_bank_status(BankInternalStatus.PLANNED),
-                planned_at=datetime.now(UTC),
-                offered_to_lead=actor_role is UserRole.MANAGER,
-                selected_by_lead=True if actor_role is UserRole.MANAGER else None,
-                bank_income_estimate=rate.base_payout,
-                partner_percent_snapshot=percent,
-                partner_reward_estimate=partner_reward,
-                lead_reward_estimate=rate.lead_payout,
-                team_profit_estimate=team_profit,
-                lead_reward_paid_separately=rate.lead_payout_paid_separately,
-            )
-            session.add(lead_bank)
+            rates_by_bank = {rate.bank_id: rate for rate in rates}
+            if len(rates_by_bank) != len(unique_bank_ids):
+                raise DomainError("У одного из банков нет актуальной ставки из таблицы")
+            now = datetime.now(UTC)
+            result: list[LeadBank] = []
+            for bank_id in unique_bank_ids:
+                rate = rates_by_bank[bank_id]
+                partner_reward = self._reward(rate.base_payout, percent)
+                team_profit = self._team_profit(
+                    income=rate.base_payout,
+                    partner_reward=partner_reward,
+                    lead_reward=rate.lead_payout,
+                    lead_reward_paid_separately=rate.lead_payout_paid_separately,
+                )
+                lead_bank = LeadBank(
+                    lead_id=lead_id,
+                    bank_id=bank_id,
+                    bank_rate_id=rate.id,
+                    internal_status=BankInternalStatus.PLANNED,
+                    external_status=external_bank_status(BankInternalStatus.PLANNED),
+                    planned_at=now,
+                    offered_to_lead=True,
+                    selected_by_lead=True if actor_role is UserRole.MANAGER else None,
+                    bank_income_estimate=rate.base_payout,
+                    partner_percent_snapshot=percent,
+                    partner_reward_estimate=partner_reward,
+                    lead_reward_estimate=rate.lead_payout,
+                    team_profit_estimate=team_profit,
+                    lead_reward_paid_separately=rate.lead_payout_paid_separately,
+                )
+                session.add(lead_bank)
+                result.append(lead_bank)
+            if actor_role is UserRole.ADMIN:
+                lead.banks_published_at = now
+                if lead.workflow_stage in {
+                    LeadWorkflowStage.AWAITING_ADMIN,
+                    LeadWorkflowStage.ADMIN_PROCESSING,
+                    LeadWorkflowStage.AWAITING_CLIENT_SELECTION,
+                }:
+                    lead.workflow_stage = LeadWorkflowStage.AWAITING_CLIENT_SELECTION
+                    lead.internal_status = LeadInternalStatus.SELECTING_BANKS
+                    lead.external_status = external_lead_status(lead.internal_status)
+                lead.last_updated_at = now
             await session.flush()
-            return lead_bank
+            return result
 
     async def update_lead_bank(
         self,
@@ -474,7 +523,7 @@ class WorkflowService:
                 select(Payment).where(Payment.lead_bank_id == lead_bank_id).with_for_update()
             )
             if lead_bank is None or payment is None or lead_bank.partner_reward_fact is None:
-                raise DomainError("Сначала укажи фактический доход банка")
+                raise DomainError("Сначала укажите фактический доход банка")
             confirmation = confirm_payment(
                 actor_role=actor_role,
                 current_status=payment.status,
@@ -569,7 +618,7 @@ class WorkflowService:
             BankInternalStatus.EXCLUDED,
         }
         if status in closing and not (close_reason or "").strip():
-            raise DomainError("Для закрывающего статуса укажи причину")
+            raise DomainError("Для закрывающего статуса укажите причину")
         now = datetime.now(UTC)
         lead_bank.internal_status = status
         lead_bank.external_status = external_bank_status(status)

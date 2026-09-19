@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from inspect import getsource
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -66,6 +67,7 @@ async def test_repeat_application_reuses_existing_consent_and_requests_phone() -
     state.update_data.assert_awaited_once()
     assert state.update_data.await_args.args[0]["consent_at"] == previous.consent_at.isoformat()
     state.set_state.assert_awaited_once_with(LeadApplication.phone)
+    assert "Используем согласие" not in getsource(resubmit_application)
 
 
 @pytest.mark.asyncio
@@ -91,5 +93,5 @@ async def test_declined_consent_keeps_old_accept_button_active() -> None:
 
     state.clear.assert_not_awaited()
     message = callback.message.answer.await_args.args[0]
-    assert "нажми «Согласен»" in message
+    assert "нажмите «Согласен»" in message
     assert "/start" in message

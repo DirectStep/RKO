@@ -54,7 +54,6 @@ class PartnerLeadData(TypedDict):
     id: str
     short_id: str
     name: str
-    username: str
     date: str
     updated: str
     channel_id: str
@@ -169,7 +168,7 @@ async def partner_cabinet_data(
             continue
         if lead_status is not None and lead.external_status is not lead_status:
             continue
-        searchable = f"{lead.short_id} {lead.display_name} {lead.telegram_username or ''}".lower()
+        searchable = f"{lead.short_id} {lead.display_name}".lower()
         if normalized_search and normalized_search not in searchable:
             continue
         item = grouped.setdefault(
@@ -179,7 +178,6 @@ async def partner_cabinet_data(
                     "id": str(lead.id),
                     "short_id": lead.short_id,
                     "name": lead.display_name,
-                    "username": f"@{lead.telegram_username}" if lead.telegram_username else "",
                     "date": lead.application_at.isoformat(),
                     "updated": lead.last_updated_at.isoformat(),
                     "channel_id": str(channel.id),

@@ -195,6 +195,11 @@ class LeadIntakeService:
             short_id = f"RKO-{number:04d}"
             now = datetime.now(first_click_at.tzinfo)
             eligible = is_eligible(answers)
+            primary_admin_id = None
+            if channel is not None:
+                primary_admin_id = await session.scalar(
+                    select(Partner.assigned_manager_id).where(Partner.id == channel.partner_id)
+                )
             lead = Lead(
                 short_id=short_id,
                 telegram_id=telegram_id,
@@ -250,14 +255,27 @@ class LeadIntakeService:
                     else None
                 ),
                 workflow_stage=(
-                    LeadWorkflowStage.AWAITING_ADMIN if eligible else LeadWorkflowStage.NOT_ELIGIBLE
+                    LeadWorkflowStage.ADMIN_PROCESSING
+                    if eligible and primary_admin_id is not None
+                    else LeadWorkflowStage.AWAITING_ADMIN
+                    if eligible
+                    else LeadWorkflowStage.NOT_ELIGIBLE
                 ),
                 internal_status=(
-                    LeadInternalStatus.NEW if eligible else LeadInternalStatus.NOT_ELIGIBLE
+                    LeadInternalStatus.AWAITING_FIRST_CONTACT
+                    if eligible and primary_admin_id is not None
+                    else LeadInternalStatus.NEW
+                    if eligible
+                    else LeadInternalStatus.NOT_ELIGIBLE
                 ),
                 external_status=(
-                    LeadExternalStatus.NEW if eligible else LeadExternalStatus.CLOSED_WITHOUT_RESULT
+                    LeadExternalStatus.IN_PROGRESS
+                    if eligible and primary_admin_id is not None
+                    else LeadExternalStatus.NEW
+                    if eligible
+                    else LeadExternalStatus.CLOSED_WITHOUT_RESULT
                 ),
+                primary_admin_id=primary_admin_id,
                 questionnaire_answers=answers,
                 first_click_at=first_click_at,
                 application_at=now,

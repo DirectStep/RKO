@@ -91,6 +91,15 @@ class DuplicateReviewService:
                     raise RuntimeError("Не удалось получить номер заявки")
                 eligible = is_eligible(review.questionnaire_answers)
                 now = datetime.now(UTC)
+                primary_admin_id = (
+                    await session.scalar(
+                        select(Partner.assigned_manager_id).where(
+                            Partner.id == channel.partner_id
+                        )
+                    )
+                    if channel is not None
+                    else None
+                )
                 result_lead = Lead(
                     short_id=f"RKO-{number:04d}",
                     telegram_id=review.telegram_id,
@@ -112,18 +121,27 @@ class DuplicateReviewService:
                     ),
                     assignment_confirmed_at=now if channel else None,
                     workflow_stage=(
-                        LeadWorkflowStage.AWAITING_ADMIN
+                        LeadWorkflowStage.ADMIN_PROCESSING
+                        if eligible and primary_admin_id is not None
+                        else LeadWorkflowStage.AWAITING_ADMIN
                         if eligible
                         else LeadWorkflowStage.NOT_ELIGIBLE
                     ),
                     internal_status=(
-                        LeadInternalStatus.NEW if eligible else LeadInternalStatus.NOT_ELIGIBLE
+                        LeadInternalStatus.AWAITING_FIRST_CONTACT
+                        if eligible and primary_admin_id is not None
+                        else LeadInternalStatus.NEW
+                        if eligible
+                        else LeadInternalStatus.NOT_ELIGIBLE
                     ),
                     external_status=(
-                        LeadExternalStatus.NEW
+                        LeadExternalStatus.IN_PROGRESS
+                        if eligible and primary_admin_id is not None
+                        else LeadExternalStatus.NEW
                         if eligible
                         else LeadExternalStatus.CLOSED_WITHOUT_RESULT
                     ),
+                    primary_admin_id=primary_admin_id,
                     questionnaire_answers=review.questionnaire_answers,
                     first_click_at=review.first_click_at,
                     application_at=now,

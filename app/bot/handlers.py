@@ -109,7 +109,10 @@ async def start(
     clicked_at = datetime.now(UTC)
     requested_referral_code = command.args
     if user is None:
-        await message.answer("Не удалось определить твой Telegram-аккаунт. Отправь /start ещё раз.")
+        await message.answer(
+            "Не удалось определить ваш Telegram-аккаунт. "
+            "Отправьте /start ещё раз."
+        )
         return
     role = await UserAccessService(database, settings).resolve_role(
         telegram_id=str(user.id), telegram_username=user.username
@@ -140,14 +143,14 @@ async def start(
         return
     if role is UserRole.MANAGER:
         await message.answer(
-            "Кабинет менеджера. Здесь доступны твои заявки, банки и рабочие статусы.",
+            "Кабинет менеджера. Здесь доступны ваши заявки, банки и рабочие статусы.",
             reply_markup=manager_menu_keyboard(settings.mini_app_url),
         )
         return
     if role is UserRole.PARTNER:
         await message.answer(
             "Партнёрский кабинет. Здесь видны только подтверждённые заявки "
-            "твоего источника — без личных данных клиента.",
+            "вашего источника — без личных данных клиента.",
             reply_markup=partner_menu_keyboard(settings.mini_app_url),
         )
         return
@@ -156,8 +159,8 @@ async def start(
         if current_lead.workflow_stage is LeadWorkflowStage.NOT_ELIGIBLE:
             await message.answer(
                 f"Заявка {current_lead.short_id} имеет статус «Не подходит».\n\n"
-                "Ты можешь подать заявку повторно, если указал что-то неверно "
-                "или твоя ситуация изменилась.",
+                "Вы можете подать заявку повторно, если указали что-то неверно "
+                "или ваша ситуация изменилась.",
                 reply_markup=resubmit_application_keyboard(),
             )
         else:
@@ -175,7 +178,7 @@ async def start(
         )
     except Exception:
         logger.exception("Failed to record first click")
-        await message.answer("Сервис временно недоступен. Попробуй /start чуть позже.")
+        await message.answer("Сервис временно недоступен. Попробуйте /start чуть позже.")
         return
     referral_code = first_click.referral_code
     clicked_at = first_click.first_click_at
@@ -367,11 +370,11 @@ async def partner_contact_handler(callback: CallbackQuery, database: Database) -
     if partner is None or callback.message is None:
         return
     contact = await partner_contact(database, partner.id)
-    text = f"Твой администратор: {contact['name']}"
+    text = f"Ваш администратор: {contact['name']}"
     if contact["url"]:
         text += f"\n{contact['url']}"
     else:
-        text += "\nПока не назначен. Напиши в общий чат команды."
+        text += "\nПока не назначен. Напишите в общий чат команды."
     await callback.message.answer(text)
     await callback.answer()
 
@@ -413,7 +416,7 @@ async def begin_application(
         await state.clear()
         if callback.message:
             await callback.message.answer(
-                "Заявка уже зарегистрирована. Открой кабинет клиента.",
+                "Заявка уже зарегистрирована. Откройте кабинет клиента.",
                 reply_markup=cabinet_keyboard(settings.mini_app_url),
             )
         await callback.answer("Заявка уже существует", show_alert=True)
@@ -466,8 +469,7 @@ async def resubmit_application(
         await callback.message.edit_reply_markup(reply_markup=None)
         if has_valid_consent:
             await callback.message.answer(
-                "Используем согласие, которое ты дал при предыдущей заявке. "
-                "Отправь номер кнопкой ниже или введи его сообщением.",
+                "Отправьте номер кнопкой ниже или введите его сообщением.",
                 reply_markup=phone_keyboard(),
             )
         else:
@@ -513,8 +515,8 @@ async def return_to_consent(callback: CallbackQuery) -> None:
 async def decline_consent(callback: CallbackQuery, state: FSMContext) -> None:
     if callback.message:
         await callback.message.answer(
-            "Без согласия создать заявку не получится. Если передумаешь, "
-            "нажми «Согласен» в сообщении выше или отправь /start."
+            "Без согласия создать заявку не получится. Если передумаете, "
+            "нажмите «Согласен» в сообщении выше или отправьте /start."
         )
     await callback.answer()
 
@@ -525,7 +527,8 @@ async def accept_consent(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(LeadApplication.phone)
     if callback.message:
         await callback.message.answer(
-            "Отправь номер кнопкой ниже или введи его сообщением.", reply_markup=phone_keyboard()
+            "Отправьте номер кнопкой ниже или введите его сообщением.",
+            reply_markup=phone_keyboard(),
         )
     await callback.answer()
 
@@ -533,7 +536,7 @@ async def accept_consent(callback: CallbackQuery, state: FSMContext) -> None:
 @router.message(LeadApplication.phone)
 async def receive_phone(message: Message, state: FSMContext, database: Database) -> None:
     if message.contact and message.from_user and message.contact.user_id != message.from_user.id:
-        await message.answer("Отправь, пожалуйста, именно свой номер.")
+        await message.answer("Отправьте, пожалуйста, именно свой номер.")
         return
     raw_phone = message.contact.phone_number if message.contact else message.text or ""
     try:
@@ -572,7 +575,7 @@ async def receive_yes_no(callback: CallbackQuery, state: FSMContext, database: D
         await callback.answer("Этот вопрос уже обработан")
         return
     if question.kind is not QuestionKind.YES_NO:
-        await callback.answer("Ответь текстом")
+        await callback.answer("Ответьте текстом")
         return
     answers = dict(data["answers"])
     answers[question.key] = answer
@@ -600,7 +603,7 @@ async def receive_text_answer(message: Message, state: FSMContext, database: Dat
         return
     question = QUESTIONS[index]
     if question.kind is not QuestionKind.TEXT:
-        await message.answer("Выбери «Да» или «Нет» кнопкой под вопросом.")
+        await message.answer("Выберите «Да» или «Нет» кнопкой под вопросом.")
         return
     value = (message.text or "").strip()
     try:
@@ -609,7 +612,7 @@ async def receive_text_answer(message: Message, state: FSMContext, database: Dat
         elif question.key == "email":
             value = normalize_email(value)
         elif len(value) < 2:
-            raise ValueError("Напиши название города полностью")
+            raise ValueError("Напишите название города полностью")
     except ValueError as error:
         await message.answer(str(error))
         return
@@ -665,7 +668,7 @@ async def edit_application_phone(callback: CallbackQuery, state: FSMContext) -> 
     if isinstance(callback.message, Message):
         await callback.message.edit_reply_markup(reply_markup=None)
         await callback.message.answer(
-            "Отправь исправленный номер.",
+            "Отправьте исправленный номер.",
             reply_markup=phone_keyboard(),
         )
     await callback.answer()
@@ -739,20 +742,20 @@ async def finish_application(
     except Exception:
         logger.error("Failed to submit lead application", exc_info=True)
         await message.answer(
-            "Не удалось сохранить заявку. Нажми «Повторить отправку».",
+            "Не удалось сохранить заявку. Нажмите «Повторить отправку».",
             reply_markup=retry_submission_keyboard(),
         )
         return
     await state.clear()
     if result.status is SubmissionStatus.DUPLICATE_TELEGRAM:
-        await message.answer("Твоя заявка уже зарегистрирована.")
+        await message.answer("Ваша заявка уже зарегистрирована.")
     elif result.status is SubmissionStatus.DUPLICATE_PHONE:
         await message.answer("Этот номер уже есть в системе. Менеджер проверит заявку вручную.")
     else:
         if result.eligible:
             await message.answer(
                 f"Отлично, заявка {result.short_id} зарегистрирована. "
-                "Скоро с тобой свяжется специалист."
+                "Скоро с вами свяжется специалист."
             )
             if result.lead_id is not None:
                 await notify_responsible_admins(bot, database, result.lead_id)
@@ -760,8 +763,8 @@ async def finish_application(
             await message.answer(
                 f"Заявка {result.short_id} сохранена. К сожалению, по текущим "
                 "условиям мы пока не сможем помочь с открытием счетов.\n\n"
-                "Ты можешь подать заявку повторно, если указал что-то неверно "
-                "или твоя ситуация изменилась.",
+                "Вы можете подать заявку повторно, если указали что-то неверно "
+                "или ваша ситуация изменилась.",
                 reply_markup=resubmit_application_keyboard(),
             )
 
@@ -842,7 +845,7 @@ def parse_answer_callback(value: str) -> tuple[int, str]:
 def format_application_review(data: dict[str, object]) -> str:
     answers = data.get("answers")
     answer_values = answers if isinstance(answers, dict) else {}
-    lines = ["Проверь данные перед отправкой:", "", f"Телефон: {data.get('phone', '—')}"]
+    lines = ["Проверьте данные перед отправкой:", "", f"Телефон: {data.get('phone', '—')}"]
     for index, question in enumerate(QUESTIONS):
         value = answer_values.get(question.key, "—")
         if value == "yes":
@@ -850,5 +853,5 @@ def format_application_review(data: dict[str, object]) -> str:
         elif value == "no":
             value = "Нет"
         lines.append(f"{QUESTION_REVIEW_LABELS[index]}: {value}")
-    lines.extend(["", "Если всё правильно, нажми «Да, всё верно»."])
+    lines.extend(["", "Если всё правильно, нажмите «Да, всё верно»."])
     return "\n".join(lines)

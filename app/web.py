@@ -17,7 +17,7 @@ from aiogram import Bot
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import func, select, true
+from sqlalchemy import func, or_, select, true
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 from starlette.middleware.base import RequestResponseEndpoint
@@ -54,7 +54,6 @@ from app.services.admin_catalog import AdminCatalogService
 from app.services.bank_conditions import BankConditionsService, normalize_bank_name
 from app.services.bank_rates import BankRatesService
 from app.services.duplicate_reviews import DuplicateReviewService
-from app.services.lead_assignment import LeadAssignmentService
 from app.services.lead_workflow import LeadWorkflowService
 from app.services.partner_cabinet import partner_cabinet_data, partner_contact
 from app.services.user_access import UserAccessService
@@ -67,7 +66,6 @@ from app.web_schemas import (
     LeadBankCreate,
     LeadBankSelection,
     LeadBankUpdate,
-    LeadSourceUpdate,
     LeadUpdate,
     PartnerAccessUpdate,
     PartnerCreate,
@@ -313,7 +311,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             username = None
             name = "Локальный администратор"
         else:
-            raise HTTPException(status_code=401, detail="Открой кабинет кнопкой в Telegram-боте")
+            raise HTTPException(status_code=401, detail="Откройте кабинет кнопкой в Telegram-боте")
 
         role = await UserAccessService(database, settings).resolve_role(telegram_id, username)
         async with database.session() as session:
@@ -330,7 +328,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             if lead is None:
                 raise HTTPException(
                     status_code=403,
-                    detail="Кабинет не подключён. Отправь /start боту",
+                    detail="Кабинет не подключён. Отправьте /start боту",
                 )
             return MiniAppUser(
                 telegram_id,
@@ -340,7 +338,10 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 lead_id=lead.id,
             )
         if role not in {UserRole.ADMIN, UserRole.MANAGER, UserRole.PARTNER} or user is None:
-            raise HTTPException(status_code=403, detail="Кабинет не подключён. Отправь /start боту")
+            raise HTTPException(
+                status_code=403,
+                detail="Кабинет не подключён. Отправьте /start боту",
+            )
         partner_id = None
         if role is UserRole.PARTNER:
             async with database.session() as session:
@@ -401,7 +402,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         if not settings.bank_rates_enabled:
             raise HTTPException(
                 status_code=503,
-                detail="Таблица банков не подключена. Проверь настройки Google Sheets",
+                detail="Таблица банков не подключена. Проверьте настройки Google Sheets",
             )
         return BankRatesGateway(
             settings.bank_rates_sheet_id,
@@ -413,7 +414,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         if not settings.bank_conditions_sheet_id or not settings.google_service_account_file:
             raise HTTPException(
                 status_code=503,
-                detail="Таблица условий банков не подключена. Проверь настройки Google Sheets",
+                detail="Таблица условий банков не подключена. Проверьте настройки Google Sheets",
             )
         return BankConditionsGateway(
             settings.bank_conditions_sheet_id,
@@ -516,7 +517,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             logger.exception("Failed to write bank data")
             raise HTTPException(
                 status_code=503,
-                detail="Не удалось сохранить банк. Попробуй ещё раз позже.",
+                detail="Не удалось сохранить банк. Попробуйте ещё раз позже.",
             ) from error
         async with database.session() as db_session:
             rate = await db_session.scalar(
@@ -646,9 +647,12 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         lead_id = require_lead(user)
         async with database.session() as db_session:
             lead = await db_session.get(Lead, lead_id)
+            manager_id = (
+                lead.manager_id or lead.primary_admin_id if lead is not None else None
+            )
             manager = (
-                await db_session.get(User, lead.manager_id)
-                if lead is not None and lead.manager_id is not None
+                await db_session.get(User, manager_id)
+                if manager_id is not None
                 else None
             )
         if lead is None:
@@ -680,7 +684,12 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 LeadBank.offered_to_lead.is_(True),
             ]
             if lead.bank_selection_submitted_at is not None:
-                bank_scope.append(LeadBank.selected_by_lead.is_(True))
+                bank_scope.append(
+                    or_(
+                        LeadBank.selected_by_lead.is_(True),
+                        LeadBank.selected_by_lead.is_(None),
+                    )
+                )
             bank_rows = list(
                 await db_session.execute(
                     select(LeadBank, Bank)
@@ -707,7 +716,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                     "bank_id": str(bank.id),
                     "status": lead_bank.external_status.value,
                     "selected": lead_bank.selected_by_lead,
-                    "selection_locked": lead.bank_selection_submitted_at is not None,
+                    "selection_locked": lead_bank.selected_by_lead is not None,
                     "online_text": online_text,
                     **online_bank_info(bank.name, online_text),
                     "lead_payout": (
@@ -947,7 +956,6 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 "id": str(lead.id),
                 "short_id": lead.short_id,
                 "name": lead.display_name,
-                "username": f"@{lead.telegram_username}" if lead.telegram_username else "",
                 "status": (
                     lead.external_status.value
                     if user.role is UserRole.PARTNER
@@ -958,6 +966,9 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 "payment_status": lead.payment_status.value,
             }
             if user.role is not UserRole.PARTNER:
+                item["username"] = (
+                    f"@{lead.telegram_username}" if lead.telegram_username else ""
+                )
                 item["workflow_stage"] = lead.workflow_stage.value
                 item["phone"] = lead.phone
                 item["source"] = lead.assignment_status.value
@@ -1171,7 +1182,6 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 "id": str(lead.id),
                 "short_id": lead.short_id,
                 "name": lead.display_name,
-                "username": f"@{lead.telegram_username}" if lead.telegram_username else "",
                 "date": lead.application_at.isoformat(),
                 "updated": lead.last_updated_at.isoformat(),
                 "status": lead.external_status.value,
@@ -1293,55 +1303,6 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             await WorkflowService(database).delete_lead(actor_role=user.role, lead_id=lead_id)
         except DomainError as error:
             raise domain_error(error) from error
-
-    @app.put("/api/leads/{lead_id}/source")
-    async def propose_lead_source(
-        lead_id: UUID,
-        payload: LeadSourceUpdate,
-        user: Annotated[MiniAppUser, Depends(current_user)],
-    ) -> dict[str, str]:
-        admin_id = require_admin(user)
-        try:
-            lead = await LeadAssignmentService(database).assign_source(
-                actor_role=user.role,
-                actor_id=admin_id,
-                lead_id=lead_id,
-                partner_id=payload.partner_id,
-                channel_id=payload.channel_id,
-            )
-        except DomainError as error:
-            raise domain_error(error) from error
-        await notify_partner(lead.id, f"Новая подтверждённая заявка: {lead.short_id}")
-        return {"id": str(lead.id), "assignment_status": lead.assignment_status.value}
-
-    @app.post("/api/leads/{lead_id}/source/confirm")
-    async def confirm_lead_source(
-        lead_id: UUID,
-        user: Annotated[MiniAppUser, Depends(current_user)],
-    ) -> dict[str, str]:
-        require_admin(user)
-        try:
-            lead = await LeadAssignmentService(database).confirm_proposed(
-                actor_role=user.role, lead_id=lead_id
-            )
-        except DomainError as error:
-            raise domain_error(error) from error
-        await notify_partner(lead.id, f"Новая подтверждённая заявка: {lead.short_id}")
-        return {"id": str(lead.id), "assignment_status": lead.assignment_status.value}
-
-    @app.post("/api/leads/{lead_id}/source/direct")
-    async def direct_lead_source(
-        lead_id: UUID,
-        user: Annotated[MiniAppUser, Depends(current_user)],
-    ) -> dict[str, str]:
-        admin_id = require_admin(user)
-        try:
-            lead = await LeadAssignmentService(database).assign_direct(
-                actor_role=user.role, actor_id=admin_id, lead_id=lead_id
-            )
-        except DomainError as error:
-            raise domain_error(error) from error
-        return {"id": str(lead.id), "assignment_status": lead.assignment_status.value}
 
     @app.get("/api/partners")
     async def partners(
@@ -1563,7 +1524,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             try:
                 await bot.send_message(
                     chat_id=int(payload.telegram_id),
-                    text="Партнёрский кабинет РКО подключён. Отправь /start, чтобы открыть его.",
+                    text="Партнёрский кабинет РКО подключён. Отправьте /start, чтобы открыть его.",
                 )
             except Exception:
                 logger.exception("Failed to send partner access message for %s", partner.id)
@@ -1837,18 +1798,21 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         lead_id: UUID,
         payload: LeadBankCreate,
         user: Annotated[MiniAppUser, Depends(current_user)],
-    ) -> dict[str, str]:
+    ) -> dict[str, object]:
         actor_user_id = require_employee(user)
         try:
-            lead_bank = await WorkflowService(database).add_bank_to_lead(
+            lead_banks = await WorkflowService(database).add_banks_to_lead(
                 actor_role=user.role,
                 lead_id=lead_id,
-                bank_id=payload.bank_id,
+                bank_ids=payload.bank_ids,
                 actor_user_id=actor_user_id,
             )
         except DomainError as error:
             raise domain_error(error) from error
-        return {"id": str(lead_bank.id), "status": lead_bank.internal_status.value}
+        return {
+            "ids": [str(lead_bank.id) for lead_bank in lead_banks],
+            "count": len(lead_banks),
+        }
 
     @app.delete("/api/lead-banks/{lead_bank_id}")
     async def remove_lead_bank(
@@ -1926,8 +1890,8 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         manager_name = format_user_name(manager)
         await notify_client(
             lead.id,
-            f"Твой персональный менеджер — {manager_name}. "
-            "Скоро он свяжется с тобой и создаст отдельную группу для сопровождения.",
+            f"Ваш персональный менеджер — {manager_name}. "
+            "Скоро он свяжется с вами и создаст отдельную группу для сопровождения.",
         )
         return {"id": str(lead.id), "workflow_stage": lead.workflow_stage.value}
 

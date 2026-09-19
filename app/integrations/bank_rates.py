@@ -57,7 +57,7 @@ def _boolean(value: str, row: int, column: str) -> bool:
         return True
     if normalized in {"нет", "no", "false", "0"}:
         return False
-    raise ValueError(f"Строка {row}: в «{column}» укажи Да или Нет")
+    raise ValueError(f"Строка {row}: в «{column}» укажите Да или Нет")
 
 
 def parse_bank_rate_rows(values: list[list[str]]) -> list[BankRateRow]:

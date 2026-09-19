@@ -378,10 +378,22 @@ async def test_rejected_lead_can_create_linked_repeat_application() -> None:
     phone = f"+7444{suffix}"
     referral_code = f"repeat-{suffix}"
     now = datetime.now(UTC)
-    partner_id = channel_id = first_id = repeat_id = None
+    partner_id = channel_id = first_id = repeat_id = admin_id = None
     try:
         async with database.session() as session, session.begin():
-            partner = Partner(name=f"Повторный партнёр {suffix}", commission_percent=Decimal("5"))
+            admin = User(
+                telegram_id=f"74{suffix}",
+                telegram_username=f"repeat_admin_{suffix}",
+                role=UserRole.ADMIN,
+            )
+            session.add(admin)
+            await session.flush()
+            admin_id = admin.id
+            partner = Partner(
+                name=f"Повторный партнёр {suffix}",
+                commission_percent=Decimal("5"),
+                assigned_manager_id=admin.id,
+            )
             session.add(partner)
             await session.flush()
             channel = Channel(
@@ -442,7 +454,8 @@ async def test_rejected_lead_can_create_linked_repeat_application() -> None:
             assert repeat is not None and repeat.previous_lead_id == first.id
             assert repeat.partner_id == first.partner_id == partner_id
             assert repeat.channel_id == first.channel_id == channel_id
-            assert repeat.workflow_stage is LeadWorkflowStage.AWAITING_ADMIN
+            assert repeat.workflow_stage is LeadWorkflowStage.ADMIN_PROCESSING
+            assert repeat.primary_admin_id == admin_id
     finally:
         async with database.session() as session, session.begin():
             if repeat_id is not None:
@@ -454,6 +467,8 @@ async def test_rejected_lead_can_create_linked_repeat_application() -> None:
                 await session.execute(delete(Channel).where(Channel.id == channel_id))
             if partner_id is not None:
                 await session.execute(delete(Partner).where(Partner.id == partner_id))
+            if admin_id is not None:
+                await session.execute(delete(User).where(User.id == admin_id))
         await database.close()
 
 
@@ -468,7 +483,7 @@ async def test_two_stage_lead_claim_and_bank_selection() -> None:
     )
     suffix = str(uuid4().int)[:10]
     now = datetime.now(UTC)
-    lead_id = admin_id = manager_id = bank_id = None
+    lead_id = admin_id = manager_id = bank_id = second_bank_id = None
     try:
         async with database.session() as session, session.begin():
             admin = User(
@@ -535,7 +550,6 @@ async def test_two_stage_lead_claim_and_bank_selection() -> None:
             lead_id=lead_id,
             bank_id=bank_id,
         )
-        await workflow.publish_banks(actor_role=UserRole.ADMIN, actor_id=admin_id, lead_id=lead_id)
         await workflow.submit_bank_selection(lead_id=lead_id, selected_bank_ids={bank_id})
         lead = await workflow.claim_by_manager(
             actor_role=UserRole.MANAGER,
@@ -546,14 +560,56 @@ async def test_two_stage_lead_claim_and_bank_selection() -> None:
         assert lead.workflow_stage is LeadWorkflowStage.MANAGER_PROCESSING
         assert lead.primary_admin_id == admin_id
         assert lead.manager_id == manager_id
+
+        second_bank = await WorkflowService(database).create_bank(
+            actor_role=UserRole.ADMIN, name=f"Второй банк {suffix}"
+        )
+        second_bank_id = second_bank.id
+        async with database.session() as session, session.begin():
+            session.add(
+                BankRate(
+                    offer_code=f"workflow-second-{suffix}",
+                    bank_id=second_bank.id,
+                    online_text="Нет",
+                    base_payout=Decimal("9000.00"),
+                    lead_payout=Decimal("2000.00"),
+                    lead_payout_paid_separately=False,
+                    active=True,
+                    display_order=2,
+                    source_row=3,
+                    synced_at=now,
+                )
+            )
+        await WorkflowService(database).add_banks_to_lead(
+            actor_role=UserRole.ADMIN,
+            actor_user_id=admin_id,
+            lead_id=lead_id,
+            bank_ids=[second_bank_id],
+        )
+        lead = await workflow.submit_bank_selection(
+            lead_id=lead_id, selected_bank_ids={second_bank_id}
+        )
+        assert lead.workflow_stage is LeadWorkflowStage.MANAGER_PROCESSING
+        async with database.session() as session:
+            selections = dict(
+                (
+                    await session.execute(
+                    select(LeadBank.bank_id, LeadBank.selected_by_lead).where(
+                        LeadBank.lead_id == lead_id
+                    )
+                )
+                ).all()
+            )
+        assert selections == {bank_id: True, second_bank_id: True}
     finally:
         async with database.session() as session, session.begin():
             if lead_id is not None:
                 await session.execute(delete(LeadBank).where(LeadBank.lead_id == lead_id))
                 await session.execute(delete(Lead).where(Lead.id == lead_id))
-            if bank_id is not None:
-                await session.execute(delete(BankRate).where(BankRate.bank_id == bank_id))
-                await session.execute(delete(Bank).where(Bank.id == bank_id))
+            bank_ids = [value for value in (bank_id, second_bank_id) if value is not None]
+            if bank_ids:
+                await session.execute(delete(BankRate).where(BankRate.bank_id.in_(bank_ids)))
+                await session.execute(delete(Bank).where(Bank.id.in_(bank_ids)))
             user_ids = [value for value in (admin_id, manager_id) if value is not None]
             if user_ids:
                 await session.execute(delete(User).where(User.id.in_(user_ids)))
@@ -1068,7 +1124,9 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
             paid_at=date(2026, 8, 17),
         )
         assert payment.status is PaymentStatus.PAID
-        metrics = (await partner_cabinet_data(database, ids["partner"]))["metrics"]
+        partner_data = await partner_cabinet_data(database, ids["partner"])
+        metrics = partner_data["metrics"]
+        assert all("username" not in item for item in partner_data["leads"])
         assert metrics["estimated_payout"] == "0"
         assert metrics["last_payout"] == "2000.00"
         assert metrics["paid"] == "2000.00"
@@ -1082,6 +1140,7 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
         assert lead.short_id in values
         assert "2000" in values
         assert lead.phone not in values
+        assert lead.telegram_username not in values
         assert "10000" not in values
         assert "Первичный контакт" not in values
         with pytest.raises(DomainError, match="Источник нельзя изменить"):

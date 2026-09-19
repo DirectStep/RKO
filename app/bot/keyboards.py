@@ -204,31 +204,10 @@ def admin_stats_keyboard() -> InlineKeyboardMarkup:
 
 
 def admin_lead_keyboard(lead_id: str, assignment_status: str) -> InlineKeyboardMarkup:
-    rows: list[list[InlineKeyboardButton]] = []
-    if assignment_status == "pending":
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text="Подтвердить источник",
-                    callback_data=f"admin:source:confirm:{lead_id}",
-                )
-            ]
-        )
-    if assignment_status in {"pending", "unresolved"}:
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text="Это прямая заявка",
-                    callback_data=f"admin:source:direct:{lead_id}",
-                )
-            ]
-        )
-    rows.extend(
-        [
-            [InlineKeyboardButton(text="К заявкам", callback_data="admin:leads")],
-            [InlineKeyboardButton(text="В главное меню", callback_data="admin:home")],
-        ]
-    )
+    rows = [
+        [InlineKeyboardButton(text="К заявкам", callback_data="admin:leads")],
+        [InlineKeyboardButton(text="В главное меню", callback_data="admin:home")],
+    ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

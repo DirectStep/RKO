@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from uuid import UUID
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, or_, select, update
 
 from app.database import Database
 from app.domain.enums import AccessStatus, UserRole
@@ -36,7 +36,7 @@ class AdminCatalogService:
         try:
             commission = Decimal(value.strip().replace(",", "."))
         except InvalidOperation as error:
-            raise DomainError("Напиши процент числом, например 15 или 12,5") from error
+            raise DomainError("Напишите процент числом, например 15 или 12,5") from error
         if not commission.is_finite() or commission < 0 or commission > 100:
             raise DomainError("Процент должен быть от 0 до 100")
         return commission.quantize(Decimal("0.01"))
@@ -187,15 +187,24 @@ class AdminCatalogService:
             )
             if partner is None:
                 raise DomainError("Партнёр не найден")
-            if admin_id is not None:
-                admin = await session.get(User, admin_id)
-                if (
-                    admin is None
-                    or admin.role is not UserRole.ADMIN
-                    or admin.access_status is not AccessStatus.ACTIVE
-                ):
-                    raise DomainError("Можно назначить только активного администратора")
+            if admin_id is None:
+                raise DomainError("У партнёра должен быть ответственный администратор")
+            admin = await session.get(User, admin_id)
+            if (
+                admin is None
+                or admin.role is not UserRole.ADMIN
+                or admin.access_status is not AccessStatus.ACTIVE
+            ):
+                raise DomainError("Можно назначить только активного администратора")
             partner.assigned_manager_id = admin_id
+            await session.execute(
+                update(Lead)
+                .where(
+                    Lead.partner_id == partner_id,
+                    Lead.archived_at.is_(None),
+                )
+                .values(primary_admin_id=admin_id)
+            )
             return partner
 
     async def create_partner_activation_link(

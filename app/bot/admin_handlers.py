@@ -15,10 +15,8 @@ from app.bot.keyboards import (
 from app.config import Settings
 from app.database import Database
 from app.domain.enums import UserRole
-from app.domain.operations import DomainError
 from app.models import Lead
 from app.services.admin_dashboard import AdminDashboardService
-from app.services.lead_assignment import LeadAssignmentService
 from app.services.user_access import UserAccessService
 
 router = Router(name="admin")
@@ -45,7 +43,7 @@ async def show_admin_group_id(message: Message, database: Database, settings: Se
         await message.answer("Команда доступна только администратору.")
         return
     if message.chat.type == "private":
-        await message.answer("Отправь /group_id внутри админской Telegram-группы.")
+        await message.answer("Отправьте /group_id внутри админской Telegram-группы.")
         return
     await message.answer(f"ID этой группы: {message.chat.id}")
 
@@ -165,49 +163,3 @@ def format_lead(lead: Lead, assignment_label: str | None = None) -> str:
 
 def format_answer(value: str) -> str:
     return {"yes": "Да", "no": "Нет"}.get(value, value)
-
-
-@router.callback_query(F.data.startswith("admin:source:confirm:"))
-async def confirm_lead_source(
-    callback: CallbackQuery, database: Database, settings: Settings
-) -> None:
-    if not await is_admin(callback.from_user, database, settings):
-        await callback.answer("Нет доступа", show_alert=True)
-        return
-    try:
-        lead_id = UUID((callback.data or "").removeprefix("admin:source:confirm:"))
-        lead = await LeadAssignmentService(database).confirm_proposed(
-            actor_role=UserRole.ADMIN, lead_id=lead_id
-        )
-    except (ValueError, DomainError) as error:
-        await callback.answer(str(error), show_alert=True)
-        return
-    assignment_label = await AdminDashboardService(database).get_assignment_label(lead)
-    if isinstance(callback.message, Message):
-        await callback.message.edit_text(
-            format_lead(lead, assignment_label),
-            reply_markup=admin_lead_keyboard(str(lead.id), lead.assignment_status.value),
-        )
-    await callback.answer("Источник подтверждён")
-
-
-@router.callback_query(F.data.startswith("admin:source:direct:"))
-async def mark_lead_direct(callback: CallbackQuery, database: Database, settings: Settings) -> None:
-    if not await is_admin(callback.from_user, database, settings):
-        await callback.answer("Нет доступа", show_alert=True)
-        return
-    try:
-        lead_id = UUID((callback.data or "").removeprefix("admin:source:direct:"))
-        lead = await LeadAssignmentService(database).mark_direct(
-            actor_role=UserRole.ADMIN, lead_id=lead_id
-        )
-    except (ValueError, DomainError) as error:
-        await callback.answer(str(error), show_alert=True)
-        return
-    assignment_label = await AdminDashboardService(database).get_assignment_label(lead)
-    if isinstance(callback.message, Message):
-        await callback.message.edit_text(
-            format_lead(lead, assignment_label),
-            reply_markup=admin_lead_keyboard(str(lead.id), lead.assignment_status.value),
-        )
-    await callback.answer("Заявка отмечена как прямая")

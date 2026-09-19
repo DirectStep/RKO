@@ -55,7 +55,6 @@ async def build_partner_report(
     headers = [
         "Заявка",
         "Клиент",
-        "Telegram",
         "Дата",
         "Канал",
         "Статус заявки",
@@ -81,7 +80,6 @@ async def build_partner_report(
                 [
                     lead["short_id"],
                     lead["name"],
-                    lead["username"],
                     str(lead["date"])[:10],
                     lead["channel"],
                     lead_status,
@@ -94,9 +92,9 @@ async def build_partner_report(
             )
     sheet.freeze_panes = "A2"
     sheet.auto_filter.ref = sheet.dimensions
-    for column, width in enumerate((15, 26, 20, 13, 22, 24, 20, 20, 20, 24, 22), start=1):
+    for column, width in enumerate((15, 26, 13, 22, 24, 20, 20, 20, 24, 22), start=1):
         sheet.column_dimensions[get_column_letter(column)].width = width
-    for row in sheet.iter_rows(min_row=2, min_col=9, max_col=10):
+    for row in sheet.iter_rows(min_row=2, min_col=8, max_col=9):
         for cell in row:
             cell.number_format = '#,##0.00 "₽"'
     output = io.BytesIO()

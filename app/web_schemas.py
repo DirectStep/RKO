@@ -75,7 +75,7 @@ class BankUpdate(BankCreate):
 
 
 class LeadBankCreate(BaseModel):
-    bank_id: UUID
+    bank_ids: list[UUID] = Field(min_length=1)
 
 
 class LeadBankSelection(BaseModel):

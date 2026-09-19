@@ -105,7 +105,7 @@
           </div>
           <div class="filter-panel" id="admin-filters" hidden>
             <label class="filter-field"><span>Партнёр</span><select id="admin-partner"><option value="">Все источники</option></select></label>
-            <label class="filter-field"><span>Канал партнёра</span><select id="admin-channel" disabled><option value="">Сначала выбери партнёра</option></select></label>
+            <label class="filter-field"><span>Канал партнёра</span><select id="admin-channel" disabled><option value="">Сначала выберите партнёра</option></select></label>
             <label class="filter-field"><span>Период</span><select id="admin-period"><option value="all">За всё время</option><option value="month">Текущий месяц</option><option value="custom">Выбрать даты</option></select></label>
             <div class="date-range" id="admin-date-range" hidden>
               <label class="filter-field"><span>Дата с</span><input id="admin-date-from" type="date" /></label>
@@ -168,10 +168,10 @@
             <div><p class="eyebrow">Ответы на вопросы</p><h2 id="client-faq-title">FAQ</h2></div>
           </div>
           <div class="faq-list">
-            <details><summary>В чём ваша выгода?</summary><p>Мы зарабатываем на реферальных программах банков и делимся с тобой.</p></details>
+            <details><summary>В чём ваша выгода?</summary><p>Мы зарабатываем на реферальных программах банков и делимся с вами.</p></details>
             <details><summary>Откуда деньги?</summary><p>Банки платят партнёрское вознаграждение за привлечённых клиентов. Выплаты официально приходят на ИП безналичным переводом за услуги по привлечению клиентов.</p></details>
             <details><summary>Легально ли это?</summary><p>Да. Банки регулярно используют партнёрские программы для привлечения новых бизнес-клиентов. С полученного дохода уплачивается налог.</p></details>
-            <details><summary>Нужно ли вкладывать свои деньги?</summary><p>Нет, обязательных вложений нет. Средства на активацию обычно выделяем мы, а от тебя нужны время и выполнение инструкций. При желании можно использовать свои деньги, но это необязательно.</p></details>
+            <details><summary>Нужно ли вкладывать свои деньги?</summary><p>Нет, обязательных вложений нет. Средства на активацию обычно выделяем мы, а от вас нужны время и выполнение инструкций. При желании можно использовать свои деньги, но это необязательно.</p></details>
             <details><summary>Почему банки готовы платить?</summary><p>Бизнес-клиент приносит банку доход через обслуживание счёта, эквайринг, кредиты и обороты. Таких клиентов мало, поэтому банкам выгодно платить за их привлечение.</p></details>
           </div>
         </section>
@@ -235,7 +235,7 @@
         if (String(event.filename || "").includes("telegram-web-app.js")) return;
         document.querySelector("#loading-state").hidden = true;
         document.querySelector("#error-message").textContent =
-          "Не удалось запустить кабинет. Закрой мини-приложение и открой его заново.";
+          "Не удалось запустить кабинет. Закройте мини-приложение и откройте его заново.";
         document.querySelector("#error-state").hidden = false;
       });
       window.setTimeout(() => {
@@ -243,7 +243,7 @@
         if (!loading || loading.hidden) return;
         loading.hidden = true;
         document.querySelector("#error-message").textContent =
-          "Кабинет не получил данные. Нажми «Повторить» или открой его заново.";
+          "Кабинет не получил данные. Нажмите «Повторить» или откройте его заново.";
         document.querySelector("#error-state").hidden = false;
       }, 25000);
     </script>

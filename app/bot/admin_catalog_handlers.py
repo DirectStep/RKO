@@ -108,7 +108,7 @@ async def partner_commission(
     await state.set_state(PartnerCreation.telegram_username)
     await message.answer(
         "Какой Telegram username у партнёра?\n\n"
-        "Например: @gerasimov. Если username нет — напиши «нет»."
+        "Например: @gerasimov. Если username нет — напишите «нет»."
     )
 
 
@@ -191,7 +191,7 @@ async def partner_commission_edit(
     if isinstance(callback.message, Message):
         await callback.message.answer(
             f"Сейчас у партнёра «{partner.name}» {partner.commission_percent}%.\n"
-            "Отправь новый процент, например: 7,5"
+            "Отправьте новый процент, например: 7,5"
         )
     await callback.answer()
 
@@ -373,7 +373,7 @@ async def channel_new(
         return
     partners = [item for item in await AdminCatalogService(database).list_partners() if item.active]
     if not partners:
-        await callback.answer("Сначала создай активного партнёра", show_alert=True)
+        await callback.answer("Сначала создайте активного партнёра", show_alert=True)
         return
     await state.set_state(ChannelCreation.partner)
     buttons = [(str(item.id), item.name) for item in partners]

@@ -17,37 +17,37 @@ class Question:
 
 
 QUESTIONS = (
-    Question("has_ip", "У тебя уже есть ИП?", "ИП"),
+    Question("has_ip", "У вас уже есть ИП?", "ИП"),
     Question(
         "city",
-        "В каком городе ты планируешь открывать счета?",
+        "В каком городе вы планируете открывать счета?",
         "Город",
         QuestionKind.TEXT,
     ),
     Question(
         "full_name",
-        "Напиши фамилию, имя и отчество полностью.",
+        "Напишите фамилию, имя и отчество полностью.",
         "ФИО",
         QuestionKind.TEXT,
     ),
     Question(
         "email",
-        "Укажи свой e-mail.",
+        "Укажите свой e-mail.",
         "E-mail",
         QuestionKind.TEXT,
     ),
     Question(
         "has_social_benefits",
-        "Ты получаешь пенсию, пособие по инвалидности или другие социальные выплаты?",
+        "Вы получаете пенсию, пособие по инвалидности или другие социальные выплаты?",
         "Социальные выплаты",
     ),
-    Question("adult", "Тебе уже исполнилось 18 лет?", "Совершеннолетие"),
+    Question("adult", "Вам уже исполнилось 18 лет?", "Совершеннолетие"),
     Question(
         "has_bankruptcy_or_arrests",
-        "Есть ли у тебя на данный момент банкротства или аресты на счетах?",
+        "Есть ли у вас сейчас банкротства или аресты на счетах?",
         "Банкротства или аресты",
     ),
-    Question("is_civil_servant", "Ты работаешь на государственной службе?", "Госслужба"),
+    Question("is_civil_servant", "Вы работаете на государственной службе?", "Госслужба"),
 )
 
 
@@ -58,7 +58,7 @@ def normalize_phone(value: str) -> str:
     if len(digits) == 10:
         digits = "7" + digits
     if len(digits) < 11 or len(digits) > 15:
-        raise ValueError("Введи номер в формате +7XXXXXXXXXX")
+        raise ValueError("Введите номер в формате +7XXXXXXXXXX")
     return "+" + digits
 
 
@@ -66,7 +66,7 @@ def normalize_full_name(value: str) -> str:
     normalized = " ".join(value.strip().split())
     parts = normalized.split()
     if len(parts) < 3 or any(len(part) < 2 for part in parts):
-        raise ValueError("Напиши фамилию, имя и отчество полностью")
+        raise ValueError("Напишите фамилию, имя и отчество полностью")
     if len(normalized) > 200:
         raise ValueError("ФИО слишком длинное")
     return normalized
@@ -78,7 +78,7 @@ def normalize_email(value: str) -> str:
         r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+",
         normalized,
     ):
-        raise ValueError("Введи корректный e-mail")
+        raise ValueError("Введите корректный e-mail")
     return normalized
 
 

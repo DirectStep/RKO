@@ -66,7 +66,7 @@ def test_business_questionnaire_contains_contact_and_final_qualification_questio
     )
     assert (
         bankruptcy_question.text
-        == "Есть ли у тебя на данный момент банкротства или аресты на счетах?"
+        == "Есть ли у вас сейчас банкротства или аресты на счетах?"
     )
 
 
@@ -191,7 +191,7 @@ def test_new_lead_group_notification_opens_exact_application() -> None:
     assert keyboard.inline_keyboard[0][0].callback_data == f"admin:lead:{lead_id}"
 
 
-def test_source_assignment_callbacks_fit_telegram_limit() -> None:
+def test_admin_lead_keyboard_does_not_allow_source_changes() -> None:
     lead_id = "8a124766-93ec-4e02-9c85-2260ebad0422"
     keyboard = admin_lead_keyboard(lead_id, "pending")
     callback_values = [
@@ -201,8 +201,7 @@ def test_source_assignment_callbacks_fit_telegram_limit() -> None:
         if button.callback_data
     ]
 
-    assert f"admin:source:confirm:{lead_id}" in callback_values
-    assert f"admin:source:direct:{lead_id}" in callback_values
+    assert all("admin:source:" not in value for value in callback_values)
     assert all(len(value.encode()) <= 64 for value in callback_values)
 
 

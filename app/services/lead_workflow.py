@@ -61,7 +61,7 @@ class LeadWorkflowService:
                 )
             )
             if not lead_banks:
-                raise DomainError("Сначала добавь хотя бы один банк")
+                raise DomainError("Сначала добавьте хотя бы один банк")
             for lead_bank in lead_banks:
                 lead_bank.offered_to_lead = True
                 lead_bank.selected_by_lead = None
@@ -76,33 +76,35 @@ class LeadWorkflowService:
 
     async def submit_bank_selection(self, *, lead_id: UUID, selected_bank_ids: set[UUID]) -> Lead:
         if not selected_bank_ids:
-            raise DomainError("Выбери хотя бы один банк")
+            raise DomainError("Выберите хотя бы один банк")
         async with self.database.session() as session, session.begin():
             lead = await session.scalar(select(Lead).where(Lead.id == lead_id).with_for_update())
             if lead is None:
                 raise DomainError("Заявка не найдена")
-            if lead.workflow_stage is not LeadWorkflowStage.AWAITING_CLIENT_SELECTION:
-                raise DomainError("Выбор банков уже отправлен или пока недоступен")
             lead_banks = list(
                 await session.scalars(
                     select(LeadBank)
                     .where(
                         LeadBank.lead_id == lead_id,
                         LeadBank.offered_to_lead.is_(True),
+                        LeadBank.selected_by_lead.is_(None),
                     )
                     .with_for_update()
                 )
             )
-            offered_ids = {lead_bank.bank_id for lead_bank in lead_banks}
-            if not selected_bank_ids.issubset(offered_ids):
+            pending_ids = {lead_bank.bank_id for lead_bank in lead_banks}
+            if not pending_ids:
+                raise DomainError("Новых банков для выбора нет")
+            if not selected_bank_ids.issubset(pending_ids):
                 raise DomainError("В списке есть недоступный банк")
             for lead_bank in lead_banks:
                 lead_bank.selected_by_lead = lead_bank.bank_id in selected_bank_ids
             now = datetime.now(UTC)
-            lead.workflow_stage = LeadWorkflowStage.AWAITING_MANAGER
+            if lead.workflow_stage is LeadWorkflowStage.AWAITING_CLIENT_SELECTION:
+                lead.workflow_stage = LeadWorkflowStage.AWAITING_MANAGER
+                lead.internal_status = LeadInternalStatus.DATA_RECEIVED
+                lead.external_status = external_lead_status(lead.internal_status)
             lead.bank_selection_submitted_at = now
-            lead.internal_status = LeadInternalStatus.DATA_RECEIVED
-            lead.external_status = external_lead_status(lead.internal_status)
             lead.last_updated_at = now
             return lead
 

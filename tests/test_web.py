@@ -224,25 +224,45 @@ def test_partner_api_does_not_receive_internal_financial_fields() -> None:
     assert admin["team_profit_estimate"] == "600"
 
 
-def test_two_stage_claim_and_client_bank_selection_controls_are_present() -> None:
+def test_bank_selection_is_one_step_and_supports_multiple_banks() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 
-    assert "/claim-admin" in script
-    assert "/banks/publish" in script
+    assert "/claim-admin" not in script
+    assert "/banks/publish" not in script
     assert "api('/api/lead/banks/selection'" in script
     assert "/claim-manager" in script
     assert "Отправить менеджеру" in script
+    assert "bank_ids" in script
+    assert "Добавить и показать клиенту" in script
 
 
-def test_admin_can_confirm_sources_and_review_duplicates() -> None:
+def test_admin_cannot_change_source_and_can_review_duplicates() -> None:
     markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 
     assert 'id="open-duplicate-reviews"' in markup
     assert "state.session.role==='admin'?'/api/duplicate-reviews':null" in script
     assert "/resolve" in script
-    assert "confirmSourceChange" in script
+    assert "confirmSourceChange" not in script
+    assert "change-source" not in script
+    assert "/source/direct" not in script
     assert "Источник требует проверки" in markup
+
+
+def test_partner_does_not_see_lead_telegram_username() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "Telegram клиента" not in script
+    assert "Имя или номер заявки" in script
+
+
+def test_admin_contact_actions_and_partner_bank_order_are_present() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert 'data-contact-link="tel:' in script
+    assert 'data-contact-link="mailto:' in script
+    assert "window.location.assign(contactLink.dataset.contactLink)" in script
+    assert "Запланировано / в работе / открыто" in script
 
 
 def test_mini_app_has_visible_loading_state() -> None:
