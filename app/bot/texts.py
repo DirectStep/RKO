@@ -57,10 +57,10 @@ def consent_prompt(mini_app_url: str) -> str:
     consent_url = f"{public_root}/documents/soglasie-pdn.pdf"
     policy_url = f"{public_root}/documents/politika-pdn.pdf"
     return (
-        "Нажимая кнопку «Продолжить», я даю согласие на обработку персональных "
-        "данных и подтверждаю, что ознакомился(-ась) с документами:\n\n"
-        f'<a href="{consent_url}">Согласие на обработку персональных данных</a>\n'
-        f'<a href="{policy_url}">Политика обработки персональных данных</a>'
+        "Нажимая кнопку «Продолжить», я даю "
+        f'<a href="{consent_url}">Согласие на обработку персональных данных</a> '
+        "и подтверждаю, что ознакомился(-ась) с "
+        f'<a href="{policy_url}">Политикой обработки персональных данных</a>'
     )
 
 CONSENT_TEXT = (

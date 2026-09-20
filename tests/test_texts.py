@@ -45,12 +45,11 @@ def test_consent_names_data_purpose_and_withdrawal() -> None:
 def test_consent_prompt_links_both_public_documents() -> None:
     prompt = consent_prompt("https://app.example.test/?v=1")
 
-    assert "Нажимая кнопку «Продолжить», я даю согласие" in prompt
-    assert (
-        'href="https://app.example.test/documents/soglasie-pdn.pdf"'
-        in prompt
-    )
-    assert (
-        'href="https://app.example.test/documents/politika-pdn.pdf"'
-        in prompt
+    assert prompt == (
+        "Нажимая кнопку «Продолжить», я даю "
+        '<a href="https://app.example.test/documents/soglasie-pdn.pdf">'
+        "Согласие на обработку персональных данных</a> и подтверждаю, что "
+        "ознакомился(-ась) с "
+        '<a href="https://app.example.test/documents/politika-pdn.pdf">'
+        "Политикой обработки персональных данных</a>"
     )
