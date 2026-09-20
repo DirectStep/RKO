@@ -10,6 +10,7 @@ from app.bot.keyboards import (
     application_review_keyboard,
     cabinet_keyboard,
     consent_document_keyboard,
+    consent_keyboard,
     continue_keyboard,
     resubmit_application_keyboard,
     retry_submission_keyboard,
@@ -165,11 +166,21 @@ def test_rejected_lead_can_start_repeat_application() -> None:
     assert keyboard.inline_keyboard[0][0].callback_data == "application:resubmit"
 
 
-def test_consent_can_be_opened_before_and_during_application() -> None:
+def test_lead_welcome_and_consent_each_have_one_continue_button() -> None:
     welcome = continue_keyboard()
+    consent = consent_keyboard()
+
+    assert len(welcome.inline_keyboard) == 1
+    assert welcome.inline_keyboard[0][0].text == "Продолжить"
+    assert welcome.inline_keyboard[0][0].callback_data == "application:begin"
+    assert len(consent.inline_keyboard) == 1
+    assert consent.inline_keyboard[0][0].text == "Продолжить"
+    assert consent.inline_keyboard[0][0].callback_data == "consent:accept"
+
+
+def test_legacy_consent_document_keeps_back_navigation() -> None:
     document = consent_document_keyboard(application_started=True)
 
-    assert welcome.inline_keyboard[1][0].callback_data == "privacy:show"
     assert document.inline_keyboard[0][0].callback_data == "consent:accept"
     assert document.inline_keyboard[1][0].callback_data == "consent:back"
 

@@ -11,11 +11,6 @@ def continue_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Продолжить", callback_data="application:begin")],
-            [
-                InlineKeyboardButton(
-                    text="Согласие на обработку данных", callback_data="privacy:show"
-                )
-            ],
         ]
     )
 
@@ -23,9 +18,7 @@ def continue_keyboard() -> InlineKeyboardMarkup:
 def consent_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Прочитать согласие", callback_data="consent:show")],
-            [InlineKeyboardButton(text="Согласен", callback_data="consent:accept")],
-            [InlineKeyboardButton(text="Не согласен", callback_data="consent:decline")],
+            [InlineKeyboardButton(text="Продолжить", callback_data="consent:accept")],
         ]
     )
 

@@ -1,4 +1,4 @@
-from app.bot.texts import CONSENT_TEXT, PARTNER_START_TEXT, START_TEXT
+from app.bot.texts import CONSENT_TEXT, PARTNER_START_TEXT, START_TEXT, consent_prompt
 
 
 def test_start_text_explains_product() -> None:
@@ -40,3 +40,17 @@ def test_consent_names_data_purpose_and_withdrawal() -> None:
     assert "помочь с открытием расчётного счёта" in CONSENT_TEXT
     assert "Отозвать согласие" in CONSENT_TEXT
     assert "@KryGerMan" in CONSENT_TEXT
+
+
+def test_consent_prompt_links_both_public_documents() -> None:
+    prompt = consent_prompt("https://app.example.test/?v=1")
+
+    assert "Нажимая кнопку «Продолжить», я даю согласие" in prompt
+    assert (
+        'href="https://app.example.test/documents/soglasie-pdn.pdf"'
+        in prompt
+    )
+    assert (
+        'href="https://app.example.test/documents/politika-pdn.pdf"'
+        in prompt
+    )

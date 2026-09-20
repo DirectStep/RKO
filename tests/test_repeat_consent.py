@@ -6,20 +6,25 @@ from uuid import uuid4
 
 import pytest
 
-from app.bot.handlers import decline_consent, resubmit_application
+from app.bot.handlers import accept_consent, decline_consent, resubmit_application
 from app.bot.states import LeadApplication
+from app.domain.enums import LeadWorkflowStage
 
 
 class FakeSession:
-    def __init__(self, previous: SimpleNamespace) -> None:
+    def __init__(self, previous: SimpleNamespace | None) -> None:
         self.previous = previous
+        self.commit = AsyncMock()
 
-    async def scalar(self, _query: object) -> SimpleNamespace:
+    async def scalar(self, _query: object) -> SimpleNamespace | None:
+        return self.previous
+
+    async def get(self, _model: object, _id: object) -> SimpleNamespace | None:
         return self.previous
 
 
 class FakeSessionContext:
-    def __init__(self, previous: SimpleNamespace) -> None:
+    def __init__(self, previous: SimpleNamespace | None) -> None:
         self.session = FakeSession(previous)
 
     async def __aenter__(self) -> FakeSession:
@@ -30,7 +35,7 @@ class FakeSessionContext:
 
 
 class FakeDatabase:
-    def __init__(self, previous: SimpleNamespace) -> None:
+    def __init__(self, previous: SimpleNamespace | None) -> None:
         self.previous = previous
 
     def session(self) -> FakeSessionContext:
@@ -61,7 +66,12 @@ async def test_repeat_application_reuses_existing_consent_and_requests_phone() -
     state = AsyncMock()
     callback = repeat_callback()
 
-    await resubmit_application(callback, state, FakeDatabase(previous))
+    await resubmit_application(
+        callback,
+        state,
+        FakeDatabase(previous),
+        SimpleNamespace(mini_app_url="https://app.example.test/"),
+    )
 
     state.clear.assert_awaited_once()
     state.update_data.assert_awaited_once()
@@ -75,7 +85,12 @@ async def test_repeat_application_requests_consent_when_previous_one_is_missing(
     previous = previous_application(consent_status=False)
     state = AsyncMock()
 
-    await resubmit_application(repeat_callback(), state, FakeDatabase(previous))
+    await resubmit_application(
+        repeat_callback(),
+        state,
+        FakeDatabase(previous),
+        SimpleNamespace(mini_app_url="https://app.example.test/"),
+    )
 
     assert "consent_at" not in state.update_data.await_args.args[0]
     state.set_state.assert_awaited_once_with(LeadApplication.consent)
@@ -93,5 +108,56 @@ async def test_declined_consent_keeps_old_accept_button_active() -> None:
 
     state.clear.assert_not_awaited()
     message = callback.message.answer.await_args.args[0]
-    assert "нажмите «Согласен»" in message
+    assert "нажмите «Продолжить»" in message
     assert "/start" in message
+
+
+@pytest.mark.asyncio
+async def test_registered_lead_reaccepts_consent_and_opens_cabinet() -> None:
+    lead = previous_application(consent_status=True)
+    lead.telegram_id = "123"
+    lead.archived_at = None
+    lead.application_at = datetime(2026, 8, 20, 10, tzinfo=UTC)
+    lead.workflow_stage = LeadWorkflowStage.ADMIN_PROCESSING
+    state = AsyncMock()
+    message = SimpleNamespace(edit_reply_markup=AsyncMock(), answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=123),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await accept_consent(
+        callback,
+        state,
+        FakeDatabase(lead),
+        SimpleNamespace(mini_app_url="https://app.example.test/"),
+    )
+
+    assert lead.consent_status is True
+    assert lead.consent_at > datetime(2026, 8, 20, 10, 5, tzinfo=UTC)
+    state.clear.assert_awaited_once()
+    state.set_state.assert_not_awaited()
+    message.edit_reply_markup.assert_awaited_once_with(reply_markup=None)
+    assert "Кабинет клиента" in message.answer.await_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_new_lead_acceptance_continues_to_phone_collection() -> None:
+    state = AsyncMock()
+    message = SimpleNamespace(edit_reply_markup=AsyncMock(), answer=AsyncMock())
+    callback = SimpleNamespace(
+        from_user=SimpleNamespace(id=456),
+        message=message,
+        answer=AsyncMock(),
+    )
+
+    await accept_consent(
+        callback,
+        state,
+        FakeDatabase(None),
+        SimpleNamespace(mini_app_url="https://app.example.test/"),
+    )
+
+    state.set_state.assert_awaited_once_with(LeadApplication.phone)
+    assert "Отправьте номер" in message.answer.await_args.args[0]

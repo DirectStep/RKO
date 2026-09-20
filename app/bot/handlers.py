@@ -26,7 +26,7 @@ from app.bot.keyboards import (
     yes_no_keyboard,
 )
 from app.bot.states import LeadApplication
-from app.bot.texts import CONSENT_PROMPT, CONSENT_TEXT, PARTNER_START_TEXT, START_TEXT
+from app.bot.texts import CONSENT_TEXT, PARTNER_START_TEXT, START_TEXT, consent_prompt
 from app.config import Settings
 from app.database import Database
 from app.domain.enums import AccessStatus, LeadWorkflowStage, UserRole
@@ -59,16 +59,6 @@ PARTNER_STATUS_LABELS = {
     "paused": "Приостановлена",
     "closed_without_result": "Закрыта без результата",
 }
-
-
-async def has_registered_lead(database: Database, telegram_id: str) -> bool:
-    async with database.session() as session:
-        lead_id = await session.scalar(
-            select(Lead.id)
-            .where(Lead.telegram_id == telegram_id, Lead.archived_at.is_(None))
-            .limit(1)
-        )
-    return lead_id is not None
 
 
 async def get_current_lead(database: Database, telegram_id: str) -> Lead | None:
@@ -156,19 +146,7 @@ async def start(
         return
     current_lead = await get_current_lead(database, str(user.id))
     if current_lead is not None:
-        if current_lead.workflow_stage is LeadWorkflowStage.NOT_ELIGIBLE:
-            await message.answer(
-                f"Заявка {current_lead.short_id} имеет статус «Не подходит».\n\n"
-                "Вы можете подать заявку повторно, если указали что-то неверно "
-                "или ваша ситуация изменилась.",
-                reply_markup=resubmit_application_keyboard(),
-            )
-        else:
-            await message.answer(
-                "Кабинет клиента. Здесь видны статус заявки, назначенные банки "
-                "и условия их активации.",
-                reply_markup=cabinet_keyboard(settings.mini_app_url),
-            )
+        await message.answer(START_TEXT, parse_mode="HTML", reply_markup=continue_keyboard())
         return
     try:
         first_click = await LeadIntakeService(database).record_first_click(
@@ -412,19 +390,13 @@ async def begin_application(
             )
         await callback.answer("Заявка недоступна партнёру", show_alert=True)
         return
-    if await has_registered_lead(database, str(callback.from_user.id)):
-        await state.clear()
-        if callback.message:
-            await callback.message.answer(
-                "Заявка уже зарегистрирована. Откройте кабинет клиента.",
-                reply_markup=cabinet_keyboard(settings.mini_app_url),
-            )
-        await callback.answer("Заявка уже существует", show_alert=True)
-        return
     await state.set_state(LeadApplication.consent)
     if callback.message:
+        await callback.message.edit_reply_markup(reply_markup=None)
         await callback.message.answer(
-            CONSENT_PROMPT,
+            consent_prompt(settings.mini_app_url),
+            parse_mode="HTML",
+            disable_web_page_preview=True,
             reply_markup=consent_keyboard(),
         )
     await callback.answer()
@@ -435,6 +407,7 @@ async def resubmit_application(
     callback: CallbackQuery,
     state: FSMContext,
     database: Database,
+    settings: Settings,
 ) -> None:
     telegram_id = str(callback.from_user.id)
     async with database.session() as session:
@@ -473,7 +446,12 @@ async def resubmit_application(
                 reply_markup=phone_keyboard(),
             )
         else:
-            await callback.message.answer(CONSENT_PROMPT, reply_markup=consent_keyboard())
+            await callback.message.answer(
+                consent_prompt(settings.mini_app_url),
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+                reply_markup=consent_keyboard(),
+            )
     await callback.answer()
 
 
@@ -509,9 +487,14 @@ async def show_privacy_during_application(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(LeadApplication.consent, F.data == "consent:back")
-async def return_to_consent(callback: CallbackQuery) -> None:
+async def return_to_consent(callback: CallbackQuery, settings: Settings) -> None:
     if isinstance(callback.message, Message):
-        await callback.message.edit_text(CONSENT_PROMPT, reply_markup=consent_keyboard())
+        await callback.message.edit_text(
+            consent_prompt(settings.mini_app_url),
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+            reply_markup=consent_keyboard(),
+        )
     await callback.answer()
 
 
@@ -520,16 +503,50 @@ async def decline_consent(callback: CallbackQuery, state: FSMContext) -> None:
     if callback.message:
         await callback.message.answer(
             "Без согласия создать заявку не получится. Если передумаете, "
-            "нажмите «Согласен» в сообщении выше или отправьте /start."
+            "нажмите «Продолжить» в сообщении выше или отправьте /start."
         )
     await callback.answer()
 
 
 @router.callback_query(LeadApplication.consent, F.data == "consent:accept")
-async def accept_consent(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.update_data(consent_at=datetime.now(UTC).isoformat())
+async def accept_consent(
+    callback: CallbackQuery,
+    state: FSMContext,
+    database: Database,
+    settings: Settings,
+) -> None:
+    consent_at = datetime.now(UTC)
+    telegram_id = str(callback.from_user.id)
+    await state.update_data(consent_at=consent_at.isoformat())
+    current_lead = await get_current_lead(database, telegram_id)
+    if current_lead is not None:
+        async with database.session() as session:
+            stored_lead = await session.get(Lead, current_lead.id)
+            if stored_lead is not None:
+                stored_lead.consent_status = True
+                stored_lead.consent_at = consent_at
+                await session.commit()
+        await state.clear()
+        if callback.message:
+            await callback.message.edit_reply_markup(reply_markup=None)
+            if current_lead.workflow_stage is LeadWorkflowStage.NOT_ELIGIBLE:
+                await callback.message.answer(
+                    f"Заявка {current_lead.short_id} имеет статус «Не подходит».\n\n"
+                    "Вы можете подать заявку повторно, если указали что-то неверно "
+                    "или ваша ситуация изменилась.",
+                    reply_markup=resubmit_application_keyboard(),
+                )
+            else:
+                await callback.message.answer(
+                    "Кабинет клиента. Здесь видны статус заявки, назначенные банки "
+                    "и условия их активации.",
+                    reply_markup=cabinet_keyboard(settings.mini_app_url),
+                )
+        await callback.answer()
+        return
     await state.set_state(LeadApplication.phone)
     if callback.message:
+        await callback.message.edit_reply_markup(reply_markup=None)
         await callback.message.answer(
             "Отправьте номер кнопкой ниже или введите его сообщением.",
             reply_markup=phone_keyboard(),

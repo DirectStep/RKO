@@ -52,10 +52,16 @@ PARTNER_START_TEXT = (
     "на главном — привлечении клиентов и увеличении своего дохода."
 )
 
-CONSENT_PROMPT = (
-    "Чтобы создать заявку, нужно ваше согласие на обработку "
-    "персональных данных. Вы можете сначала прочитать текст согласия."
-)
+def consent_prompt(mini_app_url: str) -> str:
+    public_root = mini_app_url.partition("?")[0].rstrip("/")
+    consent_url = f"{public_root}/documents/soglasie-pdn.pdf"
+    policy_url = f"{public_root}/documents/politika-pdn.pdf"
+    return (
+        "Нажимая кнопку «Продолжить», я даю согласие на обработку персональных "
+        "данных и подтверждаю, что ознакомился(-ась) с документами:\n\n"
+        f'<a href="{consent_url}">Согласие на обработку персональных данных</a>\n'
+        f'<a href="{policy_url}">Политика обработки персональных данных</a>'
+    )
 
 CONSENT_TEXT = (
     "Согласие на обработку персональных данных\n\n"

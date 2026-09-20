@@ -17,6 +17,7 @@ from app.web import (
 )
 
 ASSETS_DIR = Path(__file__).parents[1] / "app" / "web_assets"
+DOCUMENTS_DIR = Path(__file__).parents[1] / "app" / "documents"
 
 
 def signed_init_data(bot_token: str, user_id: int, auth_date: int) -> str:
@@ -414,3 +415,11 @@ def test_mini_app_is_delivered_without_separate_local_assets() -> None:
     assert '<link rel="stylesheet" href="/assets/styles.css' not in markup
     assert "new XMLHttpRequest()" in markup
     assert ".app-shell" in markup
+
+
+def test_public_consent_documents_are_packaged_as_pdf() -> None:
+    consent = DOCUMENTS_DIR / "soglasie-pdn.pdf"
+    policy = DOCUMENTS_DIR / "politika-pdn.pdf"
+
+    assert consent.read_bytes().startswith(b"%PDF-")
+    assert policy.read_bytes().startswith(b"%PDF-")

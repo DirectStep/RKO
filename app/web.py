@@ -76,6 +76,7 @@ from app.web_schemas import (
 )
 
 ASSETS_DIR = Path(__file__).parent / "web_assets"
+DOCUMENTS_DIR = Path(__file__).parent / "documents"
 logger = logging.getLogger(__name__)
 EXTERNAL_STATUS_LABELS = {
     "new": "Новая",
@@ -301,6 +302,7 @@ def create_web_app(
     mini_app_html = build_mini_app_html()
     notification_bots = ((bot,) if bot is not None else ()) + additional_bots
     app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
+    app.mount("/documents", StaticFiles(directory=DOCUMENTS_DIR), name="documents")
 
     def referral_links(start_parameter: str, fallback: str = "") -> list[dict[str, str]]:
         links = [
@@ -322,7 +324,7 @@ def create_web_app(
         if request.url.path == "/":
             response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
             response.headers["Pragma"] = "no-cache"
-        elif request.url.path.startswith("/assets/"):
+        elif request.url.path.startswith(("/assets/", "/documents/")):
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
 
