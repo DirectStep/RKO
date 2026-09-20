@@ -44,6 +44,7 @@ from app.models import (
     DuplicateLeadReview,
     Lead,
     LeadBank,
+    LeadDraft,
     Partner,
     Payment,
     User,
@@ -360,13 +361,21 @@ def create_web_app(
                 .order_by(Lead.application_at.desc())
                 .limit(1)
             )
+            draft = await session.scalar(
+                select(LeadDraft).where(LeadDraft.telegram_id == telegram_id)
+            )
         if user is not None and user.access_status is not AccessStatus.ACTIVE:
             raise HTTPException(status_code=403, detail="Доступ отключён")
         if role in {None, UserRole.LEAD}:
             if lead is None:
                 raise HTTPException(
                     status_code=403,
-                    detail="Кабинет не подключён. Отправьте /start боту",
+                    detail=(
+                        "Сначала ответьте на вопросы в боте. После заполнения анкеты "
+                        "кабинет станет доступен."
+                        if draft is not None
+                        else "Кабинет не подключён. Отправьте /start боту"
+                    ),
                 )
             return MiniAppUser(
                 telegram_id,

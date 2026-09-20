@@ -438,3 +438,11 @@ def test_client_faq_does_not_include_legality_question() -> None:
     markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
 
     assert "Легально ли это?" not in markup
+
+
+def test_unfinished_lead_draft_gets_questionnaire_hint() -> None:
+    source = (Path(__file__).parents[1] / "app" / "web.py").read_text(encoding="utf-8")
+
+    assert "select(LeadDraft).where(LeadDraft.telegram_id == telegram_id)" in source
+    assert "Сначала ответьте на вопросы в боте." in source
+    assert "кабинет станет доступен." in source
