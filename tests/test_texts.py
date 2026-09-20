@@ -26,6 +26,15 @@ def test_welcome_texts_use_premium_custom_emoji() -> None:
     assert 'emoji-id="5199885118214255386"' in PARTNER_START_TEXT
 
 
+def test_lead_welcome_places_round_emoji_before_ready_prompt() -> None:
+    payout_text = "Обычно выплата производится <b>через 1 месяц после активации счёта</b>."
+    ready_text = '<tg-emoji emoji-id="5355294670119263003">⏳</tg-emoji> Готовы начать?'
+
+    assert f"\n{payout_text}" in START_TEXT
+    assert ready_text in START_TEXT
+    assert "Готовы начать? ⬇️" not in START_TEXT
+
+
 def test_consent_names_data_purpose_and_withdrawal() -> None:
     assert "номер телефона" in CONSENT_TEXT
     assert "помочь с открытием расчётного счёта" in CONSENT_TEXT
