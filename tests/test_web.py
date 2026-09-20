@@ -74,6 +74,14 @@ def test_hidden_navigation_tabs_stay_hidden() -> None:
     assert ".tabbar button[hidden] { display: none; }" in styles
 
 
+def test_list_row_subtitle_does_not_overlap_trailing_action() -> None:
+    styles = (ASSETS_DIR / "styles.css").read_text(encoding="utf-8")
+
+    assert "grid-template-columns: 2.75rem minmax(0, 1fr) auto;" in styles
+    assert ".row-subtitle { display: block; overflow: hidden; max-width: 100%;" in styles
+    assert "text-overflow: ellipsis; white-space: nowrap;" in styles
+
+
 def test_partner_channel_controls_are_present() -> None:
     markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
