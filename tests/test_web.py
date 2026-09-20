@@ -173,9 +173,44 @@ def test_lead_cabinet_has_separate_read_only_sections() -> None:
     assert "lead_payout_paid_separately" in script
     assert "`до ${value}`" in script
     assert "item.online_available" in script
-    assert "ℹ️</button>" in script
-    assert "Добавить ещё" in script
+    assert "const infoIcon=" in script
+    assert "${infoIcon}</button>" in script
+    assert "Добавить ещё" in markup
     assert "is-unselected" in script
+    assert "Планируется счетов" in script
+    assert "Активированных счетов" in script
+    assert "data-confirm-lead-payment" in script
+    assert (
+        "<span>Номер</span>"
+        not in script.split("function renderLeadCabinet", 1)[1].split(
+            "function confirmLeadBankSelection", 1
+        )[0]
+    )
+    activation_info = markup.index('id="activation-info"')
+    add_more = markup.index('id="add-more-banks"')
+    bank_list = markup.index('id="client-banks-list"')
+    assert activation_info < add_more < bank_list
+
+
+def test_manager_dashboard_and_queue_are_simplified() -> None:
+    markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
+    scope = markup.split('id="lead-scope"', 1)[1].split("</select>", 1)[0]
+    assert ">Новые</option>" in scope
+    assert ">В работе</option>" in scope
+    assert "Только мои" not in scope
+    assert "Все заявки" not in scope
+    assert "state.session.role==='manager'&&index>1" in script
+
+
+def test_team_has_direct_telegram_chat_action() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert 'class="staff-chat"' in script
+    assert 'data-telegram-chat="https://t.me/${esc(username)}"' in script
+    assert "tg?.openTelegramLink" in script
+    assert 'class="staff-toggle"' in script
 
 
 def test_partner_paid_total_is_the_first_full_width_metric() -> None:
@@ -223,6 +258,7 @@ def test_partner_api_does_not_receive_internal_financial_fields() -> None:
         selected_by_lead=True,
         lead_reward_estimate=300,
         lead_reward_fact=None,
+        lead_reward_paid_at=None,
         lead_reward_paid_separately=False,
         team_profit_estimate=600,
         team_profit_fact=None,

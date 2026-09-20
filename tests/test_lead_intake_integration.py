@@ -1110,9 +1110,19 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
         assert lead_bank.partner_reward_estimate == Decimal("2400.00")
         assert lead_bank.partner_reward_fact == Decimal("2000.00")
         assert lead_bank.lead_reward_estimate == Decimal("3000.00")
+        assert lead_bank.lead_reward_fact is None
         assert lead_bank.team_profit_estimate == Decimal("6600.00")
         assert lead_bank.team_profit_fact == Decimal("5000.00")
         assert lead_bank.opened_at is not None
+
+        lead_bank = await workflow.confirm_lead_reward_payment(
+            actor_role=UserRole.ADMIN,
+            lead_bank_id=lead_bank.id,
+            amount=Decimal("2800.00"),
+        )
+        assert lead_bank.lead_reward_fact == Decimal("2800.00")
+        assert lead_bank.lead_reward_paid_at is not None
+        assert lead_bank.team_profit_fact == Decimal("5200.00")
 
         partner_data = await partner_cabinet_data(database, ids["partner"])
         assert partner_data["metrics"]["estimated_payout"] == "2400.00"

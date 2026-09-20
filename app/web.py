@@ -65,6 +65,7 @@ from app.web_schemas import (
     LeadBankCreate,
     LeadBankSelection,
     LeadBankUpdate,
+    LeadRewardPaymentConfirm,
     LeadUpdate,
     PartnerAccessUpdate,
     PartnerCreate,
@@ -251,6 +252,11 @@ def serialize_lead_bank(
                     "lead_reward_fact": (
                         str(lead_bank.lead_reward_fact)
                         if lead_bank.lead_reward_fact is not None
+                        else None
+                    ),
+                    "lead_reward_paid_at": (
+                        lead_bank.lead_reward_paid_at.isoformat()
+                        if lead_bank.lead_reward_paid_at
                         else None
                     ),
                     "lead_reward_paid_separately": lead_bank.lead_reward_paid_separately,
@@ -552,9 +558,31 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             lead = await db_session.get(Lead, lead_id)
             manager_id = lead.manager_id or lead.primary_admin_id if lead is not None else None
             manager = await db_session.get(User, manager_id) if manager_id is not None else None
+            lead_banks = list(
+                await db_session.scalars(
+                    select(LeadBank).where(
+                        LeadBank.lead_id == lead_id,
+                        LeadBank.selected_by_lead.is_(True),
+                    )
+                )
+            )
         if lead is None:
             raise HTTPException(status_code=404, detail="Заявка не найдена")
         manager_username = manager.telegram_username if manager else None
+        planned_accounts = sum(
+            bank.external_status.value in {"planned", "in_progress"} for bank in lead_banks
+        )
+        activated_accounts = sum(bank.external_status.value == "opened" for bank in lead_banks)
+        expected_payout = sum(
+            (bank.lead_reward_estimate or 0)
+            for bank in lead_banks
+            if bank.external_status.value == "opened" and bank.lead_reward_paid_at is None
+        )
+        paid_total = sum(
+            (bank.lead_reward_fact or 0)
+            for bank in lead_banks
+            if bank.lead_reward_paid_at is not None
+        )
         return {
             "short_id": lead.short_id,
             "name": lead.display_name,
@@ -565,6 +593,12 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             "is_repeat": lead.is_repeat,
             "manager": format_user_name(manager),
             "manager_url": (f"https://t.me/{manager_username}" if manager_username else ""),
+            "metrics": {
+                "planned_accounts": planned_accounts,
+                "activated_accounts": activated_accounts,
+                "expected_payout": str(expected_payout),
+                "paid_total": str(paid_total),
+            },
         }
 
     @app.get("/api/lead/banks")
@@ -613,6 +647,9 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                         else "0"
                     ),
                     "lead_payout_paid_separately": lead_bank.lead_reward_paid_separately,
+                    "lead_payment_status": (
+                        "paid" if lead_bank.lead_reward_paid_at is not None else "pending"
+                    ),
                     "action_text": (
                         condition.action_text if condition is not None and condition.active else ""
                     ),
@@ -1791,6 +1828,27 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         if lead_id is not None:
             await notify_partner(lead_id, "Вознаграждение по заявке подтверждено.")
         return {"id": str(payment.id), "status": payment.status.value}
+
+    @app.post("/api/lead-banks/{lead_bank_id}/lead-reward/confirm")
+    async def confirm_lead_reward_payment(
+        lead_bank_id: UUID,
+        payload: LeadRewardPaymentConfirm,
+        user: Annotated[MiniAppUser, Depends(current_user)],
+    ) -> dict[str, str]:
+        require_admin(user)
+        try:
+            lead_bank = await WorkflowService(database).confirm_lead_reward_payment(
+                actor_role=user.role,
+                lead_bank_id=lead_bank_id,
+                amount=payload.amount,
+            )
+        except DomainError as error:
+            raise domain_error(error) from error
+        return {
+            "id": str(lead_bank.id),
+            "status": "paid",
+            "amount": str(lead_bank.lead_reward_fact or 0),
+        }
 
     @app.patch("/api/payments/{payment_id}")
     async def update_payment(

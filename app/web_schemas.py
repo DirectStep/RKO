@@ -88,6 +88,10 @@ class LeadBankUpdate(BaseModel):
     income_fact: Decimal | None = None
 
 
+class LeadRewardPaymentConfirm(BaseModel):
+    amount: Decimal = Field(ge=0)
+
+
 class PaymentConfirm(BaseModel):
     payment_period: str | None = None
     registry_number: str | None = None

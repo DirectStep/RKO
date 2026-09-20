@@ -369,6 +369,7 @@ class LeadBank(Base):
     partner_reward_fact: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     lead_reward_estimate: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     lead_reward_fact: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    lead_reward_paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     team_profit_estimate: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     team_profit_fact: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     lead_reward_paid_separately: Mapped[bool] = mapped_column(

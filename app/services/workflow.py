@@ -443,11 +443,14 @@ class WorkflowService:
                 lead_bank.partner_reward_fact = self._reward(
                     income_fact, lead_bank.partner_percent_snapshot
                 )
-                lead_bank.lead_reward_fact = lead_bank.lead_reward_estimate
                 lead_bank.team_profit_fact = self._team_profit(
                     income=income_fact,
                     partner_reward=lead_bank.partner_reward_fact,
-                    lead_reward=lead_bank.lead_reward_fact,
+                    lead_reward=(
+                        lead_bank.lead_reward_fact
+                        if lead_bank.lead_reward_paid_at is not None
+                        else lead_bank.lead_reward_estimate
+                    ),
                     lead_reward_paid_separately=lead_bank.lead_reward_paid_separately,
                 )
                 payment = await session.scalar(
@@ -464,6 +467,37 @@ class WorkflowService:
                     session.add(payment)
                 payment.partner_reward_fact = lead_bank.partner_reward_fact
                 payment.status = PaymentStatus.AWAITING_CONFIRMATION
+            lead_bank.last_updated_at = datetime.now(UTC)
+            return lead_bank
+
+    async def confirm_lead_reward_payment(
+        self,
+        *,
+        actor_role: UserRole,
+        lead_bank_id: UUID,
+        amount: Decimal,
+    ) -> LeadBank:
+        self._require_admin(actor_role)
+        self._validate_money(amount)
+        async with self.database.session() as session, session.begin():
+            lead_bank = await session.scalar(
+                select(LeadBank).where(LeadBank.id == lead_bank_id).with_for_update()
+            )
+            if lead_bank is None:
+                raise DomainError("Банк заявки не найден")
+            if lead_bank.internal_status is not BankInternalStatus.ACCOUNT_OPENED:
+                raise DomainError("Сначала отметьте счёт как активированный")
+            if lead_bank.lead_reward_paid_at is not None:
+                raise DomainError("Выплата лиду уже подтверждена")
+            lead_bank.lead_reward_fact = amount
+            lead_bank.lead_reward_paid_at = datetime.now(UTC)
+            if lead_bank.bank_income_fact is not None:
+                lead_bank.team_profit_fact = self._team_profit(
+                    income=lead_bank.bank_income_fact,
+                    partner_reward=lead_bank.partner_reward_fact,
+                    lead_reward=amount,
+                    lead_reward_paid_separately=lead_bank.lead_reward_paid_separately,
+                )
             lead_bank.last_updated_at = datetime.now(UTC)
             return lead_bank
 
