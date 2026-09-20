@@ -9,7 +9,12 @@ from urllib.parse import urlencode
 import pytest
 
 from app.domain.enums import BankExternalStatus, BankInternalStatus, PaymentStatus, UserRole
-from app.web import build_mini_app_html, serialize_lead_bank, validate_telegram_init_data
+from app.web import (
+    build_mini_app_html,
+    serialize_lead_bank,
+    validate_telegram_init_data,
+    validate_telegram_init_data_with_tokens,
+)
 
 ASSETS_DIR = Path(__file__).parents[1] / "app" / "web_assets"
 
@@ -44,6 +49,18 @@ def test_modified_telegram_init_data_is_rejected() -> None:
         )
 
 
+def test_secondary_bot_init_data_is_accepted() -> None:
+    now = int(time.time())
+    raw_data = signed_init_data("654321:secondary-token", 1781530480, now)
+
+    user = validate_telegram_init_data_with_tokens(
+        raw_data,
+        ("123456:primary-token", "654321:secondary-token"),
+    )
+
+    assert user["id"] == 1781530480
+
+
 def test_expired_telegram_init_data_is_rejected() -> None:
     raw_data = signed_init_data("123456:test-token", 1781530480, 1)
 
@@ -66,7 +83,7 @@ def test_partner_channel_controls_are_present() -> None:
     assert "['admin','partner'].includes(state.session.role)?'/api/channels':null" in script
     assert "method:'POST'" in script and "api('/api/channels'" in script
     assert 'class="contact-row channel-link-row" data-channel=' in script
-    assert 'id="copy-channel-link"' in script
+    assert "bindReferralLinkCopies(channel)" in script
     assert 'id="remove-channel"' in script
 
 
@@ -88,7 +105,16 @@ def test_admin_partner_activation_and_lead_filters_are_present() -> None:
     assert "function renderAdminFilters" in script
     assert "function filteredLeads" in script
     assert "/activation-link" in script
-    assert 'id="copy-partner-activation-link"' in script
+    assert "referralLinkRows(result)" in script
+    assert "bindReferralLinkCopies(result)" in script
+
+
+def test_channels_show_referral_links_for_both_bots() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "function referralLinks(item)" in script
+    assert "function referralLinkRows(item)" in script
+    assert "data-copy-referral-link" in script
 
 
 def test_admin_can_delete_one_application_from_mini_app() -> None:

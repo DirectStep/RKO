@@ -155,6 +155,20 @@ def validate_telegram_init_data(
     return user
 
 
+def validate_telegram_init_data_with_tokens(
+    raw_data: str, bot_tokens: tuple[str, ...], max_age: int = 86_400
+) -> dict[str, object]:
+    if not bot_tokens:
+        raise ValueError("Не настроен токен Telegram-бота")
+    for token in bot_tokens:
+        try:
+            return validate_telegram_init_data(raw_data, token, max_age=max_age)
+        except ValueError as error:
+            if "Подпись Telegram" not in str(error):
+                raise
+    raise ValueError("Подпись Telegram не прошла проверку")
+
+
 def format_user_name(user: User | None) -> str:
     if user is None:
         return "Не назначен"
@@ -276,10 +290,29 @@ def serialize_lead_bank(
     return result
 
 
-def create_web_app(database: Database, settings: Settings, bot: Bot | None = None) -> FastAPI:
+def create_web_app(
+    database: Database,
+    settings: Settings,
+    bot: Bot | None = None,
+    additional_bots: tuple[Bot, ...] = (),
+    bot_usernames: tuple[str, ...] = (),
+) -> FastAPI:
     app = FastAPI(title="РКО", docs_url=None, redoc_url=None)
     mini_app_html = build_mini_app_html()
+    notification_bots = ((bot,) if bot is not None else ()) + additional_bots
     app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
+
+    def referral_links(start_parameter: str, fallback: str = "") -> list[dict[str, str]]:
+        links = [
+            {
+                "bot": f"@{username.lstrip('@')}",
+                "url": f"https://t.me/{username.lstrip('@')}?start={start_parameter}",
+            }
+            for username in bot_usernames
+        ]
+        if not links and fallback:
+            links.append({"bot": "Telegram", "url": fallback})
+        return links
 
     @app.middleware("http")
     async def configure_mini_app_cache(
@@ -298,8 +331,9 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
     ) -> MiniAppUser:
         if telegram_init_data:
             try:
-                telegram_user = validate_telegram_init_data(
-                    telegram_init_data, settings.bot_token.get_secret_value()
+                telegram_user = validate_telegram_init_data_with_tokens(
+                    telegram_init_data,
+                    settings.bot_tokens,
                 )
                 telegram_id = str(telegram_user["id"])
                 username = str(telegram_user.get("username") or "") or None
@@ -464,7 +498,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
         return rate
 
     async def notify_partner(lead_id: UUID, text: str) -> None:
-        if bot is None:
+        if not notification_bots:
             return
         async with database.session() as db_session:
             telegram_id = await db_session.scalar(
@@ -480,13 +514,18 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             )
         if telegram_id is None:
             return
-        try:
-            await bot.send_message(chat_id=int(telegram_id), text=text)
-        except Exception:
-            logger.exception("Failed to notify partner for lead %s", lead_id)
+        for current_bot in notification_bots:
+            try:
+                await current_bot.send_message(chat_id=int(telegram_id), text=text)
+            except Exception:
+                logger.exception(
+                    "Failed to notify partner for lead %s via bot %s",
+                    lead_id,
+                    current_bot.id,
+                )
 
     async def notify_client(lead_id: UUID, text: str) -> None:
-        if bot is None:
+        if not notification_bots:
             return
         async with database.session() as db_session:
             telegram_id = await db_session.scalar(
@@ -494,10 +533,15 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             )
         if telegram_id is None:
             return
-        try:
-            await bot.send_message(chat_id=int(telegram_id), text=text)
-        except Exception:
-            logger.exception("Failed to notify client for lead %s", lead_id)
+        for current_bot in notification_bots:
+            try:
+                await current_bot.send_message(chat_id=int(telegram_id), text=text)
+            except Exception:
+                logger.exception(
+                    "Failed to notify client for lead %s via bot %s",
+                    lead_id,
+                    current_bot.id,
+                )
 
     @app.get("/", include_in_schema=False)
     async def index() -> HTMLResponse:
@@ -1339,7 +1383,11 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             )
         except DomainError as error:
             raise domain_error(error) from error
-        return {"link": link}
+        start_parameter = link.partition("?start=")[2]
+        return {
+            "link": link,
+            "links": referral_links(start_parameter, link),
+        }
 
     @app.get("/api/channels")
     async def channels(
@@ -1366,6 +1414,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
                 "name": channel.name,
                 "active": channel.active,
                 "link": channel.referral_link,
+                "links": referral_links(channel.referral_code, channel.referral_link),
             }
             for channel, partner_name in rows
         ]
@@ -1401,6 +1450,7 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             "name": channel.name,
             "active": channel.active,
             "link": channel.referral_link,
+            "links": referral_links(channel.referral_code, channel.referral_link),
         }
 
     @app.delete("/api/channels/{channel_id}")
@@ -1440,14 +1490,21 @@ def create_web_app(database: Database, settings: Settings, bot: Bot | None = Non
             )
         except DomainError as error:
             raise domain_error(error) from error
-        if bot is not None:
+        for current_bot in notification_bots:
             try:
-                await bot.send_message(
+                await current_bot.send_message(
                     chat_id=int(payload.telegram_id),
-                    text="Партнёрский кабинет РКО подключён. Отправьте /start, чтобы открыть его.",
+                    text=(
+                        "Партнёрский кабинет РКО подключён. "
+                        "Отправьте /start, чтобы открыть его."
+                    ),
                 )
             except Exception:
-                logger.exception("Failed to send partner access message for %s", partner.id)
+                logger.exception(
+                    "Failed to send partner access message for %s via bot %s",
+                    partner.id,
+                    current_bot.id,
+                )
         return {"id": str(partner.id), "status": "access_bound"}
 
     @app.patch("/api/partners/{partner_id}")

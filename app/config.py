@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     bot_token: SecretStr
+    secondary_bot_token: SecretStr = SecretStr("")
     database_url: str = "postgresql+asyncpg://rko:rko@localhost:5432/rko"
     app_env: Literal["development", "test", "production"] = "development"
     log_level: str = "INFO"
@@ -35,6 +36,14 @@ class Settings(BaseSettings):
         return frozenset(
             item.strip() for item in self.admin_telegram_ids.split(",") if item.strip().isdigit()
         )
+
+    @property
+    def bot_tokens(self) -> tuple[str, ...]:
+        tokens = (
+            self.bot_token.get_secret_value().strip(),
+            self.secondary_bot_token.get_secret_value().strip(),
+        )
+        return tuple(dict.fromkeys(token for token in tokens if token))
 
     @property
     def admin_usernames(self) -> frozenset[str]:

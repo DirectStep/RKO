@@ -12,6 +12,20 @@ def test_settings_accept_required_token() -> None:
     assert settings.database_url.startswith("postgresql+asyncpg://")
 
 
+def test_settings_exposes_unique_primary_and_secondary_bot_tokens() -> None:
+    settings = Settings(
+        bot_token="123456:primary-token",
+        secondary_bot_token="654321:secondary-token",
+        app_env="test",
+    )
+
+    assert settings.bot_tokens == (
+        "123456:primary-token",
+        "654321:secondary-token",
+    )
+    assert "secondary-token" not in repr(settings)
+
+
 def test_database_hides_query_parameters_in_errors() -> None:
     settings = Settings(bot_token="123456:test-token", app_env="test")
     database = Database(settings)

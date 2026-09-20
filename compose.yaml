@@ -22,6 +22,7 @@ services:
         required: false
     environment:
       BOT_TOKEN: ${BOT_TOKEN:-}
+      SECONDARY_BOT_TOKEN: ${SECONDARY_BOT_TOKEN:-}
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://rko:rko@db:5432/rko}
       APP_ENV: ${APP_ENV:-development}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}

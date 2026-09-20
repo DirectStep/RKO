@@ -705,21 +705,27 @@ async def confirm_application(
     callback: CallbackQuery,
     state: FSMContext,
     database: Database,
-    bot: Bot,
+    notification_bots: tuple[Bot, ...],
     settings: Settings,
 ) -> None:
     await state.set_state(LeadApplication.submitting)
     await callback.answer()
     if isinstance(callback.message, Message):
         await callback.message.edit_reply_markup(reply_markup=None)
-        await finish_application(callback.message, state, database, bot, settings)
+        await finish_application(
+            callback.message,
+            state,
+            database,
+            notification_bots,
+            settings,
+        )
 
 
 async def finish_application(
     message: Message,
     state: FSMContext,
     database: Database,
-    bot: Bot,
+    notification_bots: tuple[Bot, ...],
     settings: Settings,
 ) -> None:
     await state.set_state(LeadApplication.submitting)
@@ -762,7 +768,11 @@ async def finish_application(
                 "Скоро с вами свяжется специалист."
             )
             if result.lead_id is not None:
-                await notify_responsible_admins(bot, database, result.lead_id)
+                await notify_responsible_admins(
+                    notification_bots,
+                    database,
+                    result.lead_id,
+                )
         else:
             await message.answer(
                 f"Заявка {result.short_id} сохранена. К сожалению, по текущим "
@@ -778,16 +788,24 @@ async def retry_submission(
     callback: CallbackQuery,
     state: FSMContext,
     database: Database,
-    bot: Bot,
+    notification_bots: tuple[Bot, ...],
     settings: Settings,
 ) -> None:
     await callback.answer()
     if isinstance(callback.message, Message):
         await callback.message.edit_reply_markup(reply_markup=None)
-        await finish_application(callback.message, state, database, bot, settings)
+        await finish_application(
+            callback.message,
+            state,
+            database,
+            notification_bots,
+            settings,
+        )
 
 
-async def notify_responsible_admins(bot: Bot, database: Database, lead_id: UUID) -> None:
+async def notify_responsible_admins(
+    bots: tuple[Bot, ...], database: Database, lead_id: UUID
+) -> None:
     async with database.session() as session:
         lead = await session.get(Lead, lead_id)
         channel = (
@@ -821,19 +839,26 @@ async def notify_responsible_admins(bot: Bot, database: Database, lead_id: UUID)
     if lead is None:
         return
     city = lead.questionnaire_answers.get("city") or "Не указан"
-    for telegram_id in recipient_ids:
-        try:
-            await bot.send_message(
-                chat_id=int(telegram_id),
-                text=(
-                    f"{'Повторная' if lead.is_repeat else 'Новая'} заявка {lead.short_id}\n\n"
-                    f"Источник: {channel.name if channel else 'Прямая заявка'}\n"
-                    f"Город: {city}"
-                ),
-                reply_markup=admin_new_lead_keyboard(str(lead.id)),
-            )
-        except Exception:
-            logger.exception("Failed to notify admin %s about lead %s", telegram_id, lead.id)
+    for bot in bots:
+        for telegram_id in recipient_ids:
+            try:
+                await bot.send_message(
+                    chat_id=int(telegram_id),
+                    text=(
+                        f"{'Повторная' if lead.is_repeat else 'Новая'} заявка "
+                        f"{lead.short_id}\n\n"
+                        f"Источник: {channel.name if channel else 'Прямая заявка'}\n"
+                        f"Город: {city}"
+                    ),
+                    reply_markup=admin_new_lead_keyboard(str(lead.id)),
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to notify admin %s about lead %s via bot %s",
+                    telegram_id,
+                    lead.id,
+                    bot.id,
+                )
 
 
 def parse_answer_callback(value: str) -> tuple[int, str]:

@@ -25,7 +25,10 @@ async def run() -> None:
     settings = get_settings()
     configure_logging(settings.log_level)
     database = Database(settings)
-    bot = Bot(token=settings.bot_token.get_secret_value())
+    bots = tuple(Bot(token=token) for token in settings.bot_tokens)
+    bot = bots[0]
+    bot_users = await asyncio.gather(*(current_bot.get_me() for current_bot in bots))
+    bot_usernames = tuple(user.username for user in bot_users if user.username)
     dispatcher = Dispatcher(events_isolation=SimpleEventIsolation())
     dispatcher.include_router(admin_router)
     dispatcher.include_router(admin_catalog_router)
@@ -36,7 +39,7 @@ async def run() -> None:
     reports_task = asyncio.create_task(run_weekly_reports(database, bot, settings.project_timezone))
     web_server = uvicorn.Server(
         uvicorn.Config(
-            create_web_app(database, settings, bot),
+            create_web_app(database, settings, bot, bots[1:], bot_usernames),
             host=settings.mini_app_host,
             port=settings.mini_app_port,
             log_level=settings.log_level.lower(),
@@ -44,10 +47,21 @@ async def run() -> None:
     )
     web_task = asyncio.create_task(web_server.serve())
 
-    logger.info("Starting RKO bot in %s environment", settings.app_env)
+    logger.info(
+        "Starting %s RKO bot(s) in %s environment: %s",
+        len(bots),
+        settings.app_env,
+        ", ".join(f"@{username}" for username in bot_usernames),
+    )
     try:
         await database.ping()
-        await dispatcher.start_polling(bot, database=database, settings=settings)
+        await dispatcher.start_polling(
+            *bots,
+            database=database,
+            settings=settings,
+            notification_bots=bots,
+            close_bot_session=False,
+        )
     finally:
         sheets_task.cancel()
         bank_rates_task.cancel()
@@ -63,7 +77,8 @@ async def run() -> None:
             await reports_task
         web_server.should_exit = True
         await web_task
-        await bot.session.close()
+        for current_bot in bots:
+            await current_bot.session.close()
         await database.close()
 
 
