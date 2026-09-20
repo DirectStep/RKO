@@ -26,7 +26,7 @@ from app.bot.keyboards import (
     yes_no_keyboard,
 )
 from app.bot.states import LeadApplication
-from app.bot.texts import CONSENT_PROMPT, CONSENT_TEXT, START_TEXT
+from app.bot.texts import CONSENT_PROMPT, CONSENT_TEXT, PARTNER_START_TEXT, START_TEXT
 from app.config import Settings
 from app.database import Database
 from app.domain.enums import AccessStatus, LeadWorkflowStage, UserRole
@@ -121,7 +121,7 @@ async def start(
             await message.answer("Сотрудника нельзя активировать как партнёра.")
             return
         try:
-            partner = await WorkflowService(database).activate_partner_with_token(
+            await WorkflowService(database).activate_partner_with_token(
                 telegram_id=str(user.id),
                 telegram_username=user.username,
                 token=requested_referral_code.removeprefix("partner_"),
@@ -130,7 +130,8 @@ async def start(
             await message.answer(str(error))
             return
         await message.answer(
-            f"Партнёрский кабинет «{partner.name}» активирован.",
+            PARTNER_START_TEXT,
+            parse_mode="HTML",
             reply_markup=partner_menu_keyboard(settings.mini_app_url),
         )
         return
@@ -148,8 +149,8 @@ async def start(
         return
     if role is UserRole.PARTNER:
         await message.answer(
-            "Партнёрский кабинет. Здесь видны только подтверждённые заявки "
-            "вашего источника — без личных данных клиента.",
+            PARTNER_START_TEXT,
+            parse_mode="HTML",
             reply_markup=partner_menu_keyboard(settings.mini_app_url),
         )
         return
@@ -191,7 +192,7 @@ async def start(
     start_text = START_TEXT
     if requested_referral_code and first_click.is_new and first_click.referral_code is None:
         start_text = f"Эта партнёрская ссылка недействительна или отключена.\n\n{START_TEXT}"
-    await message.answer(start_text, reply_markup=continue_keyboard())
+    await message.answer(start_text, parse_mode="HTML", reply_markup=continue_keyboard())
 
 
 @router.callback_query(F.data == "manager:leads")
@@ -489,7 +490,11 @@ async def show_privacy_before_application(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "privacy:back")
 async def return_from_privacy(callback: CallbackQuery) -> None:
     if isinstance(callback.message, Message):
-        await callback.message.edit_text(START_TEXT, reply_markup=continue_keyboard())
+        await callback.message.edit_text(
+            START_TEXT,
+            parse_mode="HTML",
+            reply_markup=continue_keyboard(),
+        )
     await callback.answer()
 
 
