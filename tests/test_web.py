@@ -237,6 +237,8 @@ def test_manager_dashboard_and_queue_are_simplified() -> None:
     assert "Только мои" not in scope
     assert "Все заявки" not in scope
     assert "state.session.role==='manager'&&index>1" in script
+    assert "document.querySelector('#banks-tab').hidden=!admin" in script
+    assert "style.setProperty('--tab-count',admin?5:3)" in script
 
 
 def test_team_has_direct_telegram_chat_action() -> None:
