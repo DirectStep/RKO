@@ -430,3 +430,9 @@ def test_public_documents_use_short_cache_lifetime() -> None:
 
     assert 'request.url.path.startswith("/documents/")' in source
     assert 'response.headers["Cache-Control"] = "public, max-age=300"' in source
+
+
+def test_client_faq_does_not_include_legality_question() -> None:
+    markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
+
+    assert "Легально ли это?" not in markup
