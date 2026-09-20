@@ -51,28 +51,49 @@ class WorkflowService:
         if telegram_id is not None:
             self._validate_telegram_id(telegram_id)
         async with self.database.session() as session, session.begin():
+            partner_by_username = await session.scalar(
+                select(Partner)
+                .where(func.lower(Partner.telegram_username) == username.lower())
+                .with_for_update()
+            )
             existing = await session.scalar(
-                select(User).where(
+                select(User)
+                .where(
                     (User.telegram_id == telegram_id)
                     if telegram_id is not None
                     else func.lower(User.telegram_username) == username.lower()
                 )
+                .with_for_update()
             )
-            if existing is not None:
-                linked_partner = await session.scalar(
-                    select(Partner.id).where(Partner.telegram_user_id == existing.id)
+            if (
+                existing is None
+                and partner_by_username is not None
+                and partner_by_username.telegram_user_id is not None
+            ):
+                existing = await session.get(
+                    User,
+                    partner_by_username.telegram_user_id,
+                    with_for_update=True,
                 )
-                if linked_partner is not None:
-                    raise DomainError("Этот пользователь уже привязан как партнёр")
+            if existing is not None:
+                linked_partners = list(
+                    await session.scalars(
+                        select(Partner)
+                        .where(
+                            (Partner.telegram_user_id == existing.id)
+                            | (func.lower(Partner.telegram_username) == username.lower())
+                        )
+                        .with_for_update()
+                    )
+                )
+                for partner in linked_partners:
+                    partner.active = False
                 existing.telegram_username = username
                 existing.role = role
                 existing.access_status = AccessStatus.ACTIVE
                 return existing
-            partner_username = await session.scalar(
-                select(Partner.id).where(func.lower(Partner.telegram_username) == username.lower())
-            )
-            if partner_username is not None:
-                raise DomainError("Этот username уже указан у партнёра")
+            if partner_by_username is not None:
+                partner_by_username.active = False
             user = User(
                 telegram_id=telegram_id,
                 telegram_username=username,

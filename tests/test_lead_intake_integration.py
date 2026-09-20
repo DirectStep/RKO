@@ -10,6 +10,7 @@ from sqlalchemy import delete, func, select
 from app.config import Settings
 from app.database import Database
 from app.domain.enums import (
+    AccessStatus,
     AssignmentStatus,
     BankInternalStatus,
     DuplicateResolution,
@@ -316,6 +317,62 @@ async def test_staff_invite_is_claimed_by_username_without_telegram_id() -> None
         async with database.session() as session, session.begin():
             if invited_user_id is not None:
                 await session.execute(delete(User).where(User.id == invited_user_id))
+        await database.close()
+
+
+@pytest.mark.asyncio
+async def test_admin_can_convert_partner_into_manager() -> None:
+    settings = Settings(
+        bot_token="123456:test-token",
+        app_env="test",
+        database_url=TEST_DATABASE_URL or "postgresql+asyncpg://unused",
+    )
+    database = Database(settings)
+    suffix = str(uuid4().int)[:10]
+    username = f"partner_{suffix}"
+    user_id = partner_id = None
+    try:
+        async with database.session() as session, session.begin():
+            partner_user = User(
+                telegram_id=f"79{suffix}",
+                telegram_username=username,
+                role=UserRole.PARTNER,
+            )
+            session.add(partner_user)
+            await session.flush()
+            partner = Partner(
+                name=f"Партнёр для менеджера {suffix}",
+                telegram_username=username,
+                telegram_user_id=partner_user.id,
+                commission_percent=Decimal("20.00"),
+            )
+            session.add(partner)
+            await session.flush()
+            user_id, partner_id = partner_user.id, partner.id
+
+        manager = await WorkflowService(database).create_staff(
+            actor_role=UserRole.ADMIN,
+            telegram_username=username,
+            role=UserRole.MANAGER,
+        )
+
+        assert manager.id == user_id
+        assert manager.role is UserRole.MANAGER
+        assert manager.access_status is AccessStatus.ACTIVE
+        async with database.session() as session:
+            converted_partner = await session.get(Partner, partner_id)
+            assert converted_partner is not None
+            assert converted_partner.active is False
+        role = await UserAccessService(database, settings).resolve_role(
+            manager.telegram_id or "", username
+        )
+        assert role is UserRole.MANAGER
+    finally:
+        async with database.session() as session, session.begin():
+            if partner_id is not None:
+                await session.execute(delete(Partner).where(Partner.id == partner_id))
+            if user_id is not None:
+                await session.execute(delete(User).where(User.id == user_id))
         await database.close()
 
 
