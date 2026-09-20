@@ -423,3 +423,10 @@ def test_public_consent_documents_are_packaged_as_pdf() -> None:
 
     assert consent.read_bytes().startswith(b"%PDF-")
     assert policy.read_bytes().startswith(b"%PDF-")
+
+
+def test_public_documents_use_short_cache_lifetime() -> None:
+    source = (Path(__file__).parents[1] / "app" / "web.py").read_text(encoding="utf-8")
+
+    assert 'request.url.path.startswith("/documents/")' in source
+    assert 'response.headers["Cache-Control"] = "public, max-age=300"' in source

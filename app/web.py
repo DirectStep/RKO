@@ -324,8 +324,10 @@ def create_web_app(
         if request.url.path == "/":
             response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
             response.headers["Pragma"] = "no-cache"
-        elif request.url.path.startswith(("/assets/", "/documents/")):
+        elif request.url.path.startswith("/assets/"):
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        elif request.url.path.startswith("/documents/"):
+            response.headers["Cache-Control"] = "public, max-age=300"
         return response
 
     async def current_user(
