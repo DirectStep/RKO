@@ -297,6 +297,8 @@ async function openLead(id){
     if(managerRole&&lead.workflow_stage==='awaiting_manager'&&lead.is_assigned_manager){
       await api(`/api/leads/${lead.id}/claim-manager`,{method:'POST',body:'{}'})
       lead=await api(`/api/leads/${id}`)
+      state.leadScope='mine'
+      document.querySelector('#lead-scope').value='mine'
       await load()
     }
     const editable=!partner&&!lead.archived
@@ -341,7 +343,7 @@ function openPartnerBank(lead,index){
 }
 function bindLeadActions(lead,admin){
   document.querySelector('#save-lead-manager')?.addEventListener('click',async()=>{const managerId=document.querySelector('#lead-manager').value;if(managerId===lead.manager_id)return toast('Этот менеджер уже назначен');await api(`/api/leads/${lead.id}`,{method:'PATCH',body:JSON.stringify({manager_id:managerId,update_manager:true})});toast('Менеджер сопровождения изменён');await openLead(lead.id);await load()})
-  document.querySelector('#claim-manager')?.addEventListener('click',async()=>{await api(`/api/leads/${lead.id}/claim-manager`,{method:'POST',body:'{}'});toast('Заявка взята в сопровождение');await load();await openLead(lead.id)})
+  document.querySelector('#claim-manager')?.addEventListener('click',async()=>{await api(`/api/leads/${lead.id}/claim-manager`,{method:'POST',body:'{}'});state.leadScope='mine';document.querySelector('#lead-scope').value='mine';toast('Заявка взята в сопровождение');await load();await openLead(lead.id)})
   document.querySelectorAll('[data-lead-status]').forEach(button=>button.addEventListener('click',async()=>{ if(button.dataset.leadStatus===lead.status)return; document.querySelectorAll('[data-lead-status]').forEach(item=>item.disabled=true); await api(`/api/leads/${lead.id}`,{method:'PATCH',body:JSON.stringify({internal_status:button.dataset.leadStatus})}); toast('Статус изменён'); await openLead(lead.id); await load() }))
   document.querySelector('#save-lead')?.addEventListener('click',async()=>{ await api(`/api/leads/${lead.id}`,{method:'PATCH',body:JSON.stringify({update_manager:false,internal_comment:document.querySelector('#lead-comment').value,update_comment:true})}); toast('Комментарий сохранён'); await openLead(lead.id); await load() })
   document.querySelector('#show-delete-lead')?.addEventListener('click',()=>{document.querySelector('#show-delete-lead').hidden=true;document.querySelector('#delete-lead-confirm').hidden=false})

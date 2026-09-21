@@ -425,6 +425,8 @@ def test_manager_queue_moves_to_work_only_when_application_is_opened() -> None:
     assert "lead.workflow_stage==='awaiting_manager'?'Новая'" in script
     assert "managerRole&&lead.workflow_stage==='awaiting_manager'" in script
     assert "await api(`/api/leads/${lead.id}/claim-manager`" in script
+    assert "state.leadScope='mine'" in script
+    assert "document.querySelector('#lead-scope').value='mine'" in script
 
 
 def test_admin_cannot_change_source_and_can_review_duplicates() -> None:
