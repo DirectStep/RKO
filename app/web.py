@@ -240,6 +240,14 @@ def format_user_name(user: User | None) -> str:
     return user.telegram_id or "Ожидает входа"
 
 
+def telegram_contact_url(user: User | None) -> str:
+    if user is None:
+        return ""
+    if user.telegram_username:
+        return f"https://t.me/{user.telegram_username}"
+    return f"tg://user?id={user.telegram_id}" if user.telegram_id else ""
+
+
 def serialize_lead_bank(
     lead_bank: LeadBank,
     bank: Bank,
@@ -673,7 +681,13 @@ def create_web_app(
         lead_id = require_lead(user)
         async with database.session() as db_session:
             lead = await db_session.get(Lead, lead_id)
-            manager_id = lead.manager_id or lead.primary_admin_id if lead is not None else None
+            admin_id = lead.primary_admin_id if lead is not None else None
+            admin = await db_session.get(User, admin_id) if admin_id is not None else None
+            manager_id = (
+                lead.manager_id
+                if lead is not None and lead.bank_selection_submitted_at is not None
+                else None
+            )
             manager = await db_session.get(User, manager_id) if manager_id is not None else None
             lead_banks = list(
                 await db_session.scalars(
@@ -685,7 +699,6 @@ def create_web_app(
             )
         if lead is None:
             raise HTTPException(status_code=404, detail="Заявка не найдена")
-        manager_username = manager.telegram_username if manager else None
         planned_accounts = sum(
             bank.external_status.value in {"planned", "in_progress"} for bank in lead_banks
         )
@@ -708,8 +721,10 @@ def create_web_app(
             "status": lead.external_status.value,
             "workflow_stage": lead.workflow_stage.value,
             "is_repeat": lead.is_repeat,
+            "admin": format_user_name(admin),
+            "admin_url": telegram_contact_url(admin),
             "manager": format_user_name(manager),
-            "manager_url": (f"https://t.me/{manager_username}" if manager_username else ""),
+            "manager_url": telegram_contact_url(manager),
             "metrics": {
                 "planned_accounts": planned_accounts,
                 "activated_accounts": activated_accounts,

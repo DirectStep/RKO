@@ -21,6 +21,7 @@ from app.web import (
     lead_bank_sort_key,
     public_referral_links,
     serialize_lead_bank,
+    telegram_contact_url,
     validate_telegram_init_data,
     validate_telegram_init_data_with_tokens,
 )
@@ -307,6 +308,25 @@ def test_ineligible_leads_are_notified_and_highlighted_for_staff() -> None:
     assert "lead.workflow_stage==='not_eligible'" in script
     assert "is-not-eligible" in script
     assert "button.list-row.is-not-eligible" in styles
+
+
+def test_lead_sees_admin_before_manager_and_manager_only_after_bank_selection() -> None:
+    backend = (ASSETS_DIR.parent / "web.py").read_text(encoding="utf-8")
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "lead.bank_selection_submitted_at is not None" in backend
+    assert '"admin_url"' in backend
+    assert '"manager_url"' in backend
+    assert "<small>Администратор</small>" in script
+    assert "<small>Персональный менеджер</small>" in script
+    assert "${admin}${manager}" in script
+
+    assert telegram_contact_url(SimpleNamespace(telegram_username="xirasS", telegram_id="1")) == (
+        "https://t.me/xirasS"
+    )
+    assert telegram_contact_url(SimpleNamespace(telegram_username=None, telegram_id="123")) == (
+        "tg://user?id=123"
+    )
 
 
 def test_partner_paid_total_is_the_first_full_width_metric() -> None:
