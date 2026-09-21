@@ -51,6 +51,37 @@ pytestmark = pytest.mark.skipif(
 
 
 @pytest.mark.asyncio
+async def test_default_support_manager_must_remain_active() -> None:
+    database = Database(
+        Settings(
+            bot_token="123456:test-token",
+            app_env="test",
+            database_url=TEST_DATABASE_URL or "postgresql+asyncpg://unused",
+        )
+    )
+    try:
+        async with database.session() as session, session.begin():
+            manager = await session.scalar(
+                select(User).where(func.lower(User.telegram_username) == "anutka_rko")
+            )
+            assert manager is not None
+            manager.access_status = AccessStatus.BLOCKED
+
+        async with database.session() as session, session.begin():
+            with pytest.raises(RuntimeError, match="активным менеджером"):
+                await LeadIntakeService._default_support_manager_id(session)
+    finally:
+        async with database.session() as session, session.begin():
+            manager = await session.scalar(
+                select(User).where(func.lower(User.telegram_username) == "anutka_rko")
+            )
+            if manager is not None:
+                manager.role = UserRole.MANAGER
+                manager.access_status = AccessStatus.ACTIVE
+        await database.close()
+
+
+@pytest.mark.asyncio
 async def test_admin_reassigns_source_and_resolves_duplicate_as_separate_lead() -> None:
     database = Database(
         Settings(
@@ -646,19 +677,19 @@ async def test_two_stage_lead_claim_and_bank_selection() -> None:
             )
         assert first_selections == {bank_id: True, second_bank_id: False}
 
-        lead = await workflow.claim_by_manager(
-            actor_role=UserRole.MANAGER,
-            actor_id=manager_id,
+        await WorkflowService(database).update_lead(
+            actor_role=UserRole.ADMIN,
+            actor_user_id=admin_id,
             lead_id=lead_id,
+            manager_id=manager_id,
+            update_manager=True,
         )
-        assert lead.workflow_stage is LeadWorkflowStage.MANAGER_PROCESSING
-        assert lead.primary_admin_id == admin_id
-        assert lead.manager_id == manager_id
-
         lead = await workflow.submit_bank_selection(
             lead_id=lead_id, selected_bank_ids={second_bank_id}
         )
         assert lead.workflow_stage is LeadWorkflowStage.MANAGER_PROCESSING
+        assert lead.primary_admin_id == admin_id
+        assert lead.manager_id == manager_id
         async with database.session() as session:
             selections = dict(
                 (

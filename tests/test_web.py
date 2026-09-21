@@ -11,6 +11,7 @@ import pytest
 from app.domain.enums import BankExternalStatus, BankInternalStatus, PaymentStatus, UserRole
 from app.web import (
     build_mini_app_html,
+    lead_bank_sort_key,
     serialize_lead_bank,
     validate_telegram_init_data,
     validate_telegram_init_data_with_tokens,
@@ -250,6 +251,27 @@ def test_team_has_direct_telegram_chat_action() -> None:
     assert 'class="staff-toggle"' in script
 
 
+def test_admin_can_assign_active_or_pending_support_manager() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "item.role==='manager'" in script
+    assert "['active','pending'].includes(item.status)" in script
+    assert 'id="lead-manager"' in script
+    assert 'id="save-lead-manager"' in script
+    assert "manager_id:managerId,update_manager:true" in script
+
+
+def test_new_leads_use_anutka_as_default_support_manager() -> None:
+    intake = (ASSETS_DIR.parent / "services" / "lead_intake.py").read_text(encoding="utf-8")
+
+    assert 'DEFAULT_SUPPORT_MANAGER_USERNAME = "anutka_rko"' in intake
+    assert "default_manager_id = await self._default_support_manager_id(session)" in intake
+    assert "manager_id=default_manager_id" in intake
+    assert "len(managers) != 1" in intake
+    assert "manager.role is not UserRole.MANAGER" in intake
+    assert "manager.access_status is not AccessStatus.ACTIVE" in intake
+
+
 def test_partner_paid_total_is_the_first_full_width_metric() -> None:
     markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
 
@@ -446,3 +468,50 @@ def test_unfinished_lead_draft_gets_questionnaire_hint() -> None:
     assert "select(LeadDraft).where(LeadDraft.telegram_id == telegram_id)" in source
     assert "Сначала ответьте на вопросы в боте." in source
     assert "кабинет станет доступен." in source
+
+
+def test_lead_banks_are_sorted_by_activation_then_payout() -> None:
+    banks = [
+        {
+            "bank": "Оборот большой",
+            "action_text": "Сделать оборот",
+            "lead_payout": "5000",
+            "order": 1,
+        },
+        {
+            "bank": "Тариф дешевле",
+            "action_text": "Оплатить тариф",
+            "lead_payout": "1000",
+            "order": 2,
+        },
+        {
+            "bank": "Открытие меньше",
+            "action_text": "Открыть счёт",
+            "lead_payout": "700",
+            "order": 3,
+        },
+        {
+            "bank": "Холд",
+            "action_text": "Удерживать сумму 4 дня",
+            "lead_payout": "1500",
+            "order": 4,
+        },
+        {
+            "bank": "Открытие больше",
+            "action_text": "Открытие счёта",
+            "lead_payout": "1700",
+            "order": 5,
+        },
+        {"bank": "Без условия", "action_text": "", "lead_payout": "9000", "order": 6},
+    ]
+
+    ordered = sorted(banks, key=lead_bank_sort_key)
+
+    assert [bank["bank"] for bank in ordered] == [
+        "Открытие больше",
+        "Открытие меньше",
+        "Тариф дешевле",
+        "Холд",
+        "Оборот большой",
+        "Без условия",
+    ]

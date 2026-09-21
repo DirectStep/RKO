@@ -8,8 +8,9 @@ import logging
 import time
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
-from typing import Annotated, cast
+from typing import Annotated
 from urllib.parse import parse_qsl
 from uuid import UUID
 
@@ -103,6 +104,33 @@ def online_bank_info(bank_name: str, online_text: str) -> dict[str, object]:
             "Оформить КЭП можно бесплатно в офисе Сбера или ВТБ после открытия счёта"
         )
     return {"online_available": available, "online_help": help_text}
+
+
+def lead_bank_sort_key(item: dict[str, object]) -> tuple[int, Decimal, int, str]:
+    action = str(item.get("action_text") or "").casefold()
+    conditions = (
+        ("откры",),
+        ("тариф",),
+        ("холд", "удерж"),
+        ("оборот",),
+    )
+    priority = next(
+        (
+            index
+            for index, markers in enumerate(conditions)
+            if any(marker in action for marker in markers)
+        ),
+        len(conditions),
+    )
+    payout = Decimal(str(item.get("lead_payout") or "0"))
+    order_value = item.get("order")
+    order = order_value if isinstance(order_value, int) else int(str(order_value or 0))
+    return (
+        priority,
+        -payout,
+        order,
+        str(item.get("bank") or "").casefold(),
+    )
 
 
 def build_mini_app_html() -> str:
@@ -721,12 +749,7 @@ def create_web_app(
                     "updated": lead_bank.last_updated_at.isoformat(),
                 }
             )
-        result.sort(
-            key=lambda item: (
-                cast(int, item["order"]),
-                cast(str, item["bank"]),
-            )
-        )
+        result.sort(key=lead_bank_sort_key)
         return result
 
     @app.post("/api/lead/banks/selection")
@@ -742,9 +765,12 @@ def create_web_app(
             )
         except DomainError as error:
             raise domain_error(error) from error
+        async with database.session() as db_session:
+            manager = await db_session.get(User, lead.manager_id) if lead.manager_id else None
         await notify_client(
             lead.id,
-            "Спасибо, выбор отправлен. Скоро назначим персонального менеджера. "
+            f"Спасибо, выбор отправлен. Менеджер сопровождения: {format_user_name(manager)}. "
+            "Скоро с вами свяжутся. "
             "Для сопровождения создадим отдельную группу: там будут все инструкции, "
             "и там можно будет задать любые вопросы.",
         )
@@ -1380,7 +1406,7 @@ def create_web_app(
     async def create_partner_activation_link(
         partner_id: UUID,
         user: Annotated[MiniAppUser, Depends(current_user)],
-    ) -> dict[str, str]:
+    ) -> dict[str, object]:
         admin_id = require_admin(user)
         if bot is None:
             raise HTTPException(status_code=503, detail="Бот временно недоступен")
@@ -1508,8 +1534,7 @@ def create_web_app(
                 await current_bot.send_message(
                     chat_id=int(payload.telegram_id),
                     text=(
-                        "Партнёрский кабинет РКО подключён. "
-                        "Отправьте /start, чтобы открыть его."
+                        "Партнёрский кабинет РКО подключён. Отправьте /start, чтобы открыть его."
                     ),
                 )
             except Exception:

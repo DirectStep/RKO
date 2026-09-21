@@ -107,8 +107,12 @@ class LeadWorkflowService:
                     lead_bank.selected_by_lead = False
             now = datetime.now(UTC)
             if lead.workflow_stage is LeadWorkflowStage.AWAITING_CLIENT_SELECTION:
-                lead.workflow_stage = LeadWorkflowStage.AWAITING_MANAGER
-                lead.internal_status = LeadInternalStatus.DATA_RECEIVED
+                if lead.manager_id is not None:
+                    lead.workflow_stage = LeadWorkflowStage.MANAGER_PROCESSING
+                    lead.internal_status = LeadInternalStatus.PREPARING_APPLICATIONS
+                else:
+                    lead.workflow_stage = LeadWorkflowStage.AWAITING_MANAGER
+                    lead.internal_status = LeadInternalStatus.DATA_RECEIVED
                 lead.external_status = external_lead_status(lead.internal_status)
             lead.bank_selection_submitted_at = now
             lead.last_updated_at = now

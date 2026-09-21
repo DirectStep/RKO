@@ -4,11 +4,12 @@ from enum import StrEnum
 from typing import cast
 from uuid import UUID
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import Database
 from app.domain.enums import (
+    AccessStatus,
     AssignmentStatus,
     LeadExternalStatus,
     LeadInternalStatus,
@@ -18,6 +19,8 @@ from app.domain.enums import (
 from app.domain.intake import is_eligible
 from app.domain.operations import DomainError
 from app.models import Channel, DuplicateLeadReview, Lead, LeadDraft, Partner, User
+
+DEFAULT_SUPPORT_MANAGER_USERNAME = "anutka_rko"
 
 
 class SubmissionStatus(StrEnum):
@@ -47,6 +50,25 @@ class FirstClick:
 class LeadIntakeService:
     def __init__(self, database: Database) -> None:
         self.database = database
+
+    @staticmethod
+    async def _default_support_manager_id(session: AsyncSession) -> UUID:
+        managers = list(
+            await session.scalars(
+                select(User)
+                .where(
+                    func.lower(User.telegram_username)
+                    == DEFAULT_SUPPORT_MANAGER_USERNAME.casefold()
+                )
+                .with_for_update()
+            )
+        )
+        if len(managers) != 1:
+            raise RuntimeError("Должен существовать ровно один пользователь @anutka_rko")
+        manager = managers[0]
+        if manager.role is not UserRole.MANAGER or manager.access_status is not AccessStatus.ACTIVE:
+            raise RuntimeError("@anutka_rko должен быть активным менеджером")
+        return manager.id
 
     async def record_first_click(
         self, *, telegram_id: str, referral_code: str | None, clicked_at: datetime
@@ -200,6 +222,7 @@ class LeadIntakeService:
                 primary_admin_id = await session.scalar(
                     select(Partner.assigned_manager_id).where(Partner.id == channel.partner_id)
                 )
+            default_manager_id = await self._default_support_manager_id(session)
             lead = Lead(
                 short_id=short_id,
                 telegram_id=telegram_id,
@@ -276,6 +299,7 @@ class LeadIntakeService:
                     else LeadExternalStatus.CLOSED_WITHOUT_RESULT
                 ),
                 primary_admin_id=primary_admin_id,
+                manager_id=default_manager_id,
                 questionnaire_answers=answers,
                 first_click_at=first_click_at,
                 application_at=now,
