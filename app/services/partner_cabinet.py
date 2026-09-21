@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import TypedDict
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 
 from app.database import Database
 from app.domain.enums import AssignmentStatus, BankExternalStatus, LeadExternalStatus, PaymentStatus
@@ -140,7 +140,13 @@ async def partner_cabinet_data(
             await session.execute(
                 select(Lead, Channel, LeadBank, Bank, Payment)
                 .join(Channel, Channel.id == Lead.channel_id)
-                .outerjoin(LeadBank, LeadBank.lead_id == Lead.id)
+                .outerjoin(
+                    LeadBank,
+                    and_(
+                        LeadBank.lead_id == Lead.id,
+                        LeadBank.selected_by_lead.is_(True),
+                    ),
+                )
                 .outerjoin(Bank, Bank.id == LeadBank.bank_id)
                 .outerjoin(Payment, Payment.lead_bank_id == LeadBank.id)
                 .where(

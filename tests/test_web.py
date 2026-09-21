@@ -269,6 +269,14 @@ def test_partner_summary_uses_clear_application_and_payment_metrics() -> None:
     assert "Конверсия" not in markup
 
 
+def test_partner_metrics_include_only_banks_selected_by_leads() -> None:
+    source = (ASSETS_DIR.parent / "services" / "partner_cabinet.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "LeadBank.selected_by_lead.is_(True)" in source
+
+
 def test_lead_cabinet_has_separate_read_only_sections() -> None:
     markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
