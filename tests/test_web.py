@@ -491,12 +491,23 @@ def test_partner_does_not_see_lead_telegram_username() -> None:
     assert "Имя или номер заявки" in script
 
 
-def test_admin_contact_actions_and_partner_bank_order_are_present() -> None:
+def test_admin_contact_actions_copy_phone_and_email() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 
-    assert 'data-contact-link="tel:' in script
-    assert 'data-contact-link="mailto:' in script
-    assert "window.location.assign(contactLink.dataset.contactLink)" in script
+    assert 'data-copy-contact="${encodeURIComponent(String(lead.phone||\'\'))}"' in script
+    assert 'data-copy-contact="${encodeURIComponent(String(lead.email))}"' in script
+    assert (
+        "await copyText(decodeURIComponent(copyContact.dataset.copyContact),'Скопировано')"
+        in script
+    )
+    assert "<b>Позвонить</b>" not in script
+    assert 'data-contact-link="tel:' not in script
+    assert 'data-contact-link="mailto:' not in script
+
+
+def test_partner_bank_progress_summary_is_present() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
     assert "Запланировано / в работе / открыто" in script
 
 
