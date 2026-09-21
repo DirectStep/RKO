@@ -511,6 +511,13 @@ def test_partner_bank_progress_summary_is_present() -> None:
     assert "Запланировано / в работе / открыто" in script
 
 
+def test_partner_creates_one_referral_link() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert 'id="create-channel">Создать ссылку</button>' in script
+    assert 'id="create-channel">Создать ссылки</button>' not in script
+
+
 def test_mini_app_has_visible_loading_state() -> None:
     markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
     styles = (ASSETS_DIR / "styles.css").read_text(encoding="utf-8")
