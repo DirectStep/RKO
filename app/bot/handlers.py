@@ -784,12 +784,6 @@ async def finish_application(
                 f"Отлично, заявка {result.short_id} зарегистрирована. "
                 "Скоро с вами свяжется специалист."
             )
-            if result.lead_id is not None:
-                await notify_responsible_admins(
-                    notification_bots,
-                    database,
-                    result.lead_id,
-                )
         else:
             await message.answer(
                 f"Заявка {result.short_id} сохранена. К сожалению, по текущим "
@@ -797,6 +791,12 @@ async def finish_application(
                 "Вы можете подать заявку повторно, если указали что-то неверно "
                 "или ваша ситуация изменилась.",
                 reply_markup=resubmit_application_keyboard(),
+            )
+        if result.lead_id is not None:
+            await notify_responsible_admins(
+                notification_bots,
+                database,
+                result.lead_id,
             )
 
 
@@ -831,12 +831,10 @@ async def notify_responsible_admins(
             else None
         )
         recipient_ids: list[str] = []
-        if lead is not None and lead.partner_id is not None:
+        if lead is not None and lead.primary_admin_id is not None:
             recipient = await session.scalar(
-                select(User.telegram_id)
-                .join(Partner, Partner.assigned_manager_id == User.id)
-                .where(
-                    Partner.id == lead.partner_id,
+                select(User.telegram_id).where(
+                    User.id == lead.primary_admin_id,
                     User.role == UserRole.ADMIN,
                     User.access_status == AccessStatus.ACTIVE,
                 )
@@ -855,18 +853,13 @@ async def notify_responsible_admins(
             )
     if lead is None:
         return
-    city = lead.questionnaire_answers.get("city") or "Не указан"
+    notification_text = format_admin_lead_notification(lead, channel)
     for bot in bots:
         for telegram_id in recipient_ids:
             try:
                 await bot.send_message(
                     chat_id=int(telegram_id),
-                    text=(
-                        f"{'Повторная' if lead.is_repeat else 'Новая'} заявка "
-                        f"{lead.short_id}\n\n"
-                        f"Источник: {channel.name if channel else 'Прямая заявка'}\n"
-                        f"Город: {city}"
-                    ),
+                    text=notification_text,
                     reply_markup=admin_new_lead_keyboard(str(lead.id)),
                 )
             except Exception:
@@ -876,6 +869,21 @@ async def notify_responsible_admins(
                     lead.id,
                     bot.id,
                 )
+
+
+def format_admin_lead_notification(lead: Lead, channel: Channel | None) -> str:
+    city = lead.questionnaire_answers.get("city") or "Не указан"
+    eligibility_notice = (
+        "\n\n🔴 НЕ ПОДХОДИТ ПО УСЛОВИЯМ АНКЕТЫ"
+        if lead.workflow_stage is LeadWorkflowStage.NOT_ELIGIBLE
+        else ""
+    )
+    return (
+        f"{'Повторная' if lead.is_repeat else 'Новая'} заявка {lead.short_id}\n\n"
+        f"Источник: {channel.name if channel else 'Прямая заявка'}\n"
+        f"Город: {city}"
+        f"{eligibility_notice}"
+    )
 
 
 def parse_answer_callback(value: str) -> tuple[int, str]:

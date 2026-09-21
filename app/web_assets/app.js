@@ -94,7 +94,8 @@ function bindReferralLinkCopies(item){
 function leadRow(lead){
   const detail=state.session.role==='partner'?'':lead.phone
   const status=state.session.role==='partner'?(leadLabels[lead.status]||lead.status):(workflowLabels[lead.workflow_stage]||leadLabels[lead.status]||lead.status)
-  return `<button class="list-row" type="button" data-lead="${lead.id}"><span class="row-icon">${initials(lead.name)||'Р'}</span><span class="row-content"><span class="row-title"><strong>${esc(lead.name)}</strong><time>${date(lead.date).slice(0,5)}</time></span><span class="row-subtitle">${esc(lead.short_id)} · ${lead.is_repeat?'Повторная · ':''}${esc(status)}${detail?` · ${esc(detail)}`:''}</span></span></button>`
+  const alert=state.session.role!=='partner'&&lead.workflow_stage==='not_eligible'
+  return `<button class="list-row${alert?' is-not-eligible':''}" type="button" data-lead="${lead.id}"><span class="row-icon">${initials(lead.name)||'Р'}</span><span class="row-content"><span class="row-title"><strong>${esc(lead.name)}</strong><time>${date(lead.date).slice(0,5)}</time></span><span class="row-subtitle">${esc(lead.short_id)} · ${lead.is_repeat?'Повторная · ':''}${esc(status)}${detail?` · ${esc(detail)}`:''}</span></span></button>`
 }
 function renderLeads(items,target){ target.innerHTML=items.length?items.map(leadRow).join(''):'<p class="empty">Заявок пока нет</p>' }
 function updateLeadCount(count){ document.querySelector('#lead-count').textContent=`Показано: ${count}` }

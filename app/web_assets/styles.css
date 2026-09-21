@@ -217,6 +217,16 @@ button.list-row {
 }
 
 button.list-row:active { background: color-mix(in srgb, var(--muted) 10%, transparent); }
+button.list-row.is-not-eligible {
+  color: #a92d27;
+  background: color-mix(in srgb, #e85d55 14%, var(--surface));
+}
+button.list-row.is-not-eligible .row-icon { background: #d94b43; }
+button.list-row.is-not-eligible .row-subtitle,
+button.list-row.is-not-eligible time { color: #b33b35; }
+button.list-row.is-not-eligible:active {
+  background: color-mix(in srgb, #e85d55 22%, var(--surface));
+}
 
 .list-row + .list-row .row-content { border-top: 1px solid var(--separator); }
 .row-icon { display: grid; width: 2.75rem; height: 2.75rem; place-items: center; border-radius: 50%; color: #fff; background: #70a7d8; font-weight: 700; }

@@ -1,6 +1,12 @@
+from types import SimpleNamespace
+
 import pytest
 
-from app.bot.handlers import format_application_review, parse_answer_callback
+from app.bot.handlers import (
+    format_admin_lead_notification,
+    format_application_review,
+    parse_answer_callback,
+)
 from app.bot.keyboards import (
     admin_lead_keyboard,
     admin_leads_keyboard,
@@ -16,6 +22,7 @@ from app.bot.keyboards import (
     retry_submission_keyboard,
     yes_no_keyboard,
 )
+from app.domain.enums import LeadWorkflowStage
 from app.domain.intake import (
     QUESTIONS,
     QuestionKind,
@@ -65,10 +72,7 @@ def test_business_questionnaire_contains_contact_and_final_qualification_questio
     bankruptcy_question = next(
         question for question in QUESTIONS if question.key == "has_bankruptcy_or_arrests"
     )
-    assert (
-        bankruptcy_question.text
-        == "Есть ли у вас сейчас банкротства или аресты на счетах?"
-    )
+    assert bankruptcy_question.text == "Есть ли у вас сейчас банкротства или аресты на счетах?"
 
 
 def test_full_name_and_email_are_normalized() -> None:
@@ -152,6 +156,21 @@ def test_application_review_formats_phone_and_answers() -> None:
     assert "Совершеннолетие: Да" in text
     assert "Город: Москва" in text
     assert "Да, всё верно" in text
+
+
+def test_ineligible_lead_notification_has_visible_warning() -> None:
+    lead = SimpleNamespace(
+        is_repeat=False,
+        short_id="RKO-0042",
+        questionnaire_answers={"city": "Москва"},
+        workflow_stage=LeadWorkflowStage.NOT_ELIGIBLE,
+    )
+
+    text = format_admin_lead_notification(lead, None)
+
+    assert "Новая заявка RKO-0042" in text
+    assert "Источник: Прямая заявка" in text
+    assert "🔴 НЕ ПОДХОДИТ ПО УСЛОВИЯМ АНКЕТЫ" in text
 
 
 def test_retry_submission_button_has_stable_callback() -> None:

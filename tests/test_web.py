@@ -288,6 +288,27 @@ def test_new_leads_use_anutka_as_default_support_manager() -> None:
     assert "manager.access_status is not AccessStatus.ACTIVE" in intake
 
 
+def test_direct_leads_use_xirass_as_primary_admin() -> None:
+    intake = (ASSETS_DIR.parent / "services" / "lead_intake.py").read_text(encoding="utf-8")
+
+    assert 'DEFAULT_DIRECT_ADMIN_USERNAME = "xirass"' in intake
+    assert "primary_admin_id = await self._default_direct_admin_id(session)" in intake
+    assert "admin.role is not UserRole.ADMIN" in intake
+    assert "admin.access_status is not AccessStatus.ACTIVE" in intake
+
+
+def test_ineligible_leads_are_notified_and_highlighted_for_staff() -> None:
+    handlers = (ASSETS_DIR.parent / "bot" / "handlers.py").read_text(encoding="utf-8")
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+    styles = (ASSETS_DIR / "styles.css").read_text(encoding="utf-8")
+
+    assert "if result.lead_id is not None:" in handlers
+    assert "🔴 НЕ ПОДХОДИТ ПО УСЛОВИЯМ АНКЕТЫ" in handlers
+    assert "lead.workflow_stage==='not_eligible'" in script
+    assert "is-not-eligible" in script
+    assert "button.list-row.is-not-eligible" in styles
+
+
 def test_partner_paid_total_is_the_first_full_width_metric() -> None:
     markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
 

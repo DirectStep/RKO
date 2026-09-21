@@ -15,6 +15,7 @@ from app.domain.enums import (
 from app.domain.intake import is_eligible
 from app.domain.operations import DomainError
 from app.models import Channel, DuplicateLeadReview, Lead, Partner
+from app.services.lead_intake import LeadIntakeService
 
 
 class DuplicateReviewService:
@@ -93,13 +94,12 @@ class DuplicateReviewService:
                 now = datetime.now(UTC)
                 primary_admin_id = (
                     await session.scalar(
-                        select(Partner.assigned_manager_id).where(
-                            Partner.id == channel.partner_id
-                        )
+                        select(Partner.assigned_manager_id).where(Partner.id == channel.partner_id)
                     )
                     if channel is not None
-                    else None
+                    else await LeadIntakeService._default_direct_admin_id(session)
                 )
+                default_manager_id = await LeadIntakeService._default_support_manager_id(session)
                 result_lead = Lead(
                     short_id=f"RKO-{number:04d}",
                     telegram_id=review.telegram_id,
@@ -142,6 +142,7 @@ class DuplicateReviewService:
                         else LeadExternalStatus.CLOSED_WITHOUT_RESULT
                     ),
                     primary_admin_id=primary_admin_id,
+                    manager_id=default_manager_id,
                     questionnaire_answers=review.questionnaire_answers,
                     first_click_at=review.first_click_at,
                     application_at=now,

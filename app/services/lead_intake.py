@@ -21,6 +21,7 @@ from app.domain.operations import DomainError
 from app.models import Channel, DuplicateLeadReview, Lead, LeadDraft, Partner, User
 
 DEFAULT_SUPPORT_MANAGER_USERNAME = "anutka_rko"
+DEFAULT_DIRECT_ADMIN_USERNAME = "xirass"
 
 
 class SubmissionStatus(StrEnum):
@@ -69,6 +70,24 @@ class LeadIntakeService:
         if manager.role is not UserRole.MANAGER or manager.access_status is not AccessStatus.ACTIVE:
             raise RuntimeError("@anutka_rko должен быть активным менеджером")
         return manager.id
+
+    @staticmethod
+    async def _default_direct_admin_id(session: AsyncSession) -> UUID:
+        admins = list(
+            await session.scalars(
+                select(User)
+                .where(
+                    func.lower(User.telegram_username) == DEFAULT_DIRECT_ADMIN_USERNAME.casefold()
+                )
+                .with_for_update()
+            )
+        )
+        if len(admins) != 1:
+            raise RuntimeError("Должен существовать ровно один пользователь @xirasS")
+        admin = admins[0]
+        if admin.role is not UserRole.ADMIN or admin.access_status is not AccessStatus.ACTIVE:
+            raise RuntimeError("@xirasS должен быть активным администратором")
+        return admin.id
 
     async def record_first_click(
         self, *, telegram_id: str, referral_code: str | None, clicked_at: datetime
@@ -222,6 +241,8 @@ class LeadIntakeService:
                 primary_admin_id = await session.scalar(
                     select(Partner.assigned_manager_id).where(Partner.id == channel.partner_id)
                 )
+            else:
+                primary_admin_id = await self._default_direct_admin_id(session)
             default_manager_id = await self._default_support_manager_id(session)
             lead = Lead(
                 short_id=short_id,

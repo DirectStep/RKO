@@ -82,6 +82,89 @@ async def test_default_support_manager_must_remain_active() -> None:
 
 
 @pytest.mark.asyncio
+async def test_default_direct_admin_must_remain_active() -> None:
+    database = Database(
+        Settings(
+            bot_token="123456:test-token",
+            app_env="test",
+            database_url=TEST_DATABASE_URL or "postgresql+asyncpg://unused",
+        )
+    )
+    try:
+        async with database.session() as session, session.begin():
+            admin = await session.scalar(
+                select(User).where(func.lower(User.telegram_username) == "xirass")
+            )
+            assert admin is not None
+            admin.access_status = AccessStatus.BLOCKED
+
+        async with database.session() as session, session.begin():
+            with pytest.raises(RuntimeError, match="активным администратором"):
+                await LeadIntakeService._default_direct_admin_id(session)
+    finally:
+        async with database.session() as session, session.begin():
+            admin = await session.scalar(
+                select(User).where(func.lower(User.telegram_username) == "xirass")
+            )
+            if admin is not None:
+                admin.role = UserRole.ADMIN
+                admin.access_status = AccessStatus.ACTIVE
+        await database.close()
+
+
+@pytest.mark.asyncio
+async def test_direct_lead_is_assigned_to_xirass_and_anutka() -> None:
+    database = Database(
+        Settings(
+            bot_token="123456:test-token",
+            app_env="test",
+            database_url=TEST_DATABASE_URL or "postgresql+asyncpg://unused",
+        )
+    )
+    suffix = str(uuid4().int)[:10]
+    telegram_id = f"96{suffix}"
+    lead_id = None
+    now = datetime.now(UTC)
+    try:
+        result = await LeadIntakeService(database).submit(
+            telegram_id=telegram_id,
+            telegram_username=f"direct_{suffix}",
+            display_name="Прямой лид",
+            phone=f"+7955{suffix}",
+            referral_code=None,
+            first_click_at=now,
+            consent_at=now,
+            answers={
+                "adult": "yes",
+                "has_bankruptcy_or_arrests": "no",
+                "is_civil_servant": "no",
+                "full_name": "Прямой Лид Тестовый",
+            },
+        )
+        assert result.lead_id is not None
+        lead_id = result.lead_id
+
+        async with database.session() as session:
+            lead = await session.get(Lead, lead_id)
+            xiras_id = await session.scalar(
+                select(User.id).where(func.lower(User.telegram_username) == "xirass")
+            )
+            anutka_id = await session.scalar(
+                select(User.id).where(func.lower(User.telegram_username) == "anutka_rko")
+            )
+            assert lead is not None
+            assert lead.assignment_status is AssignmentStatus.DIRECT
+            assert lead.primary_admin_id == xiras_id
+            assert lead.manager_id == anutka_id
+    finally:
+        async with database.session() as session, session.begin():
+            if lead_id is not None:
+                await session.execute(delete(Lead).where(Lead.id == lead_id))
+            await session.execute(delete(LeadDraft).where(LeadDraft.telegram_id == telegram_id))
+        await database.close()
+
+
+@pytest.mark.asyncio
 async def test_admin_reassigns_source_and_resolves_duplicate_as_separate_lead() -> None:
     database = Database(
         Settings(
