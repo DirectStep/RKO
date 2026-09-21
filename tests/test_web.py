@@ -242,7 +242,6 @@ def test_partner_summary_uses_clear_application_and_payment_metrics() -> None:
         assert label in markup
     for label in (
         "Всего заявок",
-        "Новые заявки",
         "Заявки в работе",
         "Счета в процессе открытия",
         "Активированные счета",
@@ -250,6 +249,9 @@ def test_partner_summary_uses_clear_application_and_payment_metrics() -> None:
         assert label in script
     assert "metrics.last_payout" in script
     assert "metrics.cancelled" in script
+    assert "partnerRole&&index===0" in script
+    assert "partner-stat-grid" in script
+    assert "Новые заявки" not in script
     assert "Подтверждено к выплате" not in markup
     assert "Конверсия" not in markup
 

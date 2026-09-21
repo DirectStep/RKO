@@ -129,7 +129,7 @@ function renderPartnerSummary(){
   document.querySelector('#partner-date-range').hidden=!custom
   document.querySelector('.primary-stat span').textContent='Всего заявок'
   const labels=document.querySelectorAll('.stat-grid span')
-  ;['Новые заявки','Заявки в работе','Счета в процессе открытия','Активированные счета'].forEach((label,index)=>labels[index].textContent=label)
+  ;['Заявки в работе','Счета в процессе открытия','Активированные счета'].forEach((label,index)=>labels[index+1].textContent=label)
 }
 function renderAdminFilters(){
   const panel=document.querySelector('#admin-filters'),partnerSelect=document.querySelector('#admin-partner'),channelSelect=document.querySelector('#admin-channel')
@@ -172,7 +172,8 @@ function render(){
   for(const key of ['total','new','active','unresolved','repeats']) document.querySelector(`#${key}-count`).textContent=state.dashboard[key]
   document.querySelector('#duplicate-count').textContent=state.dashboard.duplicates||0
   document.querySelector('#open-duplicate-reviews').hidden=!admin
-  document.querySelectorAll('.stat-grid > div').forEach((item,index)=>{item.hidden=state.session.role==='manager'&&index>1})
+  document.querySelectorAll('.stat-grid > div').forEach((item,index)=>{item.hidden=(state.session.role==='manager'&&index>1)||(partnerRole&&index===0)})
+  document.querySelector('.stat-grid').classList.toggle('partner-stat-grid',partnerRole)
   renderLeads(state.leads.slice(0,5),document.querySelector('#recent-leads'))
   document.querySelector('#partners-tab').hidden=!(admin||partnerRole); document.querySelector('#banks-tab').hidden=!admin; document.querySelector('#team-tab').hidden=!employee
   document.querySelector('#scope-filter').hidden=state.session.role!=='manager'

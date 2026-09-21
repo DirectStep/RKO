@@ -172,6 +172,8 @@ button { color: inherit; }
 .stat-grid div:nth-child(2n) { border-right: 0; }
 .stat-grid div:nth-child(n + 3) { border-top: 1px solid rgba(255, 255, 255, 0.18); }
 .stat-grid strong { display: block; margin-top: 0.22rem; font-size: 1.25rem; }
+.stat-grid.partner-stat-grid div:nth-child(2) { grid-column: 1 / -1; border-right: 0; }
+.stat-grid.partner-stat-grid div:nth-child(3) { border-right: 1px solid rgba(255, 255, 255, 0.18); }
 
 .review-banner {
   display: flex;
