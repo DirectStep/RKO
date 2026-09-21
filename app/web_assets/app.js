@@ -73,7 +73,7 @@ function sentence(value,fallback){ const text=String(value||fallback).trim();ret
 function toast(message){ const el=document.querySelector('#toast'); el.textContent=message; el.hidden=false; clearTimeout(toast.timer); toast.timer=setTimeout(()=>el.hidden=true,2400) }
 function openSheet(title, eyebrow, html){ document.querySelector('#sheet-title').textContent=title; document.querySelector('#sheet-eyebrow').textContent=eyebrow; document.querySelector('#sheet-content').innerHTML=html; document.querySelector('#sheet-backdrop').hidden=false; document.querySelector('#bottom-sheet').hidden=false }
 function closeSheet(){ document.querySelector('#sheet-backdrop').hidden=true; document.querySelector('#bottom-sheet').hidden=true }
-function showOnlineHelp(text){openSheet('Открытие онлайн','Условия',`<section class="detail-section"><p class="info-copy">${esc(text||'Условия онлайн-открытия уточняются')}</p></section><button class="primary-button" id="close-online-help">Понятно</button>`);document.querySelector('#close-online-help').addEventListener('click',closeSheet)}
+function showOnlineHelp(text){openSheet('Открытие онлайн','Условия',`<section class="detail-section online-help-content"><p class="info-copy">${esc(text||'Условия онлайн-открытия уточняются')}</p></section><button class="primary-button" id="close-online-help">Понятно</button>`);document.querySelector('#close-online-help').addEventListener('click',closeSheet)}
 async function copyText(value){
   if(navigator.clipboard?.writeText) await navigator.clipboard.writeText(value)
   else { const input=document.createElement('textarea');input.value=value;input.style.position='fixed';input.style.opacity='0';document.body.append(input);input.select();document.execCommand('copy');input.remove() }

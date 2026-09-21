@@ -89,6 +89,25 @@ EXTERNAL_STATUS_LABELS = {
     "paused": "На паузе",
     "closed_without_result": "Закрыта без результата",
 }
+CLIENT_STATUS_LABELS = {
+    LeadInternalStatus.NEW: "Заявка принята",
+    LeadInternalStatus.MANAGER_ASSIGNED: "Менеджер назначен",
+    LeadInternalStatus.AWAITING_FIRST_CONTACT: "Ожидайте связи с менеджером",
+    LeadInternalStatus.CONTACTED: "Менеджер связался с вами",
+    LeadInternalStatus.AWAITING_DATA: "Ожидаем данные",
+    LeadInternalStatus.DATA_RECEIVED: "Данные получены",
+    LeadInternalStatus.SELECTING_BANKS: "Выберите банки",
+    LeadInternalStatus.PREPARING_APPLICATIONS: "Готовим заявки в банки",
+    LeadInternalStatus.APPLICATIONS_SENT: "Заявки отправлены в банки",
+    LeadInternalStatus.OPENING_ACCOUNTS: "Открываем счета",
+    LeadInternalStatus.PARTIALLY_OPENED: "Часть счетов активирована",
+    LeadInternalStatus.ALL_PLANNED_OPENED: "Все запланированные счета активированы",
+    LeadInternalStatus.PAUSED: "Заявка поставлена на паузу",
+    LeadInternalStatus.NO_RESPONSE: "Менеджер не смог с вами связаться",
+    LeadInternalStatus.LEAD_REFUSED: "Заявка отменена",
+    LeadInternalStatus.NOT_ELIGIBLE: "Пока не сможем помочь",
+    LeadInternalStatus.COMPLETED: "Заявка завершена",
+}
 
 
 def online_bank_info(bank_name: str, online_text: str) -> dict[str, object]:
@@ -583,6 +602,14 @@ def create_web_app(
                     lead_id,
                     current_bot.id,
                 )
+
+    async def notify_client_status(lead_id: UUID, status: LeadInternalStatus) -> None:
+        await notify_client(
+            lead_id,
+            "Статус вашей заявки изменён: "
+            f"{CLIENT_STATUS_LABELS[status]}. "
+            "Актуальная информация доступна в кабинете.",
+        )
 
     @app.get("/", include_in_schema=False)
     async def index() -> HTMLResponse:
@@ -1265,12 +1292,17 @@ def create_web_app(
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> dict[str, str]:
         actor_id = require_employee(user)
+        previous_internal_status = None
         previous_external_status = None
-        if payload.internal_status is not None:
+        if payload.internal_status is not None or payload.update_manager:
             async with database.session() as db_session:
-                previous_external_status = await db_session.scalar(
-                    select(Lead.external_status).where(Lead.id == lead_id)
-                )
+                previous_statuses = (
+                    await db_session.execute(
+                        select(Lead.internal_status, Lead.external_status).where(Lead.id == lead_id)
+                    )
+                ).one_or_none()
+                if previous_statuses is not None:
+                    previous_internal_status, previous_external_status = previous_statuses
         try:
             lead = await WorkflowService(database).update_lead(
                 actor_role=user.role,
@@ -1284,6 +1316,11 @@ def create_web_app(
             )
         except DomainError as error:
             raise domain_error(error) from error
+        if (
+            previous_internal_status is not None
+            and previous_internal_status != lead.internal_status
+        ):
+            await notify_client_status(lead.id, lead.internal_status)
         if (
             previous_external_status is not None
             and previous_external_status != lead.external_status
@@ -1809,6 +1846,10 @@ def create_web_app(
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> dict[str, object]:
         actor_user_id = require_employee(user)
+        async with database.session() as db_session:
+            previous_internal_status = await db_session.scalar(
+                select(Lead.internal_status).where(Lead.id == lead_id)
+            )
         try:
             lead_banks = await WorkflowService(database).add_banks_to_lead(
                 actor_role=user.role,
@@ -1818,6 +1859,15 @@ def create_web_app(
             )
         except DomainError as error:
             raise domain_error(error) from error
+        async with database.session() as db_session:
+            current_internal_status = await db_session.scalar(
+                select(Lead.internal_status).where(Lead.id == lead_id)
+            )
+        if (
+            current_internal_status is not None
+            and previous_internal_status != current_internal_status
+        ):
+            await notify_client_status(lead_id, current_internal_status)
         return {
             "ids": [str(lead_bank.id) for lead_bank in lead_banks],
             "count": len(lead_banks),

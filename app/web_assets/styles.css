@@ -312,6 +312,8 @@ button.list-row:active { background: color-mix(in srgb, var(--muted) 10%, transp
 .faq-list details { overflow: hidden; border-radius: 0.85rem; background: var(--surface); }
 .faq-list summary { min-height: 3.4rem; padding: 0.9rem; cursor: pointer; font-weight: 700; }
 .faq-list p, .info-copy { margin: 0; padding: 0 0.9rem 1rem; color: var(--muted); line-height: 1.55; }
+.online-help-content { display: flex; align-items: flex-end; min-height: 5.75rem; }
+.online-help-content .info-copy { width: 100%; padding-top: 1rem; }
 
 .tabbar {
   position: fixed;

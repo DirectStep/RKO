@@ -8,8 +8,15 @@ from urllib.parse import urlencode
 
 import pytest
 
-from app.domain.enums import BankExternalStatus, BankInternalStatus, PaymentStatus, UserRole
+from app.domain.enums import (
+    BankExternalStatus,
+    BankInternalStatus,
+    LeadInternalStatus,
+    PaymentStatus,
+    UserRole,
+)
 from app.web import (
+    CLIENT_STATUS_LABELS,
     build_mini_app_html,
     lead_bank_sort_key,
     serialize_lead_bank,
@@ -416,6 +423,28 @@ def test_mini_app_retries_and_loads_optional_sections_in_parallel() -> None:
     assert "Object.assign(state,{dashboard,leads});render()" in script
     assert "await Promise.all(optional.map" in script
     assert "state.banksLoading=employee" in script
+
+
+def test_online_help_text_is_aligned_to_the_bottom_everywhere() -> None:
+    styles = (ASSETS_DIR / "styles.css").read_text(encoding="utf-8")
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert 'class="detail-section online-help-content"' in script
+    assert ".online-help-content { display: flex; align-items: flex-end;" in styles
+    assert ".online-help-content .info-copy { width: 100%; padding-top: 1rem; }" in styles
+
+
+def test_every_internal_status_has_a_client_notification_label() -> None:
+    assert set(CLIENT_STATUS_LABELS) == set(LeadInternalStatus)
+    assert CLIENT_STATUS_LABELS[LeadInternalStatus.SELECTING_BANKS] == "Выберите банки"
+    assert CLIENT_STATUS_LABELS[LeadInternalStatus.COMPLETED] == "Заявка завершена"
+
+    source = (ASSETS_DIR.parent / "web.py").read_text(encoding="utf-8")
+    assert "previous_internal_status != lead.internal_status" in source
+    assert "Статус вашей заявки изменён" in source
+    assert "await notify_client_status(lead.id, lead.internal_status)" in source
+    assert "previous_internal_status != current_internal_status" in source
+    assert "await notify_client_status(lead_id, current_internal_status)" in source
 
 
 def test_telegram_sdk_does_not_block_application_startup() -> None:
