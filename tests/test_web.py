@@ -412,6 +412,21 @@ def test_bank_selection_is_one_step_and_supports_multiple_banks() -> None:
     assert "Добавить и показать клиенту" in script
 
 
+def test_manager_queue_moves_to_work_only_when_application_is_opened() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+    backend = (ASSETS_DIR.parent / "web.py").read_text(encoding="utf-8")
+    workflow = (ASSETS_DIR.parent / "services" / "lead_workflow.py").read_text(encoding="utf-8")
+
+    assert "lead.workflow_stage = LeadWorkflowStage.AWAITING_MANAGER" in workflow
+    assert "lead.manager_id is not None and lead.manager_id != actor_id" in workflow
+    assert "Lead.workflow_stage == LeadWorkflowStage.AWAITING_MANAGER" in backend
+    assert "Lead.workflow_stage == LeadWorkflowStage.MANAGER_PROCESSING" in backend
+    assert "await notify_manager_new_lead(lead, manager)" in backend
+    assert "lead.workflow_stage==='awaiting_manager'?'Новая'" in script
+    assert "managerRole&&lead.workflow_stage==='awaiting_manager'" in script
+    assert "await api(`/api/leads/${lead.id}/claim-manager`" in script
+
+
 def test_admin_cannot_change_source_and_can_review_duplicates() -> None:
     markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")

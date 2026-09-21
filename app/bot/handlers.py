@@ -18,6 +18,7 @@ from app.bot.keyboards import (
     consent_document_keyboard,
     consent_keyboard,
     continue_keyboard,
+    manager_leads_keyboard,
     manager_menu_keyboard,
     partner_menu_keyboard,
     phone_keyboard,
@@ -38,9 +39,10 @@ from app.domain.intake import (
     normalize_phone,
 )
 from app.domain.operations import DomainError
-from app.models import Channel, Lead, Partner, User
+from app.models import Bank, Channel, Lead, LeadBank, Partner, User
 from app.reports.partner_report import build_partner_report
 from app.services.lead_intake import LeadIntakeService, SubmissionStatus
+from app.services.lead_workflow import LeadWorkflowService
 from app.services.partner_cabinet import partner_cabinet_data, partner_contact
 from app.services.user_access import UserAccessService
 from app.services.workflow import WorkflowService
@@ -208,16 +210,121 @@ async def manager_leads(
     if manager is None:
         await callback.answer("Раздел доступен менеджеру", show_alert=True)
         return
-    lines = [
-        f"{lead.short_id} · {lead.display_name} · "
-        f"{PARTNER_STATUS_LABELS.get(lead.external_status.value, 'Статус уточняется')}"
+    buttons = [
+        (
+            str(lead.id),
+            f"{'🆕 ' if lead.workflow_stage is LeadWorkflowStage.AWAITING_MANAGER else ''}"
+            f"{lead.short_id} · {lead.display_name}",
+        )
         for lead in leads
     ]
     await callback.message.answer(
-        "Мои заявки\n\n" + ("\n".join(lines) if lines else "Закреплённых заявок пока нет"),
-        reply_markup=manager_menu_keyboard(settings.mini_app_url),
+        "Мои заявки" if leads else "Закреплённых заявок пока нет",
+        reply_markup=(
+            manager_leads_keyboard(buttons)
+            if buttons
+            else manager_menu_keyboard(settings.mini_app_url)
+        ),
     )
     await callback.answer()
+
+
+@router.callback_query(F.data == "manager:home")
+async def manager_home(callback: CallbackQuery, database: Database, settings: Settings) -> None:
+    async with database.session() as session:
+        is_manager = await session.scalar(
+            select(User.id).where(
+                User.telegram_id == str(callback.from_user.id),
+                User.role == UserRole.MANAGER,
+                User.access_status == AccessStatus.ACTIVE,
+            )
+        )
+    if is_manager is None:
+        await callback.answer("Раздел доступен менеджеру", show_alert=True)
+        return
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(
+            "Кабинет менеджера",
+            reply_markup=manager_menu_keyboard(settings.mini_app_url),
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("manager:lead:"))
+async def manager_lead(
+    callback: CallbackQuery,
+    database: Database,
+    notification_bots: tuple[Bot, ...],
+) -> None:
+    try:
+        lead_id = UUID((callback.data or "").removeprefix("manager:lead:"))
+    except ValueError:
+        await callback.answer("Некорректная заявка", show_alert=True)
+        return
+    async with database.session() as session:
+        manager = await session.scalar(
+            select(User).where(
+                User.telegram_id == str(callback.from_user.id),
+                User.role == UserRole.MANAGER,
+                User.access_status == AccessStatus.ACTIVE,
+            )
+        )
+        previous_stage = await session.scalar(select(Lead.workflow_stage).where(Lead.id == lead_id))
+    if manager is None:
+        await callback.answer("Раздел доступен менеджеру", show_alert=True)
+        return
+    try:
+        lead = await LeadWorkflowService(database).claim_by_manager(
+            actor_role=UserRole.MANAGER,
+            actor_id=manager.id,
+            lead_id=lead_id,
+        )
+    except DomainError as error:
+        await callback.answer(str(error), show_alert=True)
+        return
+    async with database.session() as session:
+        bank_names = list(
+            await session.scalars(
+                select(Bank.name)
+                .join(LeadBank, LeadBank.bank_id == Bank.id)
+                .where(LeadBank.lead_id == lead.id, LeadBank.selected_by_lead.is_(True))
+                .order_by(Bank.name)
+            )
+        )
+    username = f"@{lead.telegram_username}" if lead.telegram_username else "не указан"
+    text = (
+        f"Заявка {lead.short_id} в работе\n\n"
+        f"Клиент: {lead.display_name}\n"
+        f"Телефон: {lead.phone}\n"
+        f"Telegram: {username}\n"
+        f"Выбранные банки: {', '.join(bank_names) if bank_names else 'нет'}"
+    )
+    if isinstance(callback.message, Message):
+        await callback.message.edit_text(text)
+    if previous_stage is LeadWorkflowStage.AWAITING_MANAGER:
+        manager_name = (
+            f"@{manager.telegram_username}"
+            if manager.telegram_username
+            else manager.telegram_id or "менеджер"
+        )
+        for bot in notification_bots:
+            try:
+                await bot.send_message(
+                    chat_id=int(lead.telegram_id),
+                    text=(
+                        f"Ваш персональный менеджер — {manager_name}. "
+                        "Скоро он свяжется с вами и создаст отдельную группу "
+                        "для сопровождения."
+                    ),
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to notify client %s after manager opened lead %s via bot %s",
+                    lead.telegram_id,
+                    lead.id,
+                    bot.id,
+                )
+    await callback.answer("Заявка переведена в работу")
 
 
 async def partner_for_callback(callback: CallbackQuery, database: Database) -> Partner | None:

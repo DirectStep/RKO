@@ -18,6 +18,7 @@ from app.bot.keyboards import (
     consent_document_keyboard,
     consent_keyboard,
     continue_keyboard,
+    manager_new_lead_keyboard,
     resubmit_application_keyboard,
     retry_submission_keyboard,
     yes_no_keyboard,
@@ -219,6 +220,14 @@ def test_new_lead_group_notification_opens_exact_application() -> None:
 
     assert keyboard.inline_keyboard[0][0].text == "Открыть заявку"
     assert keyboard.inline_keyboard[0][0].callback_data == f"admin:lead:{lead_id}"
+
+
+def test_manager_notification_opens_exact_application() -> None:
+    lead_id = "8a124766-93ec-4e02-9c85-2260ebad0422"
+    keyboard = manager_new_lead_keyboard(lead_id)
+
+    assert keyboard.inline_keyboard[0][0].text == "Открыть заявку"
+    assert keyboard.inline_keyboard[0][0].callback_data == f"manager:lead:{lead_id}"
 
 
 def test_admin_lead_keyboard_does_not_allow_source_changes() -> None:

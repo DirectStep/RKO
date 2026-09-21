@@ -107,12 +107,8 @@ class LeadWorkflowService:
                     lead_bank.selected_by_lead = False
             now = datetime.now(UTC)
             if lead.workflow_stage is LeadWorkflowStage.AWAITING_CLIENT_SELECTION:
-                if lead.manager_id is not None:
-                    lead.workflow_stage = LeadWorkflowStage.MANAGER_PROCESSING
-                    lead.internal_status = LeadInternalStatus.PREPARING_APPLICATIONS
-                else:
-                    lead.workflow_stage = LeadWorkflowStage.AWAITING_MANAGER
-                    lead.internal_status = LeadInternalStatus.DATA_RECEIVED
+                lead.workflow_stage = LeadWorkflowStage.AWAITING_MANAGER
+                lead.internal_status = LeadInternalStatus.DATA_RECEIVED
                 lead.external_status = external_lead_status(lead.internal_status)
             lead.bank_selection_submitted_at = now
             lead.last_updated_at = now
@@ -127,13 +123,15 @@ class LeadWorkflowService:
             lead = await session.scalar(select(Lead).where(Lead.id == lead_id).with_for_update())
             if lead is None:
                 raise DomainError("Заявка не найдена")
-            if lead.manager_id == actor_id:
-                return lead
             if (
-                lead.workflow_stage is not LeadWorkflowStage.AWAITING_MANAGER
-                or lead.manager_id is not None
+                lead.workflow_stage is LeadWorkflowStage.MANAGER_PROCESSING
+                and lead.manager_id == actor_id
             ):
+                return lead
+            if lead.workflow_stage is not LeadWorkflowStage.AWAITING_MANAGER:
                 raise DomainError("Заявка уже взята или ещё не готова")
+            if lead.manager_id is not None and lead.manager_id != actor_id:
+                raise DomainError("Заявка закреплена за другим менеджером")
             now = datetime.now(UTC)
             lead.manager_id = actor_id
             lead.workflow_stage = LeadWorkflowStage.MANAGER_PROCESSING

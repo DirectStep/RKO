@@ -25,6 +25,7 @@ from starlette.middleware.base import RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
 
+from app.bot.keyboards import manager_new_lead_keyboard
 from app.config import Settings
 from app.database import Database
 from app.domain.enums import (
@@ -32,6 +33,7 @@ from app.domain.enums import (
     AssignmentStatus,
     LeadExternalStatus,
     LeadInternalStatus,
+    LeadWorkflowStage,
     PaymentStatus,
     UserRole,
 )
@@ -624,6 +626,34 @@ def create_web_app(
             "Актуальная информация доступна в кабинете.",
         )
 
+    async def notify_manager_new_lead(lead: Lead, manager: User | None) -> None:
+        if (
+            not notification_bots
+            or manager is None
+            or manager.telegram_id is None
+            or manager.access_status is not AccessStatus.ACTIVE
+        ):
+            return
+        text = (
+            f"Новая заявка {lead.short_id}\n\n"
+            f"Клиент: {lead.display_name}\n"
+            "Клиент выбрал банки. Откройте заявку, чтобы взять её в работу."
+        )
+        for current_bot in notification_bots:
+            try:
+                await current_bot.send_message(
+                    chat_id=int(manager.telegram_id),
+                    text=text,
+                    reply_markup=manager_new_lead_keyboard(str(lead.id)),
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to notify manager %s about lead %s via bot %s",
+                    manager.id,
+                    lead.id,
+                    current_bot.id,
+                )
+
     @app.get("/", include_in_schema=False)
     async def index() -> HTMLResponse:
         return HTMLResponse(mini_app_html)
@@ -805,6 +835,10 @@ def create_web_app(
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> dict[str, str]:
         lead_id = require_lead(user)
+        async with database.session() as db_session:
+            previous_stage = await db_session.scalar(
+                select(Lead.workflow_stage).where(Lead.id == lead_id)
+            )
         try:
             lead = await LeadWorkflowService(database).submit_bank_selection(
                 lead_id=lead_id,
@@ -814,6 +848,8 @@ def create_web_app(
             raise domain_error(error) from error
         async with database.session() as db_session:
             manager = await db_session.get(User, lead.manager_id) if lead.manager_id else None
+        if previous_stage is LeadWorkflowStage.AWAITING_CLIENT_SELECTION:
+            await notify_manager_new_lead(lead, manager)
         await notify_client(
             lead.id,
             f"Спасибо, выбор отправлен. Менеджер сопровождения: {format_user_name(manager)}. "
@@ -890,17 +926,39 @@ def create_web_app(
             LeadInternalStatus.PARTIALLY_OPENED,
         }
         async with database.session() as db_session:
-            total = await db_session.scalar(select(func.count()).select_from(Lead).where(scope))
-            new = await db_session.scalar(
-                select(func.count())
-                .select_from(Lead)
-                .where(scope, Lead.internal_status == LeadInternalStatus.NEW)
+            total_scope = scope
+            if user.role is UserRole.MANAGER:
+                total_scope = total_scope & Lead.workflow_stage.in_(
+                    {
+                        LeadWorkflowStage.AWAITING_MANAGER,
+                        LeadWorkflowStage.MANAGER_PROCESSING,
+                    }
+                )
+            total = await db_session.scalar(
+                select(func.count()).select_from(Lead).where(total_scope)
             )
-            active = await db_session.scalar(
-                select(func.count())
-                .select_from(Lead)
-                .where(scope, Lead.internal_status.in_(active_statuses))
-            )
+            if user.role is UserRole.MANAGER:
+                new = await db_session.scalar(
+                    select(func.count())
+                    .select_from(Lead)
+                    .where(scope, Lead.workflow_stage == LeadWorkflowStage.AWAITING_MANAGER)
+                )
+                active = await db_session.scalar(
+                    select(func.count())
+                    .select_from(Lead)
+                    .where(scope, Lead.workflow_stage == LeadWorkflowStage.MANAGER_PROCESSING)
+                )
+            else:
+                new = await db_session.scalar(
+                    select(func.count())
+                    .select_from(Lead)
+                    .where(scope, Lead.internal_status == LeadInternalStatus.NEW)
+                )
+                active = await db_session.scalar(
+                    select(func.count())
+                    .select_from(Lead)
+                    .where(scope, Lead.internal_status.in_(active_statuses))
+                )
             unresolved = await db_session.scalar(
                 select(func.count())
                 .select_from(Lead)
@@ -999,8 +1057,15 @@ def create_web_app(
     ) -> list[dict[str, object]]:
         require_operational_user(user)
         scope = lead_scope(user)
-        if mine and user.role is UserRole.MANAGER:
-            scope = scope & (Lead.manager_id == require_employee(user))
+        if user.role is UserRole.MANAGER:
+            scope = scope & (
+                Lead.workflow_stage
+                == (
+                    LeadWorkflowStage.MANAGER_PROCESSING
+                    if mine
+                    else LeadWorkflowStage.AWAITING_MANAGER
+                )
+            )
         async with database.session() as db_session:
             result = await db_session.scalars(
                 select(Lead).where(scope).order_by(Lead.application_at.desc()).limit(1000)

@@ -93,7 +93,8 @@ function bindReferralLinkCopies(item){
 
 function leadRow(lead){
   const detail=state.session.role==='partner'?'':lead.phone
-  const status=state.session.role==='partner'?(leadLabels[lead.status]||lead.status):(workflowLabels[lead.workflow_stage]||leadLabels[lead.status]||lead.status)
+  const managerStatus=lead.workflow_stage==='awaiting_manager'?'Новая':lead.workflow_stage==='manager_processing'?'В работе':null
+  const status=state.session.role==='partner'?(leadLabels[lead.status]||lead.status):state.session.role==='manager'&&managerStatus?managerStatus:(workflowLabels[lead.workflow_stage]||leadLabels[lead.status]||lead.status)
   const alert=state.session.role!=='partner'&&lead.workflow_stage==='not_eligible'
   return `<button class="list-row${alert?' is-not-eligible':''}" type="button" data-lead="${lead.id}"><span class="row-icon">${initials(lead.name)||'Р'}</span><span class="row-content"><span class="row-title"><strong>${esc(lead.name)}</strong><time>${date(lead.date).slice(0,5)}</time></span><span class="row-subtitle">${esc(lead.short_id)} · ${lead.is_repeat?'Повторная · ':''}${esc(status)}${detail?` · ${esc(detail)}`:''}</span></span></button>`
 }
@@ -255,7 +256,7 @@ async function load(){
       api('/api/dashboard'),
       api(`/api/leads${state.leadScope==='mine'?'?mine=true':''}`),
     ])
-    const leads=state.session.role==='manager'&&state.leadScope==='queue'?loadedLeads.filter(lead=>lead.workflow_stage==='awaiting_manager'):loadedLeads
+    const leads=loadedLeads
     state.banksLoading=employee
     state.banksError=false
     Object.assign(state,{dashboard,leads});render()
@@ -291,8 +292,14 @@ function bankCard(item,employee,admin,quickActions){
 async function openLead(id){
   if(state.session.role==='partner')return openPartnerLead(id)
   try{
-    const lead=await api(`/api/leads/${id}`), partner=state.session.role==='partner', admin=state.session.role==='admin', editable=!partner&&!lead.archived
-    const managerRole=state.session.role==='manager'
+    let lead=await api(`/api/leads/${id}`)
+    const partner=state.session.role==='partner',admin=state.session.role==='admin',managerRole=state.session.role==='manager'
+    if(managerRole&&lead.workflow_stage==='awaiting_manager'&&lead.is_assigned_manager){
+      await api(`/api/leads/${lead.id}/claim-manager`,{method:'POST',body:'{}'})
+      lead=await api(`/api/leads/${id}`)
+      await load()
+    }
+    const editable=!partner&&!lead.archived
     const canManageBanks=editable&&((admin&&lead.is_primary_admin)||(managerRole&&lead.is_assigned_manager&&lead.workflow_stage==='manager_processing'))
     const statusButtons=internalLeadStatuses.map(value=>`<button type="button" class="status-option ${lead.status===value?'is-selected':''}" data-lead-status="${value}" aria-pressed="${lead.status===value}">${esc(leadLabels[value])}</button>`).join('')
     const username=String(lead.username||'').replace(/^@/,'')

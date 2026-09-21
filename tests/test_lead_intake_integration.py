@@ -770,9 +770,17 @@ async def test_two_stage_lead_claim_and_bank_selection() -> None:
         lead = await workflow.submit_bank_selection(
             lead_id=lead_id, selected_bank_ids={second_bank_id}
         )
-        assert lead.workflow_stage is LeadWorkflowStage.MANAGER_PROCESSING
+        assert lead.workflow_stage is LeadWorkflowStage.AWAITING_MANAGER
+        assert lead.internal_status is LeadInternalStatus.DATA_RECEIVED
         assert lead.primary_admin_id == admin_id
         assert lead.manager_id == manager_id
+        lead = await workflow.claim_by_manager(
+            actor_role=UserRole.MANAGER,
+            actor_id=manager_id,
+            lead_id=lead_id,
+        )
+        assert lead.workflow_stage is LeadWorkflowStage.MANAGER_PROCESSING
+        assert lead.internal_status is LeadInternalStatus.PREPARING_APPLICATIONS
         async with database.session() as session:
             selections = dict(
                 (

@@ -139,6 +139,26 @@ def manager_menu_keyboard(mini_app_url: str = "") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def manager_leads_keyboard(leads: list[tuple[str, str]]) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            *[
+                [InlineKeyboardButton(text=label, callback_data=f"manager:lead:{lead_id}")]
+                for lead_id, label in leads
+            ],
+            [InlineKeyboardButton(text="Назад", callback_data="manager:home")],
+        ]
+    )
+
+
+def manager_new_lead_keyboard(lead_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Открыть заявку", callback_data=f"manager:lead:{lead_id}")]
+        ]
+    )
+
+
 def partner_menu_keyboard(mini_app_url: str = "") -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     if mini_app_url.startswith("https://"):
