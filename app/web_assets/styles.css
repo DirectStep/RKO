@@ -437,32 +437,6 @@ button.contact-row { width: 100%; border-right: 0; border-bottom: 0; border-left
 .staff-chat { min-height: 2.75rem; padding: 0 0.65rem; border: 0; color: var(--accent); background: transparent; font-size: 0.76rem; font-weight: 650; }
 .staff-toggle { display: grid; width: 2.75rem; height: 2.75rem; padding: 0; place-items: center; border: 0; border-radius: 50%; background: transparent; }
 
-.status-section details { border-top: 1px solid var(--separator); }
-.status-section summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 4rem;
-  padding: 0.65rem 0.9rem;
-  cursor: pointer;
-  list-style: none;
-}
-.status-section summary::-webkit-details-marker { display: none; }
-.status-section summary span { display: grid; gap: 0.15rem; }
-.status-section summary small { color: var(--muted); font-size: 0.72rem; }
-.status-section summary b { color: var(--accent); font-size: 0.8rem; }
-.status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.45rem; padding: 0 0.8rem 0.8rem; }
-.status-option {
-  min-height: 2.75rem;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--separator);
-  border-radius: 0.65rem;
-  background: var(--bg);
-  font-size: 0.76rem;
-  line-height: 1.2;
-}
-.status-option.is-selected { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); font-weight: 650; }
-.status-option:disabled { opacity: 0.55; }
 .inset-button { width: calc(100% - 1.8rem); margin: 0.35rem 0.9rem 0.9rem; }
 
 .button-stack { display: grid; gap: 0.55rem; margin: 0.8rem 0; }

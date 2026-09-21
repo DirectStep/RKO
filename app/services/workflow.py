@@ -230,7 +230,6 @@ class WorkflowService:
         actor_role: UserRole,
         lead_id: UUID,
         actor_user_id: UUID | None = None,
-        internal_status: LeadInternalStatus | None = None,
         manager_id: UUID | None = None,
         update_manager: bool = False,
         internal_comment: str | None = None,
@@ -261,9 +260,6 @@ class WorkflowService:
                 if manager_id is not None and lead.internal_status is LeadInternalStatus.NEW:
                     lead.internal_status = LeadInternalStatus.MANAGER_ASSIGNED
                     lead.external_status = external_lead_status(lead.internal_status)
-            if internal_status is not None:
-                lead.internal_status = internal_status
-                lead.external_status = external_lead_status(internal_status)
             if update_comment:
                 lead.internal_comment = (internal_comment or "").strip() or None
             lead.last_updated_at = datetime.now(UTC)
@@ -641,6 +637,8 @@ class WorkflowService:
         lead_bank.internal_status = status
         lead_bank.external_status = external_bank_status(status)
         lead_bank.close_reason = (close_reason or "").strip() or None
+        if status is BankInternalStatus.CLIENT_REFUSED:
+            lead_bank.selected_by_lead = False
         date_fields = {
             BankInternalStatus.AWAITING_DATA: "data_requested_at",
             BankInternalStatus.PREPARING_APPLICATION: "preparation_started_at",

@@ -18,7 +18,7 @@ from aiogram import Bot
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import func, select, true
+from sqlalchemy import func, or_, select, true
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 from starlette.middleware.base import RequestResponseEndpoint
@@ -32,6 +32,7 @@ from app.domain.enums import (
     AccessStatus,
     AssignmentStatus,
     BankExternalStatus,
+    BankInternalStatus,
     LeadExternalStatus,
     LeadInternalStatus,
     LeadWorkflowStage,
@@ -818,6 +819,15 @@ def create_web_app(
                     "bank": bank.name,
                     "bank_id": str(bank.id),
                     "status": lead_bank.external_status.value,
+                    "refusal_type": (
+                        lead_bank.internal_status.value
+                        if lead_bank.internal_status
+                        in {
+                            BankInternalStatus.BANK_REJECTED,
+                            BankInternalStatus.CLIENT_REFUSED,
+                        }
+                        else None
+                    ),
                     "selected": lead_bank.selected_by_lead,
                     "selection_locked": lead_bank.selected_by_lead is True,
                     "online_text": online_text,
@@ -1289,7 +1299,12 @@ def create_web_app(
                 .where(LeadBank.lead_id == lead.id)
             )
             if user.role is UserRole.MANAGER:
-                banks_query = banks_query.where(LeadBank.selected_by_lead.is_(True))
+                banks_query = banks_query.where(
+                    or_(
+                        LeadBank.selected_by_lead.is_(True),
+                        LeadBank.internal_status == BankInternalStatus.CLIENT_REFUSED,
+                    )
+                )
             rows = await db_session.execute(banks_query.order_by(LeadBank.planned_at))
             conditions = list(await db_session.scalars(select(BankActivationCondition)))
             rates = list(await db_session.scalars(select(BankRate)))
@@ -1411,23 +1426,11 @@ def create_web_app(
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> dict[str, str]:
         actor_id = require_employee(user)
-        previous_internal_status = None
-        previous_external_status = None
-        if payload.internal_status is not None or payload.update_manager:
-            async with database.session() as db_session:
-                previous_statuses = (
-                    await db_session.execute(
-                        select(Lead.internal_status, Lead.external_status).where(Lead.id == lead_id)
-                    )
-                ).one_or_none()
-                if previous_statuses is not None:
-                    previous_internal_status, previous_external_status = previous_statuses
         try:
             lead = await WorkflowService(database).update_lead(
                 actor_role=user.role,
                 actor_user_id=actor_id,
                 lead_id=lead_id,
-                internal_status=payload.internal_status,
                 manager_id=payload.manager_id,
                 update_manager=payload.update_manager,
                 internal_comment=payload.internal_comment,
@@ -1435,21 +1438,6 @@ def create_web_app(
             )
         except DomainError as error:
             raise domain_error(error) from error
-        if (
-            previous_internal_status is not None
-            and previous_internal_status != lead.internal_status
-        ):
-            await notify_client_status(lead.id, lead.internal_status)
-        if (
-            previous_external_status is not None
-            and previous_external_status != lead.external_status
-        ):
-            await notify_partner(
-                lead.id,
-                "Статус заявки "
-                f"{lead.short_id} изменён: "
-                f"{EXTERNAL_STATUS_LABELS[lead.external_status.value]}",
-            )
         return {
             "id": str(lead.id),
             "status": lead.internal_status.value,

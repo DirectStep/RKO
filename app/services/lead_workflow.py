@@ -5,12 +5,13 @@ from sqlalchemy import or_, select
 
 from app.database import Database
 from app.domain.enums import (
+    BankInternalStatus,
     LeadInternalStatus,
     LeadWorkflowStage,
     UserRole,
 )
 from app.domain.operations import DomainError
-from app.domain.statuses import external_lead_status
+from app.domain.statuses import external_bank_status, external_lead_status
 from app.models import Lead, LeadBank
 
 
@@ -101,12 +102,19 @@ class LeadWorkflowService:
                 raise DomainError("Новых банков для выбора нет")
             if not selected_bank_ids.issubset(pending_ids):
                 raise DomainError("В списке есть недоступный банк")
+            now = datetime.now(UTC)
             for lead_bank in lead_banks:
                 if lead_bank.bank_id in selected_bank_ids:
                     lead_bank.selected_by_lead = True
+                    if lead_bank.internal_status is BankInternalStatus.CLIENT_REFUSED:
+                        lead_bank.internal_status = BankInternalStatus.PLANNED
+                        lead_bank.external_status = external_bank_status(
+                            BankInternalStatus.PLANNED
+                        )
+                        lead_bank.closed_without_open_at = None
+                        lead_bank.last_updated_at = now
                 elif lead_bank.selected_by_lead is None:
                     lead_bank.selected_by_lead = False
-            now = datetime.now(UTC)
             if lead.workflow_stage is LeadWorkflowStage.AWAITING_CLIENT_SELECTION:
                 lead.workflow_stage = LeadWorkflowStage.AWAITING_MANAGER
                 lead.internal_status = LeadInternalStatus.DATA_RECEIVED

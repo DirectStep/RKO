@@ -7,7 +7,6 @@ from pydantic import BaseModel, Field
 from app.domain.enums import (
     BankInternalStatus,
     DuplicateResolution,
-    LeadInternalStatus,
     PaymentStatus,
     UserRole,
 )
@@ -42,7 +41,6 @@ class ChannelCreate(BaseModel):
 
 
 class LeadUpdate(BaseModel):
-    internal_status: LeadInternalStatus | None = None
     manager_id: UUID | None = None
     update_manager: bool = False
     internal_comment: str | None = None

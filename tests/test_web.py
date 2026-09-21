@@ -16,6 +16,7 @@ from app.domain.enums import (
     PaymentStatus,
     UserRole,
 )
+from app.services.workflow import WorkflowService
 from app.web import (
     CLIENT_STATUS_LABELS,
     build_mini_app_html,
@@ -284,7 +285,7 @@ def test_lead_cabinet_has_separate_read_only_sections() -> None:
     assert "`до ${value}`" in script
     assert "item.online_available" in script
     assert "item.status==='opened'?'is-positive'" in script
-    assert "['not_opened','will_not_open'].includes(item.status)?'is-negative'" in script
+    assert "bankRejected||item.status==='will_not_open'?'is-negative'" in script
     assert ".client-bank-card header p.is-positive" in styles
     assert ".client-bank-card header p.is-negative" in styles
     assert "const infoIcon=" in script
@@ -493,13 +494,49 @@ def test_manager_queue_moves_to_work_only_when_application_is_opened() -> None:
     assert "state.leadScopeExplicit=true" in script
 
 
-def test_manager_sees_only_banks_selected_by_lead() -> None:
+def test_manager_sees_selected_banks_and_client_refusal_history() -> None:
     backend = (ASSETS_DIR.parent / "web.py").read_text(encoding="utf-8")
     workflow = (ASSETS_DIR.parent / "services" / "lead_workflow.py").read_text(encoding="utf-8")
 
     assert "if user.role is UserRole.MANAGER:" in backend
-    assert "banks_query.where(LeadBank.selected_by_lead.is_(True))" in backend
+    assert "LeadBank.selected_by_lead.is_(True)" in backend
+    assert "LeadBank.internal_status == BankInternalStatus.CLIENT_REFUSED" in backend
     assert "lead_bank.selected_by_lead = True" in workflow
+    assert "lead_bank.internal_status is BankInternalStatus.CLIENT_REFUSED" in workflow
+
+
+def test_client_refusal_returns_bank_to_lead_selection() -> None:
+    lead_bank = SimpleNamespace(selected_by_lead=True)
+
+    WorkflowService._apply_bank_status(
+        lead_bank,
+        BankInternalStatus.CLIENT_REFUSED,
+        "Клиент решил вернуться позже",
+    )
+
+    assert lead_bank.selected_by_lead is False
+    assert lead_bank.internal_status is BankInternalStatus.CLIENT_REFUSED
+    assert lead_bank.external_status is BankExternalStatus.NOT_OPENED
+    assert lead_bank.close_reason == "Клиент решил вернуться позже"
+
+
+def test_manual_lead_status_editor_is_removed() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+    schema = (ASSETS_DIR.parent / "web_schemas.py").read_text(encoding="utf-8")
+    workflow = (ASSETS_DIR.parent / "services" / "workflow.py").read_text(encoding="utf-8")
+
+    assert "internalLeadStatuses" not in script
+    assert "data-lead-status" not in script
+    assert "statusEditor" not in script
+    assert "internal_status: LeadInternalStatus" not in schema
+    update_lead = workflow.split("async def update_lead(", 1)[1].split(
+        "async def list_banks", 1
+    )[0]
+    assert "internal_status:" not in update_lead
+    assert "refusal_type" in script
+    assert "bankRejected?'Отказ банка'" in script
+    assert "clientRefused?'':" in script
+    assert "is-unselected" in script
 
 
 def test_admin_cannot_remove_bank_from_application() -> None:
@@ -608,9 +645,7 @@ def test_every_internal_status_has_a_client_notification_label() -> None:
     assert CLIENT_STATUS_LABELS[LeadInternalStatus.COMPLETED] == "Заявка завершена"
 
     source = (ASSETS_DIR.parent / "web.py").read_text(encoding="utf-8")
-    assert "previous_internal_status != lead.internal_status" in source
     assert "Статус вашей заявки изменён" in source
-    assert "await notify_client_status(lead.id, lead.internal_status)" in source
     assert "previous_internal_status != current_internal_status" in source
     assert "await notify_client_status(lead_id, current_internal_status)" in source
 
