@@ -431,6 +431,8 @@ class WorkflowService:
             income_estimate is not None or income_fact is not None
         ):
             raise DomainError("Менеджер не может изменять финансовые данные")
+        if actor_role is UserRole.ADMIN and status is not None:
+            raise DomainError("Статус счёта изменяет назначенный менеджер")
         self._validate_money(income_estimate)
         self._validate_money(income_fact)
         async with self.database.session() as session, session.begin():

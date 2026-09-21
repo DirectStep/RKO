@@ -255,6 +255,29 @@ def test_manager_cannot_delete_another_or_activated_application() -> None:
         )
 
 
+def test_admin_sees_manager_bank_decision_without_status_selector() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "account_opened:'Счёт активирован'" in script
+    assert "bank_rejected:'Отказ банка'" in script
+    assert "client_refused:'Отказ клиента'" in script
+    assert "'Ожидается действие менеджера'" in script
+    admin_edit = script.split("const adminEdit=", 1)[1].split("const managerEdit=", 1)[0]
+    assert "data-bank-status" not in admin_edit
+    assert "data-reason" not in admin_edit
+
+
+@pytest.mark.asyncio
+async def test_admin_cannot_change_bank_status() -> None:
+    with pytest.raises(DomainError, match="изменяет назначенный менеджер"):
+        await WorkflowService(SimpleNamespace()).update_lead_bank(
+            actor_role=UserRole.ADMIN,
+            actor_user_id=uuid4(),
+            lead_bank_id=uuid4(),
+            status=BankInternalStatus.ACCOUNT_OPENED,
+        )
+
+
 def test_admin_cannot_delete_activated_or_paid_application() -> None:
     lead = SimpleNamespace(manager_id=None)
 
