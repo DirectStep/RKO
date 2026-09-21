@@ -1280,13 +1280,15 @@ def create_web_app(
             lead = await db_session.scalar(select(Lead).where(Lead.id == lead_id, detail_scope))
             if lead is None:
                 raise HTTPException(status_code=404, detail="Заявка не найдена")
-            rows = await db_session.execute(
+            banks_query = (
                 select(LeadBank, Bank, Payment)
                 .join(Bank, Bank.id == LeadBank.bank_id)
                 .outerjoin(Payment, Payment.lead_bank_id == LeadBank.id)
                 .where(LeadBank.lead_id == lead.id)
-                .order_by(LeadBank.planned_at)
             )
+            if user.role is UserRole.MANAGER:
+                banks_query = banks_query.where(LeadBank.selected_by_lead.is_(True))
+            rows = await db_session.execute(banks_query.order_by(LeadBank.planned_at))
             conditions = list(await db_session.scalars(select(BankActivationCondition)))
             rates = list(await db_session.scalars(select(BankRate)))
             manager = await db_session.get(User, lead.manager_id) if lead.manager_id else None

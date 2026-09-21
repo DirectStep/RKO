@@ -471,6 +471,15 @@ def test_manager_queue_moves_to_work_only_when_application_is_opened() -> None:
     assert "document.querySelector('#lead-scope').value='mine'" in script
 
 
+def test_manager_sees_only_banks_selected_by_lead() -> None:
+    backend = (ASSETS_DIR.parent / "web.py").read_text(encoding="utf-8")
+    workflow = (ASSETS_DIR.parent / "services" / "lead_workflow.py").read_text(encoding="utf-8")
+
+    assert "if user.role is UserRole.MANAGER:" in backend
+    assert "banks_query.where(LeadBank.selected_by_lead.is_(True))" in backend
+    assert "lead_bank.selected_by_lead = True" in workflow
+
+
 def test_admin_cannot_change_source_and_can_review_duplicates() -> None:
     markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
