@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import time
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import urlencode
@@ -19,6 +20,7 @@ from app.web import (
     CLIENT_STATUS_LABELS,
     build_mini_app_html,
     lead_bank_sort_key,
+    lead_cabinet_metrics,
     public_referral_links,
     serialize_lead_bank,
     telegram_contact_url,
@@ -70,6 +72,46 @@ def test_secondary_bot_init_data_is_accepted() -> None:
     )
 
     assert user["id"] == 1781530480
+
+
+def test_lead_expected_payout_uses_planned_accounts_not_activated_accounts() -> None:
+    unpaid = None
+    paid = SimpleNamespace(
+        external_status=BankExternalStatus.OPENED,
+        lead_reward_estimate=Decimal("3000"),
+        lead_reward_fact=Decimal("2500"),
+        lead_reward_paid_at=object(),
+    )
+    banks = [
+        SimpleNamespace(
+            external_status=BankExternalStatus.PLANNED,
+            lead_reward_estimate=Decimal("1000"),
+            lead_reward_fact=None,
+            lead_reward_paid_at=unpaid,
+        ),
+        SimpleNamespace(
+            external_status=BankExternalStatus.IN_PROGRESS,
+            lead_reward_estimate=Decimal("2000"),
+            lead_reward_fact=None,
+            lead_reward_paid_at=unpaid,
+        ),
+        SimpleNamespace(
+            external_status=BankExternalStatus.OPENED,
+            lead_reward_estimate=Decimal("5000"),
+            lead_reward_fact=None,
+            lead_reward_paid_at=unpaid,
+        ),
+        paid,
+    ]
+
+    metrics = lead_cabinet_metrics(banks)
+
+    assert metrics == {
+        "planned_accounts": 2,
+        "activated_accounts": 2,
+        "expected_payout": Decimal("3000"),
+        "paid_total": Decimal("2500"),
+    }
 
 
 def test_expired_telegram_init_data_is_rejected() -> None:

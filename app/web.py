@@ -31,6 +31,7 @@ from app.database import Database
 from app.domain.enums import (
     AccessStatus,
     AssignmentStatus,
+    BankExternalStatus,
     LeadExternalStatus,
     LeadInternalStatus,
     LeadWorkflowStage,
@@ -110,6 +111,36 @@ CLIENT_STATUS_LABELS = {
     LeadInternalStatus.NOT_ELIGIBLE: "Пока не сможем помочь",
     LeadInternalStatus.COMPLETED: "Заявка завершена",
 }
+
+
+def lead_cabinet_metrics(lead_banks: list[LeadBank]) -> dict[str, int | Decimal]:
+    planned_banks = [
+        bank
+        for bank in lead_banks
+        if bank.external_status in {BankExternalStatus.PLANNED, BankExternalStatus.IN_PROGRESS}
+    ]
+    return {
+        "planned_accounts": len(planned_banks),
+        "activated_accounts": sum(
+            bank.external_status is BankExternalStatus.OPENED for bank in lead_banks
+        ),
+        "expected_payout": sum(
+            (
+                bank.lead_reward_estimate or Decimal("0")
+                for bank in planned_banks
+                if bank.lead_reward_paid_at is None
+            ),
+            start=Decimal("0"),
+        ),
+        "paid_total": sum(
+            (
+                bank.lead_reward_fact or Decimal("0")
+                for bank in lead_banks
+                if bank.lead_reward_paid_at is not None
+            ),
+            start=Decimal("0"),
+        ),
+    }
 
 
 def online_bank_info(bank_name: str, online_text: str) -> dict[str, object]:
@@ -729,20 +760,7 @@ def create_web_app(
             )
         if lead is None:
             raise HTTPException(status_code=404, detail="Заявка не найдена")
-        planned_accounts = sum(
-            bank.external_status.value in {"planned", "in_progress"} for bank in lead_banks
-        )
-        activated_accounts = sum(bank.external_status.value == "opened" for bank in lead_banks)
-        expected_payout = sum(
-            (bank.lead_reward_estimate or 0)
-            for bank in lead_banks
-            if bank.external_status.value == "opened" and bank.lead_reward_paid_at is None
-        )
-        paid_total = sum(
-            (bank.lead_reward_fact or 0)
-            for bank in lead_banks
-            if bank.lead_reward_paid_at is not None
-        )
+        metrics = lead_cabinet_metrics(lead_banks)
         return {
             "short_id": lead.short_id,
             "name": lead.display_name,
@@ -756,10 +774,9 @@ def create_web_app(
             "manager": format_user_name(manager),
             "manager_url": telegram_contact_url(manager),
             "metrics": {
-                "planned_accounts": planned_accounts,
-                "activated_accounts": activated_accounts,
-                "expected_payout": str(expected_payout),
-                "paid_total": str(paid_total),
+                **metrics,
+                "expected_payout": str(metrics["expected_payout"]),
+                "paid_total": str(metrics["paid_total"]),
             },
         }
 
