@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import time
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -209,7 +210,10 @@ def test_admin_and_assigned_manager_can_delete_application_from_mini_app() -> No
     assert 'id="delete-lead-confirm"' in script
     assert "method:'DELETE'" in script
     assert "Telegram-аккаунт клиента и другие его заявки останутся" in script
-    assert "managerRole&&lead.is_assigned_manager&&!hasActivatedAccounts" in script
+    assert "!hasActivatedAccounts&&!hasConfirmedPayments" in script
+    assert "admin||(managerRole&&lead.is_assigned_manager)" in script
+    assert "bank.lead_reward_paid" in script
+    assert "['confirmed','in_registry','paid'].includes(bank.payment_status)" in script
     assert "lead.manager_id != actor_user_id" in workflow
     assert "BankInternalStatus.ACCOUNT_OPENED" in workflow
     assert "Заявку с активированными счетами удалить нельзя" in workflow
@@ -223,7 +227,12 @@ def test_manager_cannot_delete_another_or_activated_application() -> None:
         UserRole.MANAGER,
         manager_id,
         lead,
-        [SimpleNamespace(internal_status=BankInternalStatus.PLANNED)],
+        [
+            SimpleNamespace(
+                internal_status=BankInternalStatus.PLANNED,
+                lead_reward_paid_at=None,
+            )
+        ],
     )
     with pytest.raises(DomainError, match="только свою заявку"):
         WorkflowService._validate_lead_deletion(
@@ -237,7 +246,41 @@ def test_manager_cannot_delete_another_or_activated_application() -> None:
             UserRole.MANAGER,
             manager_id,
             lead,
-            [SimpleNamespace(internal_status=BankInternalStatus.ACCOUNT_OPENED)],
+            [
+                SimpleNamespace(
+                    internal_status=BankInternalStatus.ACCOUNT_OPENED,
+                    lead_reward_paid_at=None,
+                )
+            ],
+        )
+
+
+def test_admin_cannot_delete_activated_or_paid_application() -> None:
+    lead = SimpleNamespace(manager_id=None)
+
+    with pytest.raises(DomainError, match="с активированными счетами"):
+        WorkflowService._validate_lead_deletion(
+            UserRole.ADMIN,
+            uuid4(),
+            lead,
+            [
+                SimpleNamespace(
+                    internal_status=BankInternalStatus.ACCOUNT_OPENED,
+                    lead_reward_paid_at=None,
+                )
+            ],
+        )
+    with pytest.raises(DomainError, match="с подтверждённой выплатой"):
+        WorkflowService._validate_lead_deletion(
+            UserRole.ADMIN,
+            uuid4(),
+            lead,
+            [
+                SimpleNamespace(
+                    internal_status=BankInternalStatus.PLANNED,
+                    lead_reward_paid_at=datetime.now(UTC),
+                )
+            ],
         )
 
 

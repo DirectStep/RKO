@@ -643,15 +643,18 @@ class WorkflowService:
         lead: Lead,
         lead_banks: list[LeadBank],
     ) -> None:
-        if actor_role is not UserRole.MANAGER:
-            return
-        if actor_user_id is None or lead.manager_id != actor_user_id:
+        if (
+            actor_role is UserRole.MANAGER
+            and (actor_user_id is None or lead.manager_id != actor_user_id)
+        ):
             raise DomainError("Менеджер может удалить только свою заявку")
         if any(
             lead_bank.internal_status is BankInternalStatus.ACCOUNT_OPENED
             for lead_bank in lead_banks
         ):
             raise DomainError("Заявку с активированными счетами удалить нельзя")
+        if any(lead_bank.lead_reward_paid_at is not None for lead_bank in lead_banks):
+            raise DomainError("Лида с подтверждённой выплатой удалить нельзя")
 
     @staticmethod
     def _apply_bank_status(

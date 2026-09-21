@@ -334,6 +334,7 @@ def serialize_lead_bank(
                 "close_reason": lead_bank.close_reason or "",
                 "offered_to_lead": lead_bank.offered_to_lead,
                 "selected_by_lead": lead_bank.selected_by_lead,
+                "lead_reward_paid": lead_bank.lead_reward_paid_at is not None,
             }
         )
         if role is UserRole.ADMIN:
