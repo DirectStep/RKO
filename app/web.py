@@ -152,6 +152,20 @@ def lead_bank_sort_key(item: dict[str, object]) -> tuple[int, Decimal, int, str]
     )
 
 
+def public_referral_links(
+    bot_usernames: tuple[str, ...], start_parameter: str, fallback: str = ""
+) -> list[dict[str, str]]:
+    if bot_usernames:
+        username = bot_usernames[-1].lstrip("@")
+        return [
+            {
+                "bot": f"@{username}",
+                "url": f"https://t.me/{username}?start={start_parameter}",
+            }
+        ]
+    return [{"bot": "Telegram", "url": fallback}] if fallback else []
+
+
 def build_mini_app_html() -> str:
     markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
     styles = (ASSETS_DIR / "styles.css").read_text(encoding="utf-8")
@@ -353,16 +367,7 @@ def create_web_app(
     app.mount("/documents", StaticFiles(directory=DOCUMENTS_DIR), name="documents")
 
     def referral_links(start_parameter: str, fallback: str = "") -> list[dict[str, str]]:
-        links = [
-            {
-                "bot": f"@{username.lstrip('@')}",
-                "url": f"https://t.me/{username.lstrip('@')}?start={start_parameter}",
-            }
-            for username in bot_usernames
-        ]
-        if not links and fallback:
-            links.append({"bot": "Telegram", "url": fallback})
-        return links
+        return public_referral_links(bot_usernames, start_parameter, fallback)
 
     @app.middleware("http")
     async def configure_mini_app_cache(
@@ -1460,9 +1465,10 @@ def create_web_app(
         except DomainError as error:
             raise domain_error(error) from error
         start_parameter = link.partition("?start=")[2]
+        links = referral_links(start_parameter, link)
         return {
-            "link": link,
-            "links": referral_links(start_parameter, link),
+            "link": links[0]["url"] if links else link,
+            "links": links,
         }
 
     @app.get("/api/channels")
@@ -1482,18 +1488,21 @@ def create_web_app(
                 .where(scope)
                 .order_by(Partner.name, Channel.name)
             )
-        return [
-            {
-                "id": str(channel.id),
-                "partner_id": str(channel.partner_id),
-                "partner": partner_name,
-                "name": channel.name,
-                "active": channel.active,
-                "link": channel.referral_link,
-                "links": referral_links(channel.referral_code, channel.referral_link),
-            }
-            for channel, partner_name in rows
-        ]
+        result = []
+        for channel, partner_name in rows:
+            links = referral_links(channel.referral_code, channel.referral_link)
+            result.append(
+                {
+                    "id": str(channel.id),
+                    "partner_id": str(channel.partner_id),
+                    "partner": partner_name,
+                    "name": channel.name,
+                    "active": channel.active,
+                    "link": links[0]["url"] if links else channel.referral_link,
+                    "links": links,
+                }
+            )
+        return result
 
     @app.post("/api/channels")
     async def create_channel(
@@ -1520,13 +1529,14 @@ def create_web_app(
             )
         except DomainError as error:
             raise domain_error(error) from error
+        links = referral_links(channel.referral_code, channel.referral_link)
         return {
             "id": str(channel.id),
             "partner_id": str(channel.partner_id),
             "name": channel.name,
             "active": channel.active,
-            "link": channel.referral_link,
-            "links": referral_links(channel.referral_code, channel.referral_link),
+            "link": links[0]["url"] if links else channel.referral_link,
+            "links": links,
         }
 
     @app.delete("/api/channels/{channel_id}")

@@ -19,6 +19,7 @@ from app.web import (
     CLIENT_STATUS_LABELS,
     build_mini_app_html,
     lead_bank_sort_key,
+    public_referral_links,
     serialize_lead_bank,
     validate_telegram_init_data,
     validate_telegram_init_data_with_tokens,
@@ -126,12 +127,20 @@ def test_admin_partner_activation_and_lead_filters_are_present() -> None:
     assert "bindReferralLinkCopies(result)" in script
 
 
-def test_channels_show_referral_links_for_both_bots() -> None:
+def test_channels_show_only_the_new_bot_referral_link() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 
     assert "function referralLinks(item)" in script
     assert "function referralLinkRows(item)" in script
     assert "data-copy-referral-link" in script
+
+    links = public_referral_links(("RKOrko_bot", "RKollega_bot"), "channel-code")
+    assert links == [
+        {
+            "bot": "@RKollega_bot",
+            "url": "https://t.me/RKollega_bot?start=channel-code",
+        }
+    ]
 
 
 def test_admin_can_delete_one_application_from_mini_app() -> None:
