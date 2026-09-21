@@ -654,7 +654,7 @@ async def test_two_stage_lead_claim_and_bank_selection() -> None:
     )
     suffix = str(uuid4().int)[:10]
     now = datetime.now(UTC)
-    lead_id = admin_id = manager_id = bank_id = second_bank_id = None
+    lead_id = admin_id = manager_id = second_manager_id = bank_id = second_bank_id = None
     try:
         async with database.session() as session, session.begin():
             admin = User(
@@ -667,9 +667,14 @@ async def test_two_stage_lead_claim_and_bank_selection() -> None:
                 telegram_username=f"manager_{suffix}",
                 role=UserRole.MANAGER,
             )
-            session.add_all([admin, manager])
+            second_manager = User(
+                telegram_id=f"84{suffix}",
+                telegram_username=f"second_manager_{suffix}",
+                role=UserRole.MANAGER,
+            )
+            session.add_all([admin, manager, second_manager])
             await session.flush()
-            admin_id, manager_id = admin.id, manager.id
+            admin_id, manager_id, second_manager_id = admin.id, manager.id, second_manager.id
 
         result = await LeadIntakeService(database).submit(
             telegram_id=f"83{suffix}",
@@ -781,6 +786,28 @@ async def test_two_stage_lead_claim_and_bank_selection() -> None:
         )
         assert lead.workflow_stage is LeadWorkflowStage.MANAGER_PROCESSING
         assert lead.internal_status is LeadInternalStatus.PREPARING_APPLICATIONS
+        assert lead.manager_started_at is not None
+
+        lead = await WorkflowService(database).update_lead(
+            actor_role=UserRole.ADMIN,
+            actor_user_id=admin_id,
+            lead_id=lead_id,
+            manager_id=second_manager_id,
+            update_manager=True,
+        )
+        assert lead.manager_id == second_manager_id
+        assert lead.manager_started_at is None
+        assert lead.workflow_stage is LeadWorkflowStage.MANAGER_PROCESSING
+        assert lead.internal_status is LeadInternalStatus.PREPARING_APPLICATIONS
+
+        lead = await workflow.claim_by_manager(
+            actor_role=UserRole.MANAGER,
+            actor_id=second_manager_id,
+            lead_id=lead_id,
+        )
+        assert lead.manager_id == second_manager_id
+        assert lead.manager_started_at is not None
+        assert lead.workflow_stage is LeadWorkflowStage.MANAGER_PROCESSING
         async with database.session() as session:
             selections = dict(
                 (
@@ -801,7 +828,9 @@ async def test_two_stage_lead_claim_and_bank_selection() -> None:
             if bank_ids:
                 await session.execute(delete(BankRate).where(BankRate.bank_id.in_(bank_ids)))
                 await session.execute(delete(Bank).where(Bank.id.in_(bank_ids)))
-            user_ids = [value for value in (admin_id, manager_id) if value is not None]
+            user_ids = [
+                value for value in (admin_id, manager_id, second_manager_id) if value is not None
+            ]
             if user_ids:
                 await session.execute(delete(User).where(User.id.in_(user_ids)))
         await database.close()

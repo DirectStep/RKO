@@ -254,15 +254,13 @@ class WorkflowService:
                         or manager.access_status is not AccessStatus.ACTIVE
                     ):
                         raise DomainError("Активный менеджер не найден")
+                manager_changed = lead.manager_id != manager_id
                 lead.manager_id = manager_id
-                if manager_id is not None:
-                    if lead.workflow_stage is LeadWorkflowStage.AWAITING_MANAGER:
-                        lead.workflow_stage = LeadWorkflowStage.MANAGER_PROCESSING
-                        lead.internal_status = LeadInternalStatus.PREPARING_APPLICATIONS
-                        lead.external_status = external_lead_status(lead.internal_status)
-                    elif lead.internal_status is LeadInternalStatus.NEW:
-                        lead.internal_status = LeadInternalStatus.MANAGER_ASSIGNED
-                        lead.external_status = external_lead_status(lead.internal_status)
+                if manager_changed:
+                    lead.manager_started_at = None
+                if manager_id is not None and lead.internal_status is LeadInternalStatus.NEW:
+                    lead.internal_status = LeadInternalStatus.MANAGER_ASSIGNED
+                    lead.external_status = external_lead_status(lead.internal_status)
             if internal_status is not None:
                 lead.internal_status = internal_status
                 lead.external_status = external_lead_status(internal_status)

@@ -181,6 +181,7 @@ class Lead(Base):
     )
     banks_published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     bank_selection_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    manager_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     internal_status: Mapped[LeadInternalStatus] = mapped_column(
         enum_column(LeadInternalStatus), default=LeadInternalStatus.NEW, nullable=False
     )

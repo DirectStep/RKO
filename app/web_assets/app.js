@@ -93,7 +93,7 @@ function bindReferralLinkCopies(item){
 
 function leadRow(lead){
   const detail=state.session.role==='partner'?'':lead.phone
-  const managerStatus=lead.workflow_stage==='awaiting_manager'?'Новая':lead.workflow_stage==='manager_processing'?'В работе':null
+  const managerStatus=state.session.role==='manager'?(lead.manager_started?'В работе':'Новая'):null
   const status=state.session.role==='partner'?(leadLabels[lead.status]||lead.status):state.session.role==='manager'&&managerStatus?managerStatus:(workflowLabels[lead.workflow_stage]||leadLabels[lead.status]||lead.status)
   const alert=state.session.role!=='partner'&&lead.workflow_stage==='not_eligible'
   return `<button class="list-row${alert?' is-not-eligible':''}" type="button" data-lead="${lead.id}"><span class="row-icon">${initials(lead.name)||'Р'}</span><span class="row-content"><span class="row-title"><strong>${esc(lead.name)}</strong><time>${date(lead.date).slice(0,5)}</time></span><span class="row-subtitle">${esc(lead.short_id)} · ${lead.is_repeat?'Повторная · ':''}${esc(status)}${detail?` · ${esc(detail)}`:''}</span></span></button>`
@@ -294,7 +294,7 @@ async function openLead(id){
   try{
     let lead=await api(`/api/leads/${id}`)
     const partner=state.session.role==='partner',admin=state.session.role==='admin',managerRole=state.session.role==='manager'
-    if(managerRole&&lead.workflow_stage==='awaiting_manager'&&lead.is_assigned_manager){
+    if(managerRole&&!lead.manager_started&&lead.is_assigned_manager&&lead.bank_selection_submitted_at){
       await api(`/api/leads/${lead.id}/claim-manager`,{method:'POST',body:'{}'})
       lead=await api(`/api/leads/${id}`)
       state.leadScope='mine'
@@ -311,7 +311,7 @@ async function openLead(id){
     const statusEditor=editable?`<section class="detail-section status-section"><h3>Статус заявки</h3><details><summary><span><small>Текущий статус</small><strong>${esc(leadLabels[lead.status]||lead.status)}</strong></span><b>Изменить</b></summary><div class="status-grid">${statusButtons}</div></details></section>`:''
     const edit=editable?`<section class="detail-section"><h3>Работа с заявкой</h3><label class="field"><span>Внутренний комментарий</span><textarea id="lead-comment" placeholder="Заметка для команды">${esc(lead.comment||'')}</textarea></label><button class="primary-button inset-button" id="save-lead">Сохранить комментарий</button></section>`:''
     const deleteApplication=admin&&!lead.archived?`<section class="destructive-section"><button class="danger-button" id="show-delete-lead">Удалить эту заявку</button><div id="delete-lead-confirm" hidden><p>Заявка, её банки и неподтверждённые выплаты будут удалены. Telegram-аккаунт клиента и другие его заявки останутся.</p><div class="button-stack"><button class="danger-button" id="delete-lead">Да, удалить заявку</button><button class="secondary-button" id="cancel-delete-lead">Отмена</button></div></div></section>`:''
-    const workflowActions=!lead.archived&&managerRole&&lead.workflow_stage==='awaiting_manager'?'<button class="primary-button inset-button" id="claim-manager">Взять в сопровождение</button>':''
+    const workflowActions=!lead.archived&&managerRole&&!lead.manager_started&&lead.bank_selection_submitted_at?'<button class="primary-button inset-button" id="claim-manager">Взять в сопровождение</button>':''
     const managerOptions=state.staff.filter(item=>item.role==='manager'&&['active','pending'].includes(item.status)).map(item=>`<option value="${item.id}" ${lead.manager_id===item.id?'selected':''}>${esc(item.username||item.telegram_id)}</option>`).join('')
     const managerControl=admin&&managerOptions?`<label class="field inset-field"><span>Менеджер сопровождения</span><select id="lead-manager">${managerOptions}</select></label><button class="secondary-button inset-button" id="save-lead-manager">Назначить менеджера</button>`:`<div class="value-row"><span>Менеджер сопровождения</span><strong>${esc(lead.manager||'Не назначен')}</strong></div>`
     const workflow=`<section class="detail-section"><h3>Этап обработки</h3><div class="value-row"><span>Стадия</span><strong>${esc(workflowLabels[lead.workflow_stage]||lead.workflow_stage)}</strong></div><div class="value-row"><span>Первичный ответственный</span><strong>${esc(lead.primary_admin||'Не назначен')}</strong></div>${managerControl}${workflowActions}</section>`

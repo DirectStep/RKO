@@ -958,12 +958,16 @@ def create_web_app(
                 new = await db_session.scalar(
                     select(func.count())
                     .select_from(Lead)
-                    .where(scope, Lead.workflow_stage == LeadWorkflowStage.AWAITING_MANAGER)
+                    .where(
+                        total_scope,
+                        Lead.bank_selection_submitted_at.is_not(None),
+                        Lead.manager_started_at.is_(None),
+                    )
                 )
                 active = await db_session.scalar(
                     select(func.count())
                     .select_from(Lead)
-                    .where(scope, Lead.workflow_stage == LeadWorkflowStage.MANAGER_PROCESSING)
+                    .where(total_scope, Lead.manager_started_at.is_not(None))
                 )
             else:
                 new = await db_session.scalar(
@@ -1075,12 +1079,19 @@ def create_web_app(
         require_operational_user(user)
         scope = lead_scope(user)
         if user.role is UserRole.MANAGER:
-            scope = scope & (
-                Lead.workflow_stage
-                == (
-                    LeadWorkflowStage.MANAGER_PROCESSING
+            scope = (
+                scope
+                & Lead.workflow_stage.in_(
+                    {
+                        LeadWorkflowStage.AWAITING_MANAGER,
+                        LeadWorkflowStage.MANAGER_PROCESSING,
+                    }
+                )
+                & Lead.bank_selection_submitted_at.is_not(None)
+                & (
+                    Lead.manager_started_at.is_not(None)
                     if mine
-                    else LeadWorkflowStage.AWAITING_MANAGER
+                    else Lead.manager_started_at.is_(None)
                 )
             )
         async with database.session() as db_session:
@@ -1109,6 +1120,7 @@ def create_web_app(
                 item["phone"] = lead.phone
                 item["source"] = lead.assignment_status.value
                 item["manager_id"] = str(lead.manager_id) if lead.manager_id else None
+                item["manager_started"] = lead.manager_started_at is not None
                 item["primary_admin_id"] = (
                     str(lead.primary_admin_id) if lead.primary_admin_id else None
                 )
@@ -1362,6 +1374,7 @@ def create_web_app(
             ),
             "is_primary_admin": lead.primary_admin_id == user.database_id,
             "is_assigned_manager": lead.manager_id == user.database_id,
+            "manager_started": lead.manager_started_at is not None,
             "banks": banks,
         }
         result.update(
@@ -2006,6 +2019,10 @@ def create_web_app(
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> dict[str, str]:
         actor_id = require_employee(user)
+        async with database.session() as db_session:
+            previous_manager_started_at = await db_session.scalar(
+                select(Lead.manager_started_at).where(Lead.id == lead_id)
+            )
         try:
             lead = await LeadWorkflowService(database).claim_by_manager(
                 actor_role=user.role,
@@ -2016,12 +2033,13 @@ def create_web_app(
             raise domain_error(error) from error
         async with database.session() as db_session:
             manager = await db_session.get(User, actor_id)
-        manager_name = format_user_name(manager)
-        await notify_client(
-            lead.id,
-            f"Ваш персональный менеджер — {manager_name}. "
-            "Скоро он свяжется с вами и создаст отдельную группу для сопровождения.",
-        )
+        if previous_manager_started_at is None:
+            manager_name = format_user_name(manager)
+            await notify_client(
+                lead.id,
+                f"Ваш персональный менеджер — {manager_name}. "
+                "Скоро он свяжется с вами и создаст отдельную группу для сопровождения.",
+            )
         return {"id": str(lead.id), "workflow_stage": lead.workflow_stage.value}
 
     @app.patch("/api/lead-banks/{lead_bank_id}")

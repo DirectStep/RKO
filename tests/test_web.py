@@ -461,11 +461,11 @@ def test_manager_queue_moves_to_work_only_when_application_is_opened() -> None:
 
     assert "lead.workflow_stage = LeadWorkflowStage.AWAITING_MANAGER" in workflow
     assert "lead.manager_id is not None and lead.manager_id != actor_id" in workflow
-    assert "Lead.workflow_stage == LeadWorkflowStage.AWAITING_MANAGER" in backend
-    assert "Lead.workflow_stage == LeadWorkflowStage.MANAGER_PROCESSING" in backend
+    assert "Lead.manager_started_at.is_(None)" in backend
+    assert "Lead.manager_started_at.is_not(None)" in backend
     assert "await notify_manager_new_lead(lead, manager)" in backend
-    assert "lead.workflow_stage==='awaiting_manager'?'Новая'" in script
-    assert "managerRole&&lead.workflow_stage==='awaiting_manager'" in script
+    assert "lead.manager_started?'В работе':'Новая'" in script
+    assert "managerRole&&!lead.manager_started&&lead.is_assigned_manager" in script
     assert "await api(`/api/leads/${lead.id}/claim-manager`" in script
     assert "state.leadScope='mine'" in script
     assert "document.querySelector('#lead-scope').value='mine'" in script
@@ -494,7 +494,7 @@ def test_partner_does_not_see_lead_telegram_username() -> None:
 def test_admin_contact_actions_copy_phone_and_email() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 
-    assert 'data-copy-contact="${encodeURIComponent(String(lead.phone||\'\'))}"' in script
+    assert "data-copy-contact=\"${encodeURIComponent(String(lead.phone||''))}\"" in script
     assert 'data-copy-contact="${encodeURIComponent(String(lead.email))}"' in script
     assert (
         "await copyText(decodeURIComponent(copyContact.dataset.copyContact),'Скопировано')"

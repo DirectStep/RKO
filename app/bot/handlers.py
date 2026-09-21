@@ -196,6 +196,13 @@ async def manager_leads(
                     .where(
                         Lead.manager_id == manager.id,
                         Lead.archived_at.is_(None),
+                        Lead.bank_selection_submitted_at.is_not(None),
+                        Lead.workflow_stage.in_(
+                            {
+                                LeadWorkflowStage.AWAITING_MANAGER,
+                                LeadWorkflowStage.MANAGER_PROCESSING,
+                            }
+                        ),
                     )
                     .order_by(Lead.last_updated_at.desc())
                     .limit(20)
@@ -213,7 +220,7 @@ async def manager_leads(
     buttons = [
         (
             str(lead.id),
-            f"{'🆕 ' if lead.workflow_stage is LeadWorkflowStage.AWAITING_MANAGER else ''}"
+            f"{'🆕 ' if lead.manager_started_at is None else ''}"
             f"{lead.short_id} · {lead.display_name}",
         )
         for lead in leads
@@ -269,7 +276,9 @@ async def manager_lead(
                 User.access_status == AccessStatus.ACTIVE,
             )
         )
-        previous_stage = await session.scalar(select(Lead.workflow_stage).where(Lead.id == lead_id))
+        previous_manager_started_at = await session.scalar(
+            select(Lead.manager_started_at).where(Lead.id == lead_id)
+        )
     if manager is None:
         await callback.answer("Раздел доступен менеджеру", show_alert=True)
         return
@@ -301,7 +310,7 @@ async def manager_lead(
     )
     if isinstance(callback.message, Message):
         await callback.message.edit_text(text)
-    if previous_stage is LeadWorkflowStage.AWAITING_MANAGER:
+    if previous_manager_started_at is None:
         manager_name = (
             f"@{manager.telegram_username}"
             if manager.telegram_username
