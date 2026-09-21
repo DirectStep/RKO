@@ -590,12 +590,26 @@ class WorkflowService:
                 await self._update_lead_payment_status(session, lead_bank.lead_id, new_status)
             return payment
 
-    async def delete_lead(self, *, actor_role: UserRole, lead_id: UUID) -> None:
-        self._require_admin(actor_role)
+    async def delete_lead(
+        self,
+        *,
+        actor_role: UserRole,
+        lead_id: UUID,
+        actor_user_id: UUID | None = None,
+    ) -> None:
+        self._require_employee(actor_role)
         async with self.database.session() as session, session.begin():
             lead = await session.scalar(select(Lead).where(Lead.id == lead_id).with_for_update())
             if lead is None:
                 raise DomainError("Заявка не найдена")
+            lead_banks = list(
+                await session.scalars(
+                    select(LeadBank)
+                    .where(LeadBank.lead_id == lead_id)
+                    .with_for_update()
+                )
+            )
+            self._validate_lead_deletion(actor_role, actor_user_id, lead, lead_banks)
             protected_payment = await session.scalar(
                 select(Payment.id)
                 .join(LeadBank, LeadBank.id == Payment.lead_bank_id)
@@ -621,6 +635,23 @@ class WorkflowService:
                 update(Lead).where(Lead.previous_lead_id == lead_id).values(previous_lead_id=None)
             )
             await session.delete(lead)
+
+    @staticmethod
+    def _validate_lead_deletion(
+        actor_role: UserRole,
+        actor_user_id: UUID | None,
+        lead: Lead,
+        lead_banks: list[LeadBank],
+    ) -> None:
+        if actor_role is not UserRole.MANAGER:
+            return
+        if actor_user_id is None or lead.manager_id != actor_user_id:
+            raise DomainError("Менеджер может удалить только свою заявку")
+        if any(
+            lead_bank.internal_status is BankInternalStatus.ACCOUNT_OPENED
+            for lead_bank in lead_banks
+        ):
+            raise DomainError("Заявку с активированными счетами удалить нельзя")
 
     @staticmethod
     def _apply_bank_status(

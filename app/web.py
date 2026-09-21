@@ -1449,9 +1449,13 @@ def create_web_app(
         lead_id: UUID,
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> None:
-        require_admin(user)
+        actor_id = require_employee(user)
         try:
-            await WorkflowService(database).delete_lead(actor_role=user.role, lead_id=lead_id)
+            await WorkflowService(database).delete_lead(
+                actor_role=user.role,
+                actor_user_id=actor_id,
+                lead_id=lead_id,
+            )
         except DomainError as error:
             raise domain_error(error) from error
 

@@ -6,6 +6,7 @@ from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import urlencode
+from uuid import uuid4
 
 import pytest
 
@@ -16,6 +17,7 @@ from app.domain.enums import (
     PaymentStatus,
     UserRole,
 )
+from app.domain.operations import DomainError
 from app.services.workflow import WorkflowService
 from app.web import (
     CLIENT_STATUS_LABELS,
@@ -199,13 +201,44 @@ def test_channels_show_only_the_new_bot_referral_link() -> None:
     ]
 
 
-def test_admin_can_delete_one_application_from_mini_app() -> None:
+def test_admin_and_assigned_manager_can_delete_application_from_mini_app() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+    workflow = (ASSETS_DIR.parent / "services" / "workflow.py").read_text(encoding="utf-8")
 
     assert 'id="show-delete-lead"' in script
     assert 'id="delete-lead-confirm"' in script
     assert "method:'DELETE'" in script
     assert "Telegram-аккаунт клиента и другие его заявки останутся" in script
+    assert "managerRole&&lead.is_assigned_manager&&!hasActivatedAccounts" in script
+    assert "lead.manager_id != actor_user_id" in workflow
+    assert "BankInternalStatus.ACCOUNT_OPENED" in workflow
+    assert "Заявку с активированными счетами удалить нельзя" in workflow
+
+
+def test_manager_cannot_delete_another_or_activated_application() -> None:
+    manager_id = uuid4()
+    lead = SimpleNamespace(manager_id=manager_id)
+
+    WorkflowService._validate_lead_deletion(
+        UserRole.MANAGER,
+        manager_id,
+        lead,
+        [SimpleNamespace(internal_status=BankInternalStatus.PLANNED)],
+    )
+    with pytest.raises(DomainError, match="только свою заявку"):
+        WorkflowService._validate_lead_deletion(
+            UserRole.MANAGER,
+            uuid4(),
+            lead,
+            [],
+        )
+    with pytest.raises(DomainError, match="с активированными счетами"):
+        WorkflowService._validate_lead_deletion(
+            UserRole.MANAGER,
+            manager_id,
+            lead,
+            [SimpleNamespace(internal_status=BankInternalStatus.ACCOUNT_OPENED)],
+        )
 
 
 def test_online_badge_content_is_centered() -> None:
