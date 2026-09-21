@@ -74,7 +74,7 @@ def test_secondary_bot_init_data_is_accepted() -> None:
     assert user["id"] == 1781530480
 
 
-def test_lead_expected_payout_decreases_only_after_payment() -> None:
+def test_lead_expected_payout_excludes_refusals_and_paid_rewards() -> None:
     unpaid = None
     paid = SimpleNamespace(
         external_status=BankExternalStatus.OPENED,
@@ -98,6 +98,18 @@ def test_lead_expected_payout_decreases_only_after_payment() -> None:
         SimpleNamespace(
             external_status=BankExternalStatus.OPENED,
             lead_reward_estimate=Decimal("5000"),
+            lead_reward_fact=None,
+            lead_reward_paid_at=unpaid,
+        ),
+        SimpleNamespace(
+            external_status=BankExternalStatus.NOT_OPENED,
+            lead_reward_estimate=Decimal("4000"),
+            lead_reward_fact=None,
+            lead_reward_paid_at=unpaid,
+        ),
+        SimpleNamespace(
+            external_status=BankExternalStatus.WILL_NOT_OPEN,
+            lead_reward_estimate=Decimal("4500"),
             lead_reward_fact=None,
             lead_reward_paid_at=unpaid,
         ),
@@ -259,6 +271,7 @@ def test_partner_summary_uses_clear_application_and_payment_metrics() -> None:
 def test_lead_cabinet_has_separate_read_only_sections() -> None:
     markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+    styles = (ASSETS_DIR / "styles.css").read_text(encoding="utf-8")
 
     assert 'id="client-application-screen"' in markup
     assert 'id="client-banks-screen"' in markup
@@ -270,6 +283,10 @@ def test_lead_cabinet_has_separate_read_only_sections() -> None:
     assert "lead_payout_paid_separately" in script
     assert "`до ${value}`" in script
     assert "item.online_available" in script
+    assert "item.status==='opened'?'is-positive'" in script
+    assert "['not_opened','will_not_open'].includes(item.status)?'is-negative'" in script
+    assert ".client-bank-card header p.is-positive" in styles
+    assert ".client-bank-card header p.is-negative" in styles
     assert "const infoIcon=" in script
     assert "${infoIcon}</button>" in script
     assert "Добавить ещё" in markup

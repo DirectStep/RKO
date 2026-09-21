@@ -129,6 +129,8 @@ def lead_cabinet_metrics(lead_banks: list[LeadBank]) -> dict[str, int | Decimal]
                 bank.lead_reward_estimate or Decimal("0")
                 for bank in lead_banks
                 if bank.lead_reward_paid_at is None
+                and bank.external_status
+                not in {BankExternalStatus.NOT_OPENED, BankExternalStatus.WILL_NOT_OPEN}
             ),
             start=Decimal("0"),
         ),
