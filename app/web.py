@@ -1995,26 +1995,6 @@ def create_web_app(
             "count": len(lead_banks),
         }
 
-    @app.delete("/api/lead-banks/{lead_bank_id}")
-    async def remove_lead_bank(
-        lead_bank_id: UUID,
-        user: Annotated[MiniAppUser, Depends(current_user)],
-    ) -> dict[str, object]:
-        actor_id = require_admin(user)
-        try:
-            deleted = await WorkflowService(database).remove_bank_from_lead(
-                actor_role=user.role,
-                actor_user_id=actor_id,
-                lead_bank_id=lead_bank_id,
-            )
-        except DomainError as error:
-            raise domain_error(error) from error
-        return {
-            "id": str(lead_bank_id),
-            "deleted": deleted,
-            "message": ("Банк удалён из заявки" if deleted else "Банк исключён, история сохранена"),
-        }
-
     @app.post("/api/leads/{lead_id}/claim-manager")
     async def claim_lead_by_manager(
         lead_id: UUID,

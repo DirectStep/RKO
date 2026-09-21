@@ -525,46 +525,6 @@ class WorkflowService:
             lead_bank.last_updated_at = datetime.now(UTC)
             return lead_bank
 
-    async def remove_bank_from_lead(
-        self,
-        *,
-        actor_role: UserRole,
-        actor_user_id: UUID,
-        lead_bank_id: UUID,
-    ) -> bool:
-        if actor_role is not UserRole.ADMIN:
-            raise DomainError("Убирать банки из заявки может только администратор")
-        async with self.database.session() as session, session.begin():
-            lead_bank = await session.scalar(
-                select(LeadBank).where(LeadBank.id == lead_bank_id).with_for_update()
-            )
-            if lead_bank is None:
-                raise DomainError("Банк заявки не найден")
-            lead = await session.get(Lead, lead_bank.lead_id)
-            if lead is None:
-                raise DomainError("Заявка не найдена")
-            if lead.primary_admin_id != actor_user_id:
-                raise DomainError("Изменять банки может только ответственный администратор")
-            payment = await session.scalar(
-                select(Payment.id).where(Payment.lead_bank_id == lead_bank.id).limit(1)
-            )
-            has_history = (
-                lead_bank.offered_to_lead
-                or lead_bank.selected_by_lead is not None
-                or payment is not None
-                or lead_bank.internal_status is not BankInternalStatus.PLANNED
-            )
-            if has_history:
-                self._apply_bank_status(
-                    lead_bank,
-                    BankInternalStatus.EXCLUDED,
-                    "Исключён администратором",
-                )
-                lead_bank.offered_to_lead = False
-                return False
-            await session.delete(lead_bank)
-            return True
-
     async def confirm_lead_bank_payment(
         self,
         *,

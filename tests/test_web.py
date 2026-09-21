@@ -480,6 +480,16 @@ def test_manager_sees_only_banks_selected_by_lead() -> None:
     assert "lead_bank.selected_by_lead = True" in workflow
 
 
+def test_admin_cannot_remove_bank_from_application() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+    backend = (ASSETS_DIR.parent / "web.py").read_text(encoding="utf-8")
+    workflow = (ASSETS_DIR.parent / "services" / "workflow.py").read_text(encoding="utf-8")
+
+    assert "data-remove-lead-bank" not in script
+    assert 'app.delete("/api/lead-banks/{lead_bank_id}")' not in backend
+    assert "remove_bank_from_lead" not in workflow
+
+
 def test_admin_cannot_change_source_and_can_review_duplicates() -> None:
     markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
