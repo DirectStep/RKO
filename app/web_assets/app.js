@@ -16,7 +16,7 @@ async function waitForTelegramContext(){
   telegramWebApp()?.ready();telegramWebApp()?.expand()
 }
 
-const state = { session: null, dashboard: {}, leads: [], partners: [], channels: [], banks: [], banksLoading: false, banksError: false, staff: [], duplicates: [], leadApplication: null, leadBanks: [], leadAddingBanks: false, leadScope: 'queue', partnerData: null, currentScreen: 'summary' }
+const state = { session: null, dashboard: {}, leads: [], partners: [], channels: [], banks: [], banksLoading: false, banksError: false, staff: [], duplicates: [], leadApplication: null, leadBanks: [], leadAddingBanks: false, leadScope: 'queue', leadScopeExplicit: false, partnerData: null, currentScreen: 'summary' }
 const leadLabels = { new:'Новая',manager_assigned:'Менеджер назначен',awaiting_first_contact:'Ждёт звонка',contacted:'Связались',awaiting_data:'Ждём данные',data_received:'Данные получены',selecting_banks:'Подбираем банки',preparing_applications:'Готовим заявки',applications_sent:'Заявки отправлены',opening_accounts:'Открытие счетов',partially_opened:'Часть счетов открыта',all_planned_opened:'Счета открыты',paused:'На паузе',no_response:'Нет ответа',lead_refused:'Отказ клиента',not_eligible:'Не подходит',completed:'Завершена',in_progress:'В работе',partially_completed:'Частично завершена',closed_without_result:'Закрыта без результата' }
 const internalLeadStatuses = ['new','manager_assigned','awaiting_first_contact','contacted','awaiting_data','data_received','selecting_banks','preparing_applications','applications_sent','opening_accounts','partially_opened','all_planned_opened','paused','no_response','lead_refused','not_eligible','completed']
 const questionLabels = { adult:'Совершеннолетие',has_ip:'ИП',city:'Город',full_name:'ФИО',email:'E-mail',has_bankruptcy_or_arrests:'Банкротства или аресты',is_civil_servant:'Госслужащий',has_social_benefits:'Социальные выплаты',no_bankruptcy:'Нет банкротств или арестов',not_civil_servant:'Не госслужащий',no_social_benefits:'Нет социальных выплат' }
@@ -177,6 +177,7 @@ function render(){
   renderLeads(state.leads.slice(0,5),document.querySelector('#recent-leads'))
   document.querySelector('#partners-tab').hidden=!(admin||partnerRole); document.querySelector('#banks-tab').hidden=!admin; document.querySelector('#team-tab').hidden=!employee
   document.querySelector('#scope-filter').hidden=state.session.role!=='manager'
+  document.querySelector('#lead-scope').value=state.leadScope
   document.querySelector('#add-bank-button').hidden=!admin; document.querySelector('#add-partner-button').hidden=!admin; document.querySelector('#add-staff-button').hidden=!admin; document.querySelector('#add-channel-button').hidden=!partnerRole
   document.querySelector('#bank-sheet-links').hidden=!admin
   document.querySelector('#open-google-sheet').hidden=!admin||!state.session.google_sheet_url
@@ -253,10 +254,13 @@ async function load(){
       render();return
     }
     const employee=['admin','manager'].includes(state.session.role)
-    const [dashboard,loadedLeads]=await Promise.all([
+    const [dashboard,initialLeads]=await Promise.all([
       api('/api/dashboard'),
       api(`/api/leads${state.leadScope==='mine'?'?mine=true':''}`),
     ])
+    const showWork=state.session.role==='manager'&&!state.leadScopeExplicit&&state.leadScope==='queue'&&dashboard.new===0&&dashboard.active>0
+    if(showWork)state.leadScope='mine'
+    const loadedLeads=showWork?await api('/api/leads?mine=true'):initialLeads
     const leads=loadedLeads
     state.banksLoading=employee
     state.banksError=false
@@ -444,7 +448,7 @@ document.querySelectorAll('[data-screen]').forEach(x=>x.addEventListener('click'
 document.querySelectorAll('[data-go]').forEach(x=>x.addEventListener('click',()=>showScreen(x.dataset.go)))
 document.querySelector('#close-sheet').addEventListener('click',closeSheet);document.querySelector('#sheet-backdrop').addEventListener('click',closeSheet);document.querySelector('#retry-button').addEventListener('click',load)
 document.querySelector('#lead-search').addEventListener('input',renderVisibleLeads)
-document.querySelector('#lead-scope').addEventListener('change',async event=>{state.leadScope=event.target.value;await load()})
+document.querySelector('#lead-scope').addEventListener('change',async event=>{state.leadScope=event.target.value;state.leadScopeExplicit=true;await load()})
 async function downloadReport(){try{const partner=state.session?.role==='partner',path=partner?`/api/partner/report.xlsx?${partnerQuery()}`:'/api/reports/leads.csv',response=await fetch(path,{headers:{'X-Telegram-Init-Data':telegramInitData()}});if(!response.ok)throw new Error('Не удалось сформировать отчёт');const link=document.createElement('a');link.href=URL.createObjectURL(await response.blob());link.download=partner?'rko-partner-report.xlsx':'rko-leads.csv';link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);toast('Отчёт сформирован')}catch(error){toast(error.message)}}
 document.querySelector('#download-report').addEventListener('click',downloadReport)
 document.querySelector('#partner-report').addEventListener('click',downloadReport)

@@ -488,6 +488,9 @@ def test_manager_queue_moves_to_work_only_when_application_is_opened() -> None:
     assert "await api(`/api/leads/${lead.id}/claim-manager`" in script
     assert "state.leadScope='mine'" in script
     assert "document.querySelector('#lead-scope').value='mine'" in script
+    assert "dashboard.new===0&&dashboard.active>0" in script
+    assert "document.querySelector('#lead-scope').value=state.leadScope" in script
+    assert "state.leadScopeExplicit=true" in script
 
 
 def test_manager_sees_only_banks_selected_by_lead() -> None:
@@ -582,7 +585,7 @@ def test_mini_app_retries_and_loads_optional_sections_in_parallel() -> None:
     assert "new XMLHttpRequest()" in script
     assert "const attempts=(options.method||'GET').toUpperCase()==='GET'?2:1" in script
     assert "Сервер отвечает слишком долго" in script
-    assert "const [dashboard,loadedLeads]=await Promise.all" in script
+    assert "const [dashboard,initialLeads]=await Promise.all" in script
     assert "api('/api/dashboard')" in script
     assert "api(`/api/leads" in script
     assert "Object.assign(state,{dashboard,leads});render()" in script
