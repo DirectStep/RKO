@@ -127,7 +127,7 @@ def lead_cabinet_metrics(lead_banks: list[LeadBank]) -> dict[str, int | Decimal]
         "expected_payout": sum(
             (
                 bank.lead_reward_estimate or Decimal("0")
-                for bank in planned_banks
+                for bank in lead_banks
                 if bank.lead_reward_paid_at is None
             ),
             start=Decimal("0"),

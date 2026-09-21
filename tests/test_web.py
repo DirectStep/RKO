@@ -74,7 +74,7 @@ def test_secondary_bot_init_data_is_accepted() -> None:
     assert user["id"] == 1781530480
 
 
-def test_lead_expected_payout_uses_planned_accounts_not_activated_accounts() -> None:
+def test_lead_expected_payout_decreases_only_after_payment() -> None:
     unpaid = None
     paid = SimpleNamespace(
         external_status=BankExternalStatus.OPENED,
@@ -109,7 +109,7 @@ def test_lead_expected_payout_uses_planned_accounts_not_activated_accounts() -> 
     assert metrics == {
         "planned_accounts": 2,
         "activated_accounts": 2,
-        "expected_payout": Decimal("3000"),
+        "expected_payout": Decimal("8000"),
         "paid_total": Decimal("2500"),
     }
 
