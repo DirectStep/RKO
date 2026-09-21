@@ -431,6 +431,17 @@ class WorkflowService:
             income_estimate is not None or income_fact is not None
         ):
             raise DomainError("Менеджер не может изменять финансовые данные")
+        manager_decisions = {
+            BankInternalStatus.ACCOUNT_OPENED,
+            BankInternalStatus.BANK_REJECTED,
+            BankInternalStatus.CLIENT_REFUSED,
+        }
+        if (
+            actor_role is UserRole.MANAGER
+            and status is not None
+            and status not in manager_decisions
+        ):
+            raise DomainError("Менеджер может выбрать только активацию или отказ")
         if actor_role is UserRole.ADMIN and status is not None:
             raise DomainError("Статус счёта изменяет назначенный менеджер")
         self._validate_money(income_estimate)

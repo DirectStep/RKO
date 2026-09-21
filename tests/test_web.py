@@ -262,9 +262,19 @@ def test_admin_sees_manager_bank_decision_without_status_selector() -> None:
     assert "bank_rejected:'Отказ банка'" in script
     assert "client_refused:'Отказ клиента'" in script
     assert "'Ожидается действие менеджера'" in script
-    admin_edit = script.split("const adminEdit=", 1)[1].split("const managerEdit=", 1)[0]
-    assert "data-bank-status" not in admin_edit
-    assert "data-reason" not in admin_edit
+    assert "data-bank-status" not in script
+    assert "data-reason" not in script
+
+
+@pytest.mark.asyncio
+async def test_manager_can_only_activate_or_reject_bank() -> None:
+    with pytest.raises(DomainError, match="только активацию или отказ"):
+        await WorkflowService(SimpleNamespace()).update_lead_bank(
+            actor_role=UserRole.MANAGER,
+            actor_user_id=uuid4(),
+            lead_bank_id=uuid4(),
+            status=BankInternalStatus.UNDER_REVIEW,
+        )
 
 
 @pytest.mark.asyncio
