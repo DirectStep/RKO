@@ -819,7 +819,7 @@ def test_account_opened_message_uses_premium_emojis() -> None:
         '<tg-emoji emoji-id="5226831738734400762">🏦</tg-emoji> '
         "Банк: <b>Альфа &lt;Банк&gt;</b>\n"
         '<tg-emoji emoji-id="5395444784611480792">📝</tg-emoji> '
-        "Заявка: <b>RKO-0001</b>"
+        "Заявка: <code>RKO-0001</code>"
     )
 
 

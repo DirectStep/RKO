@@ -161,7 +161,7 @@ def format_account_opened_admin_message(
         '<tg-emoji emoji-id="5226831738734400762">🏦</tg-emoji> '
         f"Банк: <b>{html.escape(bank_name)}</b>\n"
         '<tg-emoji emoji-id="5395444784611480792">📝</tg-emoji> '
-        f"Заявка: <b>{html.escape(application_number)}</b>"
+        f"Заявка: <code>{html.escape(application_number)}</code>"
     )
 
 
