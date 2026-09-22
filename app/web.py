@@ -115,19 +115,31 @@ CLIENT_STATUS_LABELS = {
 }
 
 
-def format_lead_reward_message(bank_name: str, amount: Decimal) -> str:
+def format_reward_amount(amount: Decimal) -> str:
     amount_text = format(amount.normalize(), "f")
     integer, separator, fraction = amount_text.partition(".")
     grouped_integer = f"{int(integer):,}".replace(",", " ")
     fraction = fraction.rstrip("0")
-    formatted_amount = (
+    return (
         f"{grouped_integer},{fraction}" if separator and fraction else grouped_integer
     )
+
+
+def format_lead_reward_message(bank_name: str, amount: Decimal) -> str:
+    formatted_amount = format_reward_amount(amount)
     return (
         "🎉 <b>Бонус выплачен!</b>\n\n"
         f"🏦 Банк: <b>{html.escape(bank_name)}</b>\n"
         f"💰 Сумма бонуса: <b>{formatted_amount} ₽</b>\n\n"
         "<blockquote><i>Спасибо, что выбрали нас!</i></blockquote>"
+    )
+
+
+def format_partner_reward_message(application_number: str, amount: Decimal) -> str:
+    return (
+        "💸 <b>Вознаграждение выплачено!</b>\n\n"
+        f"📋 Номер заявки: <b>{html.escape(application_number)}</b>\n"
+        f"💰 Сумма: <b>{format_reward_amount(amount)} ₽</b>"
     )
 
 
@@ -624,7 +636,9 @@ def create_web_app(
             raise HTTPException(status_code=500, detail="Банк записан, но не синхронизирован")
         return rate
 
-    async def notify_partner(lead_id: UUID, text: str) -> None:
+    async def notify_partner(
+        lead_id: UUID, text: str, *, parse_mode: str | None = None
+    ) -> None:
         if not notification_bots:
             return
         async with database.session() as db_session:
@@ -643,7 +657,9 @@ def create_web_app(
             return
         for current_bot in notification_bots:
             try:
-                await current_bot.send_message(chat_id=int(telegram_id), text=text)
+                await current_bot.send_message(
+                    chat_id=int(telegram_id), text=text, parse_mode=parse_mode
+                )
             except Exception:
                 logger.exception(
                     "Failed to notify partner for lead %s via bot %s",
@@ -2089,12 +2105,6 @@ def create_web_app(
             )
         except DomainError as error:
             raise domain_error(error) from error
-        async with database.session() as db_session:
-            lead_id = await db_session.scalar(
-                select(LeadBank.lead_id).where(LeadBank.id == lead_bank_id)
-            )
-        if lead_id is not None:
-            await notify_partner(lead_id, "Вознаграждение по заявке подтверждено.")
         return {"id": str(payment.id), "status": payment.status.value}
 
     @app.post("/api/lead-banks/{lead_bank_id}/lead-reward/confirm")
@@ -2154,13 +2164,22 @@ def create_web_app(
             raise domain_error(error) from error
         if payment.status is PaymentStatus.PAID:
             async with database.session() as db_session:
-                lead_id = await db_session.scalar(
-                    select(LeadBank.lead_id)
-                    .join(Payment, Payment.lead_bank_id == LeadBank.id)
-                    .where(Payment.id == payment.id)
-                )
-            if lead_id is not None:
-                await notify_partner(lead_id, "Вознаграждение по заявке выплачено.")
+                reward_details = (
+                    await db_session.execute(
+                        select(LeadBank.lead_id, Lead.short_id)
+                        .join(Lead, Lead.id == LeadBank.lead_id)
+                        .join(Payment, Payment.lead_bank_id == LeadBank.id)
+                        .where(Payment.id == payment.id)
+                    )
+                ).one()
+            await notify_partner(
+                reward_details.lead_id,
+                format_partner_reward_message(
+                    reward_details.short_id,
+                    payment.partner_reward_fact or Decimal("0"),
+                ),
+                parse_mode="HTML",
+            )
         return {"id": str(payment.id), "status": payment.status.value}
 
     return app

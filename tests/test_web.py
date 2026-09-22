@@ -24,6 +24,7 @@ from app.web import (
     CLIENT_STATUS_LABELS,
     build_mini_app_html,
     format_lead_reward_message,
+    format_partner_reward_message,
     lead_bank_sort_key,
     lead_cabinet_metrics,
     public_referral_links,
@@ -784,6 +785,19 @@ def test_lead_reward_confirmation_notifies_client() -> None:
 
     assert "format_lead_reward_message(" in source
     assert 'parse_mode="HTML"' in source
+
+
+def test_partner_is_notified_only_after_reward_is_paid() -> None:
+    message = format_partner_reward_message("RKO-0047", Decimal("800.00"))
+    source = (ASSETS_DIR.parent / "web.py").read_text(encoding="utf-8")
+
+    assert message == (
+        "💸 <b>Вознаграждение выплачено!</b>\n\n"
+        "📋 Номер заявки: <b>RKO-0047</b>\n"
+        "💰 Сумма: <b>800 ₽</b>"
+    )
+    assert "Вознаграждение по заявке подтверждено." not in source
+    assert "format_partner_reward_message(" in source
 
 
 def test_telegram_sdk_does_not_block_application_startup() -> None:
