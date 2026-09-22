@@ -42,6 +42,7 @@ from app.domain.enums import (
 )
 from app.domain.operations import DomainError
 from app.integrations.bank_rates import BankRateRow, BankRatesGateway
+from app.integrations.google_sheets import GoogleSheetsGateway, LeadRegistryRowNotFound
 from app.models import (
     Bank,
     BankActivationCondition,
@@ -61,6 +62,7 @@ from app.services.bank_conditions import normalize_bank_name
 from app.services.bank_rates import BankRatesService
 from app.services.duplicate_reviews import DuplicateReviewService
 from app.services.lead_workflow import LeadWorkflowService
+from app.services.lead_registry import LeadRegistryService
 from app.services.partner_cabinet import partner_cabinet_data, partner_contact
 from app.services.user_access import UserAccessService
 from app.services.workflow import WorkflowService
@@ -454,6 +456,7 @@ def create_web_app(
     app = FastAPI(title="РКО", docs_url=None, redoc_url=None)
     mini_app_html = build_mini_app_html()
     notification_bots = ((bot,) if bot is not None else ()) + additional_bots
+    lead_registry_gateway: GoogleSheetsGateway | None = None
     app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="assets")
     app.mount("/documents", StaticFiles(directory=DOCUMENTS_DIR), name="documents")
 
@@ -599,6 +602,18 @@ def create_web_app(
             settings.bank_rates_worksheet,
             settings.google_service_account_file,
         )
+
+    async def registry_gateway() -> GoogleSheetsGateway:
+        nonlocal lead_registry_gateway
+        if not settings.sheets_enabled:
+            raise RuntimeError("Google Sheets не подключена")
+        if lead_registry_gateway is None:
+            lead_registry_gateway = await asyncio.to_thread(
+                GoogleSheetsGateway,
+                settings.google_sheet_id,
+                settings.google_service_account_file,
+            )
+        return lead_registry_gateway
 
     async def write_bank_rate(
         payload: BankCreate | BankUpdate,
@@ -2125,6 +2140,7 @@ def create_web_app(
             )
         except DomainError as error:
             raise domain_error(error) from error
+        sheet_sync_error = ""
         if (
             user.role is UserRole.MANAGER
             and payload.status is BankInternalStatus.ACCOUNT_OPENED
@@ -2142,6 +2158,18 @@ def create_web_app(
                     ),
                     parse_mode="HTML",
                 )
+                try:
+                    registry_row = await LeadRegistryService(
+                        database, settings.project_timezone
+                    ).activation_row(lead.id, actor_id)
+                    gateway = await registry_gateway()
+                    await asyncio.to_thread(gateway.upsert_lead_activation, registry_row)
+                except Exception:
+                    sheet_sync_error = "Счёт активирован, но Google Sheets не обновлена"
+                    logger.exception(
+                        "Failed to sync account activation for lead %s to Google Sheets",
+                        lead.id,
+                    )
         result: dict[str, object] = {
             "id": str(lead_bank.id),
             "status": lead_bank.internal_status.value,
@@ -2153,6 +2181,8 @@ def create_web_app(
                     "reward_fact": str(lead_bank.partner_reward_fact or ""),
                 }
             )
+        if sheet_sync_error:
+            result["sheet_sync_error"] = sheet_sync_error
         return result
 
     @app.post("/api/lead-banks/{lead_bank_id}/payment/confirm")
@@ -2205,11 +2235,38 @@ def create_web_app(
             ),
             parse_mode="HTML",
         )
-        return {
+        sheet_sync_error = ""
+        try:
+            application_id, paid_at, amount, payment_status = await LeadRegistryService(
+                database, settings.project_timezone
+            ).payment_values(lead_bank.lead_id)
+            gateway = await registry_gateway()
+            await asyncio.to_thread(
+                gateway.update_lead_payment,
+                application_id,
+                paid_at,
+                amount,
+                payment_status,
+            )
+        except LeadRegistryRowNotFound:
+            sheet_sync_error = "Выплата сохранена, но заявка не найдена в Google Sheets"
+            logger.exception(
+                "Lead %s is missing from the Google Sheets registry", lead_bank.lead_id
+            )
+        except Exception:
+            sheet_sync_error = "Выплата сохранена, но Google Sheets не обновлена"
+            logger.exception(
+                "Failed to sync lead reward payment for lead %s to Google Sheets",
+                lead_bank.lead_id,
+            )
+        result = {
             "id": str(lead_bank.id),
             "status": "paid",
             "amount": str(lead_bank.lead_reward_fact or 0),
         }
+        if sheet_sync_error:
+            result["sheet_sync_error"] = sheet_sync_error
+        return result
 
     @app.patch("/api/payments/{payment_id}")
     async def update_payment(

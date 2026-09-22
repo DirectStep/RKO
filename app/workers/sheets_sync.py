@@ -25,6 +25,7 @@ async def run_sheets_sync(database: Database, settings: Settings) -> None:
                     settings.google_sheet_id,
                     settings.google_service_account_file,
                 )
+                await asyncio.to_thread(gateway.ensure_lead_registry)
             sheets = await snapshot_service.build()
             changed_sheets = [
                 sheet for sheet in sheets if previous_sheets.get(sheet.title) != sheet

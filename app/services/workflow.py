@@ -697,7 +697,9 @@ class WorkflowService:
         if status in closing:
             lead_bank.closed_without_open_at = now
         elif status in date_fields:
-            setattr(lead_bank, date_fields[status], now)
+            field = date_fields[status]
+            if getattr(lead_bank, field) is None:
+                setattr(lead_bank, field, now)
 
     @staticmethod
     async def _update_lead_payment_status(
