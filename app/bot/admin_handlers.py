@@ -1,3 +1,4 @@
+import logging
 from uuid import UUID
 
 from aiogram import F, Router
@@ -20,6 +21,7 @@ from app.services.admin_dashboard import AdminDashboardService
 from app.services.user_access import UserAccessService
 
 router = Router(name="admin")
+logger = logging.getLogger(__name__)
 
 QUESTION_LABELS = {
     "adult": "Совершеннолетие",
@@ -46,6 +48,39 @@ async def show_admin_group_id(message: Message, database: Database, settings: Se
         await message.answer("Отправьте /group_id внутри админской Telegram-группы.")
         return
     await message.answer(f"ID этой группы: {message.chat.id}")
+
+
+def extract_custom_emoji_ids(message: Message | None) -> list[str]:
+    if message is None:
+        return []
+    entities = (*(message.entities or ()), *(message.caption_entities or ()))
+    return [
+        entity.custom_emoji_id
+        for entity in entities
+        if entity.type == "custom_emoji" and entity.custom_emoji_id
+    ]
+
+
+@router.message(Command("emoji_ids"))
+async def show_custom_emoji_ids(
+    message: Message, database: Database, settings: Settings
+) -> None:
+    user = message.from_user
+    if user is None or not await is_admin(user, database, settings):
+        await message.answer("Команда доступна только администратору.")
+        return
+    emoji_ids = extract_custom_emoji_ids(message.reply_to_message)
+    if not emoji_ids:
+        await message.answer(
+            "Ответьте командой /emoji_ids на сообщение "
+            "с премиум-эмодзи."
+        )
+        return
+    logger.info("Captured custom emoji ids: %s", ", ".join(emoji_ids))
+    await message.answer(
+        "Нашёл премиум-эмодзи:\n"
+        + "\n".join(f"{index}. {emoji_id}" for index, emoji_id in enumerate(emoji_ids, 1))
+    )
 
 
 async def is_admin(user: TelegramUser, database: Database, settings: Settings) -> bool:
