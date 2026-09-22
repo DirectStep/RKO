@@ -84,19 +84,37 @@ def test_activation_upsert_does_not_create_duplicates_or_reset_payment() -> None
     gateway = gateway_with(worksheet)
 
     gateway.upsert_lead_activation(registry_row())
-    gateway.update_lead_payment("RKO-0001", "22.10.2026 12:00", 5000.0)
-    gateway.upsert_lead_activation(registry_row("Альфа-Банк, ВТБ"))
+    gateway.update_lead_payment("RKO-0001", "Альфа-Банк", "22.10.2026 12:00", 5000.0)
+    gateway.upsert_lead_activation(registry_row())
+    gateway.upsert_lead_activation(registry_row("ВТБ"))
+    gateway.upsert_lead_activation(registry_row("ВТБ"))
 
-    assert len(worksheet.values) == 2
-    assert worksheet.values[1][4] == "Альфа-Банк, ВТБ"
+    assert len(worksheet.values) == 3
+    assert [row[4] for row in worksheet.values[1:]] == ["Альфа-Банк", "ВТБ"]
     assert worksheet.values[1][7:10] == ["22.10.2026 12:00", 5000.0, "Выплачено"]
+    assert worksheet.values[2][7:10] == ["", "", "Ожидается"]
+
+    gateway.update_lead_payment("RKO-0001", "ВТБ", "23.10.2026 12:00", 2000.0)
+    assert worksheet.values[1][8] == 5000.0
+    assert worksheet.values[2][7:10] == ["23.10.2026 12:00", 2000.0, "Выплачено"]
 
 
 def test_payment_update_does_not_create_missing_application() -> None:
     gateway = gateway_with(FakeWorksheet())
 
     with pytest.raises(LeadRegistryRowNotFound, match="RKO-404"):
-        gateway.update_lead_payment("RKO-404", "22.10.2026 12:00", 5000.0)
+        gateway.update_lead_payment("RKO-404", "Альфа-Банк", "22.10.2026 12:00", 5000.0)
+
+
+def test_payment_does_not_update_another_bank_of_same_application() -> None:
+    worksheet = FakeWorksheet()
+    gateway = gateway_with(worksheet)
+    gateway.upsert_lead_activation(registry_row("Альфа-Банк"))
+
+    with pytest.raises(LeadRegistryRowNotFound, match="ВТБ"):
+        gateway.update_lead_payment("RKO-0001", "ВТБ", "22.10.2026 12:00", 5000.0)
+
+    assert worksheet.values[1][7:10] == ["", "", "Ожидается"]
 
 
 def test_expected_payment_is_exactly_thirty_moscow_calendar_days() -> None:

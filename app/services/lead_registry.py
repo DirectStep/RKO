@@ -15,59 +15,41 @@ class LeadRegistryService:
         self.database = database
         self.timezone = ZoneInfo(timezone_name)
 
-    async def activation_row(self, lead_id: UUID, manager_id: UUID) -> LeadRegistryRow:
+    async def activation_row(self, lead_bank_id: UUID, manager_id: UUID) -> LeadRegistryRow:
         async with self.database.session() as session:
-            lead = await session.get(Lead, lead_id)
+            lead_bank = await session.get(LeadBank, lead_bank_id)
+            lead = await session.get(Lead, lead_bank.lead_id) if lead_bank else None
+            bank = await session.get(Bank, lead_bank.bank_id) if lead_bank else None
             manager = await session.get(User, manager_id)
-            activated = list(
-                (
-                    await session.execute(
-                        select(LeadBank, Bank.name)
-                        .join(Bank, Bank.id == LeadBank.bank_id)
-                        .where(
-                            LeadBank.lead_id == lead_id,
-                            LeadBank.internal_status == BankInternalStatus.ACCOUNT_OPENED,
-                        )
-                        .order_by(LeadBank.opened_at, Bank.name)
-                    )
-                ).all()
-            )
-        if lead is None or manager is None or not activated:
-            raise RuntimeError("Не удалось собрать данны активации для Google Sheets")
-        activation = min(item.opened_at for item, _ in activated if item.opened_at is not None)
+        if (lead is None or bank is None or manager is None or lead_bank is None
+                or lead_bank.opened_at is None):
+            raise RuntimeError("Не удалось собрать данные активации для Google Sheets")
+        activation = lead_bank.opened_at
         local_activation = activation.astimezone(self.timezone)
         return LeadRegistryRow(
             application_id=lead.short_id,
             activated_at=local_activation.strftime("%d.%m.%Y %H:%M"),
             lead=self._telegram_name(lead.telegram_username, lead.telegram_id),
             manager=self._telegram_name(manager.telegram_username, manager.telegram_id),
-            bank=", ".join(name for _, name in activated),
+            bank=bank.name,
             application_status="Счёт активирован",
             expected_payment_at=expected_payment_date(activation, self.timezone),
         )
 
-    async def payment_values(self, lead_id: UUID) -> tuple[str, str, float, str]:
+    async def payment_values(self, lead_bank_id: UUID) -> tuple[str, str, str, float, str]:
         async with self.database.session() as session:
-            lead = await session.get(Lead, lead_id)
-            activated = list(
-                await session.scalars(
-                    select(LeadBank).where(
-                        LeadBank.lead_id == lead_id,
-                        LeadBank.internal_status == BankInternalStatus.ACCOUNT_OPENED,
-                    )
-                )
-            )
-        if lead is None or not activated:
-            raise RuntimeError("Не удалось собрать данны выплаты для Google Sheets")
-        paid = [item for item in activated if item.lead_reward_paid_at is not None]
-        amount = sum((item.lead_reward_fact or 0 for item in paid), start=0)
-        all_paid = len(paid) == len(activated)
-        latest_payment = max(item.lead_reward_paid_at for item in paid)
+            lead_bank = await session.get(LeadBank, lead_bank_id)
+            lead = await session.get(Lead, lead_bank.lead_id) if lead_bank else None
+            bank = await session.get(Bank, lead_bank.bank_id) if lead_bank else None
+        if (lead is None or bank is None or lead_bank is None
+                or lead_bank.lead_reward_paid_at is None):
+            raise RuntimeError("Не удалось собрать данные выплаты для Google Sheets")
         return (
             lead.short_id,
-            latest_payment.astimezone(self.timezone).strftime("%d.%m.%Y %H:%M"),
-            float(amount),
-            "Выплачено" if all_paid else "Ожидается",
+            bank.name,
+            lead_bank.lead_reward_paid_at.astimezone(self.timezone).strftime("%d.%m.%Y %H:%M"),
+            float(lead_bank.lead_reward_fact or 0),
+            "Выплачено",
         )
 
     @staticmethod

@@ -2164,7 +2164,7 @@ def create_web_app(
                 try:
                     registry_row = await LeadRegistryService(
                         database, settings.project_timezone
-                    ).activation_row(lead.id, actor_id)
+                    ).activation_row(lead_bank.id, actor_id)
                     gateway = await registry_gateway()
                     await asyncio.to_thread(gateway.upsert_lead_activation, registry_row)
                 except Exception:
@@ -2240,13 +2240,14 @@ def create_web_app(
         )
         sheet_sync_error = ""
         try:
-            application_id, paid_at, amount, payment_status = await LeadRegistryService(
+            application_id, bank_name, paid_at, amount, payment_status = await LeadRegistryService(
                 database, settings.project_timezone
-            ).payment_values(lead_bank.lead_id)
+            ).payment_values(lead_bank.id)
             gateway = await registry_gateway()
             await asyncio.to_thread(
                 gateway.update_lead_payment,
                 application_id,
+                bank_name,
                 paid_at,
                 amount,
                 payment_status,

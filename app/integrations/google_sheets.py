@@ -113,7 +113,7 @@ class GoogleSheetsGateway:
 
     def upsert_lead_activation(self, row: LeadRegistryRow) -> None:
         worksheet = self.ensure_lead_registry()
-        row_number, existing = self._find_registry_row(worksheet, row.application_id)
+        row_number, existing = self._find_registry_row(worksheet, row.application_id, row.bank)
         values = row.values()
         if row_number is None:
             worksheet.append_row(values, value_input_option="RAW")
@@ -122,27 +122,28 @@ class GoogleSheetsGateway:
         worksheet.update([values], f"A{row_number}:K{row_number}", raw=True)
 
     def update_lead_payment(
-        self, application_id: str, paid_at: str, amount: float, status: str = "Выплачено"
+        self, application_id: str, bank: str, paid_at: str, amount: float,
+        status: str = "Выплачено"
     ) -> None:
         worksheet = self.ensure_lead_registry()
-        row_number, _ = self._find_registry_row(worksheet, application_id)
+        row_number, _ = self._find_registry_row(worksheet, application_id, bank)
         if row_number is None:
             raise LeadRegistryRowNotFound(
-                f"Заявка {application_id} не найдена в листе {LEAD_REGISTRY_TITLE}"
+                f"Банк {bank} заявки {application_id} не найден в листе {LEAD_REGISTRY_TITLE}"
             )
         worksheet.update([[paid_at, amount, status]], f"H{row_number}:J{row_number}", raw=True)
 
     @staticmethod
     def _find_registry_row(
-        worksheet: gspread.Worksheet, application_id: str
+        worksheet: gspread.Worksheet, application_id: str, bank: str
     ) -> tuple[int | None, list[str]]:
         matches = [
             (index, values)
             for index, values in enumerate(worksheet.get_all_values()[1:], start=2)
-            if values and values[0] == application_id
+            if len(values) > 4 and values[0] == application_id and values[4] == bank
         ]
         if len(matches) > 1:
-            raise RuntimeError(f"Найдены дубли заявки {application_id} в Google Sheets")
+            raise RuntimeError(f"Найдены дубли банка {bank} заявки {application_id} в Google Sheets")
         if not matches:
             return None, []
         row_number, values = matches[0]
