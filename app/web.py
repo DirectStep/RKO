@@ -128,9 +128,12 @@ def format_reward_amount(amount: Decimal) -> str:
 def format_lead_reward_message(bank_name: str, amount: Decimal) -> str:
     formatted_amount = format_reward_amount(amount)
     return (
-        "🎉 <b>Бонус выплачен!</b>\n\n"
-        f"🏦 Банк: <b>{html.escape(bank_name)}</b>\n"
-        f"💰 Сумма бонуса: <b>{formatted_amount} ₽</b>\n\n"
+        '<tg-emoji emoji-id="5357146861880760304">🎉</tg-emoji> '
+        "<b>Бонус выплачен!</b>\n\n"
+        '<tg-emoji emoji-id="5332455502917949981">🏦</tg-emoji> '
+        f"Банк: <b>{html.escape(bank_name)}</b>\n"
+        '<tg-emoji emoji-id="5224257782013769471">💰</tg-emoji> '
+        f"Сумма бонуса: <b>{formatted_amount} ₽</b>\n\n"
         "<blockquote><i>Спасибо, что выбрали нас!</i></blockquote>"
     )
 
