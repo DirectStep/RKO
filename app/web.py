@@ -142,9 +142,12 @@ def format_lead_reward_message(bank_name: str, amount: Decimal) -> str:
 
 def format_partner_reward_message(application_number: str, amount: Decimal) -> str:
     return (
-        "💸 <b>Вознаграждение выплачено!</b>\n\n"
-        f"📋 Номер заявки: <b>{html.escape(application_number)}</b>\n"
-        f"💰 Сумма: <b>{format_reward_amount(amount)} ₽</b>"
+        '<tg-emoji emoji-id="5357146861880760304">🎉</tg-emoji> '
+        "<b>Вознаграждение выплачено!</b>\n\n"
+        '<tg-emoji emoji-id="5395444784611480792">📝</tg-emoji> '
+        f"Заявка: <b>{html.escape(application_number)}</b>\n"
+        '<tg-emoji emoji-id="5224257782013769471">💰</tg-emoji> '
+        f"Сумма выплаты: <b>{format_reward_amount(amount)} ₽</b>"
     )
 
 

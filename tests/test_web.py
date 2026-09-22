@@ -796,9 +796,12 @@ def test_partner_is_notified_only_after_reward_is_paid() -> None:
     source = (ASSETS_DIR.parent / "web.py").read_text(encoding="utf-8")
 
     assert message == (
-        "💸 <b>Вознаграждение выплачено!</b>\n\n"
-        "📋 Номер заявки: <b>RKO-0047</b>\n"
-        "💰 Сумма: <b>800 ₽</b>"
+        '<tg-emoji emoji-id="5357146861880760304">🎉</tg-emoji> '
+        "<b>Вознаграждение выплачено!</b>\n\n"
+        '<tg-emoji emoji-id="5395444784611480792">📝</tg-emoji> '
+        "Заявка: <b>RKO-0047</b>\n"
+        '<tg-emoji emoji-id="5224257782013769471">💰</tg-emoji> '
+        "Сумма выплаты: <b>800 ₽</b>"
     )
     assert "Вознаграждение по заявке подтверждено." not in source
     assert "format_partner_reward_message(" in source
