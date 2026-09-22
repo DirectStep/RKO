@@ -23,6 +23,7 @@ from app.services.workflow import WorkflowService
 from app.web import (
     CLIENT_STATUS_LABELS,
     build_mini_app_html,
+    format_account_opened_admin_message,
     format_lead_reward_message,
     format_partner_reward_message,
     lead_bank_sort_key,
@@ -801,6 +802,30 @@ def test_partner_is_notified_only_after_reward_is_paid() -> None:
     )
     assert "Вознаграждение по заявке подтверждено." not in source
     assert "format_partner_reward_message(" in source
+
+
+def test_account_opened_message_uses_premium_emojis() -> None:
+    message = format_account_opened_admin_message(
+        "@manager", "Альфа <Банк>", "RKO-0001"
+    )
+
+    assert message == (
+        "🟢 <b>Счёт активирован</b>\n\n"
+        '<tg-emoji emoji-id="5188234920639632382">👤</tg-emoji> '
+        "Менеджер: <b>@manager</b>\n"
+        '<tg-emoji emoji-id="5226831738734400762">🏦</tg-emoji> '
+        "Банк: <b>Альфа &lt;Банк&gt;</b>\n"
+        '<tg-emoji emoji-id="5395444784611480792">📝</tg-emoji> '
+        "Заявка: <b>RKO-0001</b>"
+    )
+
+
+def test_manager_account_activation_notifies_primary_admin_once() -> None:
+    source = (ASSETS_DIR.parent / "web.py").read_text(encoding="utf-8")
+
+    assert "await notify_primary_admin(" in source
+    assert "user.role is UserRole.MANAGER" in source
+    assert "previous_status is not BankInternalStatus.ACCOUNT_OPENED" in source
 
 
 def test_telegram_sdk_does_not_block_application_startup() -> None:

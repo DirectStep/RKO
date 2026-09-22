@@ -146,6 +146,20 @@ def format_partner_reward_message(application_number: str, amount: Decimal) -> s
     )
 
 
+def format_account_opened_admin_message(
+    manager_name: str, bank_name: str, application_number: str
+) -> str:
+    return (
+        "🟢 <b>Счёт активирован</b>\n\n"
+        '<tg-emoji emoji-id="5188234920639632382">👤</tg-emoji> '
+        f"Менеджер: <b>{html.escape(manager_name)}</b>\n"
+        '<tg-emoji emoji-id="5226831738734400762">🏦</tg-emoji> '
+        f"Банк: <b>{html.escape(bank_name)}</b>\n"
+        '<tg-emoji emoji-id="5395444784611480792">📝</tg-emoji> '
+        f"Заявка: <b>{html.escape(application_number)}</b>"
+    )
+
+
 def lead_cabinet_metrics(lead_banks: list[LeadBank]) -> dict[str, int | Decimal]:
     planned_banks = [
         bank
@@ -689,6 +703,35 @@ def create_web_app(
             except Exception:
                 logger.exception(
                     "Failed to notify client for lead %s via bot %s",
+                    lead_id,
+                    current_bot.id,
+                )
+
+    async def notify_primary_admin(
+        lead_id: UUID, text: str, *, parse_mode: str | None = None
+    ) -> None:
+        if not notification_bots:
+            return
+        async with database.session() as db_session:
+            telegram_id = await db_session.scalar(
+                select(User.telegram_id)
+                .join(Lead, Lead.primary_admin_id == User.id)
+                .where(
+                    Lead.id == lead_id,
+                    User.role == UserRole.ADMIN,
+                    User.access_status == AccessStatus.ACTIVE,
+                )
+            )
+        if telegram_id is None:
+            return
+        for current_bot in notification_bots:
+            try:
+                await current_bot.send_message(
+                    chat_id=int(telegram_id), text=text, parse_mode=parse_mode
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to notify primary admin for lead %s via bot %s",
                     lead_id,
                     current_bot.id,
                 )
@@ -2066,6 +2109,10 @@ def create_web_app(
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> dict[str, object]:
         actor_id = require_employee(user)
+        async with database.session() as db_session:
+            previous_status = await db_session.scalar(
+                select(LeadBank.internal_status).where(LeadBank.id == lead_bank_id)
+            )
         try:
             lead_bank = await WorkflowService(database).update_lead_bank(
                 actor_role=user.role,
@@ -2078,6 +2125,23 @@ def create_web_app(
             )
         except DomainError as error:
             raise domain_error(error) from error
+        if (
+            user.role is UserRole.MANAGER
+            and payload.status is BankInternalStatus.ACCOUNT_OPENED
+            and previous_status is not BankInternalStatus.ACCOUNT_OPENED
+        ):
+            async with database.session() as db_session:
+                lead = await db_session.get(Lead, lead_bank.lead_id)
+                bank = await db_session.get(Bank, lead_bank.bank_id)
+                manager = await db_session.get(User, actor_id)
+            if lead is not None and bank is not None:
+                await notify_primary_admin(
+                    lead.id,
+                    format_account_opened_admin_message(
+                        format_user_name(manager), bank.name, lead.short_id
+                    ),
+                    parse_mode="HTML",
+                )
         result: dict[str, object] = {
             "id": str(lead_bank.id),
             "status": lead_bank.internal_status.value,
