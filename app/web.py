@@ -2,6 +2,7 @@ import asyncio
 import csv
 import hashlib
 import hmac
+import html
 import io
 import json
 import logging
@@ -112,6 +113,22 @@ CLIENT_STATUS_LABELS = {
     LeadInternalStatus.NOT_ELIGIBLE: "Пока не сможем помочь",
     LeadInternalStatus.COMPLETED: "Заявка завершена",
 }
+
+
+def format_lead_reward_message(bank_name: str, amount: Decimal) -> str:
+    amount_text = format(amount.normalize(), "f")
+    integer, separator, fraction = amount_text.partition(".")
+    grouped_integer = f"{int(integer):,}".replace(",", " ")
+    fraction = fraction.rstrip("0")
+    formatted_amount = (
+        f"{grouped_integer},{fraction}" if separator and fraction else grouped_integer
+    )
+    return (
+        "🎉 <b>Бонус выплачен!</b>\n\n"
+        f"🏦 Банк: <b>{html.escape(bank_name)}</b>\n"
+        f"💰 Сумма бонуса: <b>{formatted_amount} ₽</b>\n\n"
+        "<blockquote><i>Спасибо, что выбрали нас!</i></blockquote>"
+    )
 
 
 def lead_cabinet_metrics(lead_banks: list[LeadBank]) -> dict[str, int | Decimal]:
@@ -634,7 +651,9 @@ def create_web_app(
                     current_bot.id,
                 )
 
-    async def notify_client(lead_id: UUID, text: str) -> None:
+    async def notify_client(
+        lead_id: UUID, text: str, *, parse_mode: str | None = None
+    ) -> None:
         if not notification_bots:
             return
         async with database.session() as db_session:
@@ -645,7 +664,9 @@ def create_web_app(
             return
         for current_bot in notification_bots:
             try:
-                await current_bot.send_message(chat_id=int(telegram_id), text=text)
+                await current_bot.send_message(
+                    chat_id=int(telegram_id), text=text, parse_mode=parse_mode
+                )
             except Exception:
                 logger.exception(
                     "Failed to notify client for lead %s via bot %s",
@@ -2091,6 +2112,22 @@ def create_web_app(
             )
         except DomainError as error:
             raise domain_error(error) from error
+        async with database.session() as db_session:
+            reward_details = (
+                await db_session.execute(
+                    select(LeadBank.lead_id, Bank.name)
+                    .join(Bank, Bank.id == LeadBank.bank_id)
+                    .where(LeadBank.id == lead_bank_id)
+                )
+            ).one()
+        await notify_client(
+            reward_details.lead_id,
+            format_lead_reward_message(
+                reward_details.name,
+                lead_bank.lead_reward_fact or Decimal("0"),
+            ),
+            parse_mode="HTML",
+        )
         return {
             "id": str(lead_bank.id),
             "status": "paid",

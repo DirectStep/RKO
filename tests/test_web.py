@@ -23,6 +23,7 @@ from app.services.workflow import WorkflowService
 from app.web import (
     CLIENT_STATUS_LABELS,
     build_mini_app_html,
+    format_lead_reward_message,
     lead_bank_sort_key,
     lead_cabinet_metrics,
     public_referral_links,
@@ -765,6 +766,24 @@ def test_every_internal_status_has_a_client_notification_label() -> None:
     assert "Статус вашей заявки изменён" in source
     assert "previous_internal_status != current_internal_status" in source
     assert "await notify_client_status(lead_id, current_internal_status)" in source
+
+
+def test_lead_reward_confirmation_message_matches_required_template() -> None:
+    message = format_lead_reward_message("Альфа <Банк>", Decimal("5000.00"))
+
+    assert message == (
+        "🎉 <b>Бонус выплачен!</b>\n\n"
+        "🏦 Банк: <b>Альфа &lt;Банк&gt;</b>\n"
+        "💰 Сумма бонуса: <b>5 000 ₽</b>\n\n"
+        "<blockquote><i>Спасибо, что выбрали нас!</i></blockquote>"
+    )
+
+
+def test_lead_reward_confirmation_notifies_client() -> None:
+    source = (ASSETS_DIR.parent / "web.py").read_text(encoding="utf-8")
+
+    assert "format_lead_reward_message(" in source
+    assert 'parse_mode="HTML"' in source
 
 
 def test_telegram_sdk_does_not_block_application_startup() -> None:
