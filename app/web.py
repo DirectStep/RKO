@@ -140,12 +140,16 @@ def format_lead_reward_message(bank_name: str, amount: Decimal) -> str:
     )
 
 
-def format_partner_reward_message(application_number: str, amount: Decimal) -> str:
+def format_partner_reward_message(
+    application_number: str, bank_name: str, amount: Decimal
+) -> str:
     return (
         '<tg-emoji emoji-id="5357146861880760304">🎉</tg-emoji> '
         "<b>Вознаграждение выплачено!</b>\n\n"
         '<tg-emoji emoji-id="5395444784611480792">📝</tg-emoji> '
         f"Заявка: <b>{html.escape(application_number)}</b>\n"
+        '<tg-emoji emoji-id="5332455502917949981">🏦</tg-emoji> '
+        f"Банк: <b>{html.escape(bank_name)}</b>\n"
         '<tg-emoji emoji-id="5224257782013769471">💰</tg-emoji> '
         f"Сумма выплаты: <b>{format_reward_amount(amount)} ₽</b>"
     )
@@ -2238,12 +2242,17 @@ def create_web_app(
             )
         except DomainError as error:
             raise domain_error(error) from error
-        if payment.status is PaymentStatus.PAID:
+        if (
+            payment.status is PaymentStatus.PAID
+            and payment.partner_reward_fact is not None
+            and payment.partner_reward_fact > 0
+        ):
             async with database.session() as db_session:
                 reward_details = (
                     await db_session.execute(
-                        select(LeadBank.lead_id, Lead.short_id)
+                        select(LeadBank.lead_id, Lead.short_id, Bank.name)
                         .join(Lead, Lead.id == LeadBank.lead_id)
+                        .join(Bank, Bank.id == LeadBank.bank_id)
                         .join(Payment, Payment.lead_bank_id == LeadBank.id)
                         .where(Payment.id == payment.id)
                     )
@@ -2252,7 +2261,8 @@ def create_web_app(
                 reward_details.lead_id,
                 format_partner_reward_message(
                     reward_details.short_id,
-                    payment.partner_reward_fact or Decimal("0"),
+                    reward_details.name,
+                    payment.partner_reward_fact,
                 ),
                 parse_mode="HTML",
             )

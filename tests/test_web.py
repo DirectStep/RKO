@@ -802,7 +802,9 @@ def test_lead_reward_confirmation_notifies_client() -> None:
 
 
 def test_partner_is_notified_only_after_reward_is_paid() -> None:
-    message = format_partner_reward_message("RKO-0047", Decimal("800.00"))
+    message = format_partner_reward_message(
+        "RKO-0047", "Альфа <Банк>", Decimal("800.00")
+    )
     source = (ASSETS_DIR.parent / "web.py").read_text(encoding="utf-8")
 
     assert message == (
@@ -810,11 +812,15 @@ def test_partner_is_notified_only_after_reward_is_paid() -> None:
         "<b>Вознаграждение выплачено!</b>\n\n"
         '<tg-emoji emoji-id="5395444784611480792">📝</tg-emoji> '
         "Заявка: <b>RKO-0047</b>\n"
+        '<tg-emoji emoji-id="5332455502917949981">🏦</tg-emoji> '
+        "Банк: <b>Альфа &lt;Банк&gt;</b>\n"
         '<tg-emoji emoji-id="5224257782013769471">💰</tg-emoji> '
         "Сумма выплаты: <b>800 ₽</b>"
     )
     assert "Вознаграждение по заявке подтверждено." not in source
     assert "format_partner_reward_message(" in source
+    assert "payment.partner_reward_fact > 0" in source
+    assert "select(LeadBank.lead_id, Lead.short_id, Bank.name)" in source
 
 
 def test_admin_account_activation_syncs_registry_once() -> None:
