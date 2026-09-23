@@ -60,7 +60,6 @@ class UserAccessService:
                     )
                     session.add(user)
                 else:
-                    user.telegram_username = telegram_username
                     user.role = UserRole.ADMIN
                     user.access_status = AccessStatus.ACTIVE
                 return UserRole.ADMIN
@@ -93,7 +92,6 @@ class UserAccessService:
                     session.add(user)
                     await session.flush()
                 else:
-                    user.telegram_username = telegram_username
                     user.role = UserRole.PARTNER
                     user.access_status = AccessStatus.ACTIVE
                 partner.telegram_user_id = user.id
@@ -101,6 +99,4 @@ class UserAccessService:
 
             if user is None or user.access_status == AccessStatus.BLOCKED:
                 return None
-            if user.telegram_username != telegram_username:
-                user.telegram_username = telegram_username
             return user.role

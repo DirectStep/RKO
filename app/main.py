@@ -9,9 +9,11 @@ from aiogram.fsm.storage.memory import SimpleEventIsolation
 from app.bot.admin_catalog_handlers import router as admin_catalog_router
 from app.bot.admin_handlers import router as admin_router
 from app.bot.handlers import router
+from app.bot.profile_middleware import TelegramProfileMiddleware
 from app.config import get_settings
 from app.database import Database
 from app.logging import configure_logging
+from app.services.telegram_profiles import run_telegram_profile_poll
 from app.web import create_web_app
 from app.workers.bank_conditions_sync import run_bank_conditions_sync
 from app.workers.bank_rates_sync import run_bank_rates_sync
@@ -30,6 +32,8 @@ async def run() -> None:
     bot_users = await asyncio.gather(*(current_bot.get_me() for current_bot in bots))
     bot_usernames = tuple(user.username for user in bot_users if user.username)
     dispatcher = Dispatcher(events_isolation=SimpleEventIsolation())
+    dispatcher.message.outer_middleware(TelegramProfileMiddleware())
+    dispatcher.callback_query.outer_middleware(TelegramProfileMiddleware())
     dispatcher.include_router(admin_router)
     dispatcher.include_router(admin_catalog_router)
     dispatcher.include_router(router)
@@ -37,6 +41,7 @@ async def run() -> None:
     bank_rates_task = asyncio.create_task(run_bank_rates_sync(database, settings))
     bank_conditions_task = asyncio.create_task(run_bank_conditions_sync(database, settings))
     reports_task = asyncio.create_task(run_weekly_reports(database, bot, settings.project_timezone))
+    profiles_task = asyncio.create_task(run_telegram_profile_poll(database, bots))
     web_server = uvicorn.Server(
         uvicorn.Config(
             create_web_app(database, settings, bot, bots[1:], bot_usernames),
@@ -67,6 +72,7 @@ async def run() -> None:
         bank_rates_task.cancel()
         bank_conditions_task.cancel()
         reports_task.cancel()
+        profiles_task.cancel()
         with suppress(asyncio.CancelledError):
             await sheets_task
         with suppress(asyncio.CancelledError):
@@ -75,6 +81,8 @@ async def run() -> None:
             await bank_conditions_task
         with suppress(asyncio.CancelledError):
             await reports_task
+        with suppress(asyncio.CancelledError):
+            await profiles_task
         web_server.should_exit = True
         await web_task
         for current_bot in bots:

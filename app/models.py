@@ -77,6 +77,14 @@ class User(Base):
     )
 
 
+class TelegramProfile(Base):
+    __tablename__ = "telegram_profiles"
+
+    telegram_id: Mapped[str] = mapped_column(String(20), primary_key=True)
+    username: Mapped[str | None] = mapped_column(String(64))
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class Partner(Base):
     __tablename__ = "partners"
     __table_args__ = (

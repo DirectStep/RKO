@@ -1,9 +1,13 @@
 import asyncio
 import logging
+from time import monotonic
+
+from sqlalchemy import select
 
 from app.config import Settings
 from app.database import Database
 from app.integrations.google_sheets import GoogleSheetsGateway, SheetData
+from app.models import Lead
 from app.services.sheets_snapshot import SheetsSnapshotService
 
 logger = logging.getLogger(__name__)
@@ -17,6 +21,7 @@ async def run_sheets_sync(database: Database, settings: Settings) -> None:
     snapshot_service = SheetsSnapshotService(database)
     gateway: GoogleSheetsGateway | None = None
     previous_sheets: dict[str, SheetData] = {}
+    registry_synced_at = 0.0
     while True:
         try:
             if gateway is None:
@@ -34,6 +39,19 @@ async def run_sheets_sync(database: Database, settings: Settings) -> None:
                 await asyncio.to_thread(gateway.replace_all, changed_sheets)
                 previous_sheets.update({sheet.title: sheet for sheet in changed_sheets})
                 logger.info("Google Sheets updated: %s", len(changed_sheets))
+            if monotonic() - registry_synced_at >= 60:
+                async with database.session() as session:
+                    usernames = dict(
+                        (
+                            row.short_id,
+                            f"@{row.telegram_username}"
+                            if row.telegram_username
+                            else row.telegram_id,
+                        )
+                        for row in await session.scalars(select(Lead))
+                    )
+                await asyncio.to_thread(gateway.sync_lead_usernames, usernames)
+                registry_synced_at = monotonic()
         except asyncio.CancelledError:
             raise
         except Exception:

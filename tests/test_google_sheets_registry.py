@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import Any
 from datetime import UTC, datetime
+from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -39,6 +39,11 @@ class FakeWorksheet:
             self.values[row - 1] = current[:11]
         else:
             self.values[row - 1] = list(values[0])
+
+    def batch_update(self, changes: list[dict[str, Any]], value_input_option: str) -> None:
+        for change in changes:
+            row = int(change["range"].removeprefix("C"))
+            self.values[row - 1][2] = change["values"][0][0]
 
     def freeze(self, rows: int) -> None:  # pragma: no cover - formatting only
         pass
@@ -121,3 +126,17 @@ def test_expected_payment_is_exactly_thirty_moscow_calendar_days() -> None:
     activated_at = datetime(2026, 9, 22, 18, 30, tzinfo=UTC)
 
     assert expected_payment_date(activated_at, ZoneInfo("Europe/Moscow")) == "22.10.2026"
+
+
+def test_username_sync_updates_each_bank_without_touching_payments() -> None:
+    worksheet = FakeWorksheet()
+    gateway = gateway_with(worksheet)
+    gateway.upsert_lead_activation(registry_row("Альфа-Банк"))
+    gateway.upsert_lead_activation(registry_row("ВТБ"))
+    gateway.update_lead_payment("RKO-0001", "ВТБ", "23.10.2026 12:00", 2000.0)
+
+    gateway.sync_lead_usernames({"RKO-0001": "@new_client"})
+    gateway.sync_lead_usernames({"RKO-0001": "@new_client"})
+
+    assert [row[2] for row in worksheet.values[1:]] == ["@new_client", "@new_client"]
+    assert worksheet.values[2][7:10] == ["23.10.2026 12:00", 2000.0, "Выплачено"]

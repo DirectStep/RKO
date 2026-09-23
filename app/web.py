@@ -8,7 +8,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Annotated
@@ -64,6 +64,7 @@ from app.services.duplicate_reviews import DuplicateReviewService
 from app.services.lead_registry import LeadRegistryService
 from app.services.lead_workflow import LeadWorkflowService
 from app.services.partner_cabinet import partner_cabinet_data, partner_contact
+from app.services.telegram_profiles import observe_telegram_profile
 from app.services.user_access import UserAccessService
 from app.services.workflow import WorkflowService
 from app.web_schemas import (
@@ -758,7 +759,35 @@ def create_web_app(
     @app.get("/api/session")
     async def session(
         user: Annotated[MiniAppUser, Depends(current_user)],
+        request: Request,
     ) -> dict[str, object]:
+        if request.headers.get("X-Telegram-Init-Data"):
+            username = None
+            observed_at = datetime.fromtimestamp(
+                int(dict(parse_qsl(request.headers["X-Telegram-Init-Data"])).get("auth_date", "0")),
+                UTC,
+            )
+            telegram_user = validate_telegram_init_data_with_tokens(
+                request.headers["X-Telegram-Init-Data"], settings.bot_tokens
+            )
+            username = str(telegram_user.get("username") or "") or None
+            live_profile = False
+            for current_bot in notification_bots:
+                try:
+                    chat = await asyncio.wait_for(current_bot.get_chat(int(user.id)), timeout=5)
+                except Exception:
+                    continue
+                username = chat.username
+                observed_at = datetime.now(UTC)
+                live_profile = True
+                break
+            if live_profile or (datetime.now(UTC) - observed_at).total_seconds() <= 300:
+                try:
+                    await observe_telegram_profile(
+                        database, notification_bots, user.id, username, observed_at
+                    )
+                except Exception:
+                    logger.exception("Could not update Telegram username on miniapp entry")
         google_sheet_url = ""
         bank_conditions_sheet_url = ""
         bank_rates_sheet_url = ""

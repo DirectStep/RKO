@@ -2,10 +2,7 @@ from datetime import datetime, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
-
 from app.database import Database
-from app.domain.enums import BankInternalStatus
 from app.integrations.google_sheets import LeadRegistryRow
 from app.models import Bank, Lead, LeadBank, User
 

@@ -149,6 +149,17 @@ class GoogleSheetsGateway:
             )
         worksheet.update([[paid_at, amount, status]], f"H{row_number}:J{row_number}", raw=True)
 
+    def sync_lead_usernames(self, usernames: dict[str, str]) -> None:
+        """Refresh historical registry rows without touching payment data or comments."""
+        worksheet = self.ensure_lead_registry()
+        changes = []
+        for row_number, row in enumerate(worksheet.get_all_values()[1:], start=2):
+            if len(row) < 3 or row[0] not in usernames or row[2] == usernames[row[0]]:
+                continue
+            changes.append({"range": f"C{row_number}", "values": [[usernames[row[0]]]]})
+        if changes:
+            worksheet.batch_update(changes, value_input_option="RAW")
+
     @staticmethod
     def _find_registry_row(
         worksheet: gspread.Worksheet, application_id: str, bank: str
