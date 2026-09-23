@@ -259,12 +259,12 @@ async def test_admin_reassigns_source_and_resolves_duplicate_as_separate_lead() 
         async with database.session() as session:
             reassigned_bank = await session.get(LeadBank, ids["lead_bank"])
             assert reassigned_bank is not None
-            assert reassigned_bank.partner_percent_snapshot == Decimal("5.00")
-            assert reassigned_bank.partner_reward_estimate == Decimal("500.00")
-            assert reassigned_bank.team_profit_estimate == Decimal("7500.00")
+            assert reassigned_bank.partner_percent_snapshot == Decimal("20.00")
+            assert reassigned_bank.partner_reward_estimate == Decimal("1600.00")
+            assert reassigned_bank.team_profit_estimate == Decimal("6400.00")
         partner_data = await partner_cabinet_data(database, ids["partner"])
         assert [item["id"] for item in partner_data["leads"]] == [str(ids["lead"])]
-        assert partner_data["leads"][0]["reward_estimate"] == "500.00"
+        assert partner_data["leads"][0]["reward_estimate"] == "0"
 
         review, separate = await DuplicateReviewService(database).resolve(
             actor_role=UserRole.ADMIN,
@@ -853,7 +853,7 @@ async def test_partner_username_is_claimed_by_first_telegram_account() -> None:
         partner = await AdminCatalogService(database).create_partner(
             actor_role=UserRole.ADMIN,
             name=f"Партнёр username {suffix}",
-            commission_percent=Decimal("10"),
+            commission_percent=Decimal("20"),
             telegram_username=username,
         )
         partner_id = partner.id
@@ -896,7 +896,7 @@ async def test_partner_activation_link_works_only_once() -> None:
         partner = await catalog.create_partner(
             actor_role=UserRole.ADMIN,
             name=f"Партнёр activation {suffix}",
-            commission_percent=Decimal("10"),
+            commission_percent=Decimal("20"),
         )
         partner_id = partner.id
         link = await catalog.create_partner_activation_link(
@@ -980,7 +980,7 @@ async def test_admin_creates_referral_channel_and_confirms_source() -> None:
         partner = await catalog.create_partner(
             actor_role=UserRole.ADMIN,
             name=f"Тестовый партнёр {suffix}",
-            commission_percent=Decimal("17.50"),
+            commission_percent=Decimal("20"),
         )
         partner_id = partner.id
         channel = await catalog.create_channel(
@@ -1105,12 +1105,12 @@ async def test_partner_creates_channel_only_for_own_cabinet() -> None:
         owner = await catalog.create_partner(
             actor_role=UserRole.ADMIN,
             name=f"Владелец канала {suffix}",
-            commission_percent=Decimal("10"),
+            commission_percent=Decimal("20"),
         )
         stranger = await catalog.create_partner(
             actor_role=UserRole.ADMIN,
             name=f"Чужой партнёр {suffix}",
-            commission_percent=Decimal("10"),
+            commission_percent=Decimal("20"),
         )
         partner_ids.extend([owner.id, stranger.id])
 
@@ -1159,7 +1159,7 @@ async def test_admin_deletes_unused_partner_and_its_channels() -> None:
         partner = await catalog.create_partner(
             actor_role=UserRole.ADMIN,
             name=f"Удаляемый партнёр {suffix}",
-            commission_percent=Decimal("10"),
+            commission_percent=Decimal("20"),
         )
         partner_id = partner.id
         channel = await catalog.create_channel(
@@ -1170,12 +1170,12 @@ async def test_admin_deletes_unused_partner_and_its_channels() -> None:
         )
         channel_id = channel.id
 
-        updated = await catalog.update_partner_commission(
-            actor_role=UserRole.ADMIN,
-            partner_id=partner.id,
-            commission_percent=Decimal("12.50"),
-        )
-        assert updated.commission_percent == Decimal("12.50")
+        with pytest.raises(DomainError, match="20%"):
+            await catalog.update_partner_commission(
+                actor_role=UserRole.ADMIN,
+                partner_id=partner.id,
+                commission_percent=Decimal("12.50"),
+            )
         updated = await catalog.update_partner_username(
             actor_role=UserRole.ADMIN,
             partner_id=partner.id,
@@ -1315,12 +1315,12 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
             income_estimate=Decimal("12000.00"),
             income_fact=Decimal("10000.00"),
         )
-        assert lead_bank.partner_reward_estimate == Decimal("2400.00")
-        assert lead_bank.partner_reward_fact == Decimal("2000.00")
+        assert lead_bank.partner_reward_estimate == Decimal("1800.00")
+        assert lead_bank.partner_reward_fact == Decimal("1400.00")
         assert lead_bank.lead_reward_estimate == Decimal("3000.00")
         assert lead_bank.lead_reward_fact is None
-        assert lead_bank.team_profit_estimate == Decimal("6600.00")
-        assert lead_bank.team_profit_fact == Decimal("5000.00")
+        assert lead_bank.team_profit_estimate == Decimal("7200.00")
+        assert lead_bank.team_profit_fact == Decimal("5600.00")
         assert lead_bank.opened_at is not None
 
         lead_bank = await workflow.confirm_lead_reward_payment(
@@ -1330,10 +1330,11 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
         )
         assert lead_bank.lead_reward_fact == Decimal("2800.00")
         assert lead_bank.lead_reward_paid_at is not None
-        assert lead_bank.team_profit_fact == Decimal("5200.00")
+        assert lead_bank.partner_reward_fact == Decimal("1440.00")
+        assert lead_bank.team_profit_fact == Decimal("5760.00")
 
         partner_data = await partner_cabinet_data(database, ids["partner"])
-        assert partner_data["metrics"]["estimated_payout"] == "2400.00"
+        assert partner_data["metrics"]["estimated_payout"] == "1440.00"
 
         payment = await workflow.confirm_lead_bank_payment(
             actor_role=UserRole.ADMIN,
@@ -1361,8 +1362,8 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
         metrics = partner_data["metrics"]
         assert all("username" not in item for item in partner_data["leads"])
         assert metrics["estimated_payout"] == "0"
-        assert metrics["last_payout"] == "2000.00"
-        assert metrics["paid"] == "2000.00"
+        assert metrics["last_payout"] == "1440.00"
+        assert metrics["paid"] == "1440.00"
         from io import BytesIO
 
         from openpyxl import load_workbook
@@ -1371,7 +1372,7 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
         sheet = load_workbook(BytesIO(report), read_only=True).active
         values = [str(value) for row in sheet.iter_rows(values_only=True) for value in row]
         assert lead.short_id in values
-        assert "2000" in values
+        assert "1440" in values
         assert lead.phone not in values
         assert lead.telegram_username not in values
         assert "10000" not in values

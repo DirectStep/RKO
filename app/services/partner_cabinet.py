@@ -8,7 +8,13 @@ from uuid import UUID
 from sqlalchemy import and_, select
 
 from app.database import Database
-from app.domain.enums import AssignmentStatus, BankExternalStatus, LeadExternalStatus, PaymentStatus
+from app.domain.enums import (
+    AssignmentStatus,
+    BankExternalStatus,
+    BankInternalStatus,
+    LeadExternalStatus,
+    PaymentStatus,
+)
 from app.models import (
     Bank,
     BankActivationCondition,
@@ -159,9 +165,29 @@ async def partner_cabinet_data(
         )
         rates = list(await session.scalars(select(BankRate)))
         conditions = list(await session.scalars(select(BankActivationCondition)))
+        unpaid_rows = list(
+            await session.execute(
+                select(LeadBank.partner_reward_fact, Payment.partner_reward_fact, Payment.status)
+                .join(Lead, Lead.id == LeadBank.lead_id)
+                .outerjoin(Payment, Payment.lead_bank_id == LeadBank.id)
+                .where(
+                    Lead.partner_id == partner_id,
+                    LeadBank.selected_by_lead.is_(True),
+                    LeadBank.internal_status == BankInternalStatus.ACCOUNT_OPENED,
+                )
+            )
+        )
 
     rates_by_bank = {rate.bank_id: rate for rate in rates}
     conditions_by_name = {condition.normalized_bank_name: condition for condition in conditions}
+    unpaid_total = sum(
+        (
+            _money(payment_amount if payment_amount is not None else bank_amount)
+            for bank_amount, payment_amount, status in unpaid_rows
+            if status not in {PaymentStatus.PAID, PaymentStatus.CANCELLED}
+        ),
+        Decimal("0"),
+    )
 
     grouped: dict[UUID, _LeadAccumulator] = {}
     normalized_search = search.strip().lower()
@@ -260,7 +286,6 @@ async def partner_cabinet_data(
 
     opened_banks = 0
     planned_banks = 0
-    estimated_payout = Decimal("0")
     paid = Decimal("0")
     paid_by_date: defaultdict[date, Decimal] = defaultdict(lambda: Decimal("0"))
     for lead_item in leads:
@@ -275,12 +300,6 @@ async def partner_cabinet_data(
             status = PaymentStatus(bank["payment_status"])
             estimate = Decimal(bank["reward_estimate"])
             actual = Decimal(bank["reward_fact"])
-            if (
-                bank["status"] == BankExternalStatus.OPENED.value
-                and status not in CONFIRMED_PAYMENT_STATUSES
-                and status is not PaymentStatus.CANCELLED
-            ):
-                estimated_payout += estimate
             if status is PaymentStatus.PAID:
                 paid += actual
                 if bank["paid_at"]:
@@ -302,7 +321,7 @@ async def partner_cabinet_data(
         ),
         "opened_banks": opened_banks,
         "planned_banks": planned_banks,
-        "estimated_payout": str(estimated_payout),
+        "estimated_payout": str(unpaid_total),
         "last_payout": str(last_payout),
         "paid": str(paid),
     }

@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import Database
 from app.domain.enums import AssignmentStatus, PaymentStatus, UserRole
 from app.domain.operations import DomainError, confirm_assignment, mark_assignment_direct
+from app.domain.partner_economics import PARTNER_PERCENT, partner_reward
 from app.models import Channel, Lead, LeadBank, Partner, Payment
 
 
@@ -84,7 +85,7 @@ class LeadAssignmentService:
             await self._apply_partner_economics(
                 session,
                 lead_id=lead.id,
-                percent=partner.commission_percent,
+                percent=PARTNER_PERCENT,
             )
             now = datetime.now(UTC)
             lead.proposed_partner_id = partner_id
@@ -125,14 +126,12 @@ class LeadAssignmentService:
             in {PaymentStatus.CONFIRMED, PaymentStatus.IN_REGISTRY, PaymentStatus.PAID}
             for payment in payments
         ):
-            raise DomainError(
-                "Источник нельзя изменить после подтверждения партнёрской выплаты"
-            )
+            raise DomainError("Источник нельзя изменить после подтверждения партнёрской выплаты")
         now = datetime.now(UTC)
         for lead_bank in lead_banks:
             lead_bank.partner_percent_snapshot = percent
             lead_bank.partner_reward_estimate = cls._reward(
-                lead_bank.bank_income_estimate, percent
+                lead_bank.bank_income_estimate, lead_bank.lead_reward_estimate
             )
             lead_bank.team_profit_estimate = cls._team_profit(
                 income=lead_bank.bank_income_estimate,
@@ -142,7 +141,10 @@ class LeadAssignmentService:
             )
             if lead_bank.bank_income_fact is not None:
                 lead_bank.partner_reward_fact = cls._reward(
-                    lead_bank.bank_income_fact, percent
+                    lead_bank.bank_income_fact,
+                    lead_bank.lead_reward_fact
+                    if lead_bank.lead_reward_paid_at is not None
+                    else lead_bank.lead_reward_estimate,
                 )
                 lead_bank.team_profit_fact = cls._team_profit(
                     income=lead_bank.bank_income_fact,
@@ -162,10 +164,8 @@ class LeadAssignmentService:
             lead_bank.last_updated_at = now
 
     @staticmethod
-    def _reward(income: Decimal | None, percent: Decimal | None) -> Decimal | None:
-        if income is None or percent is None:
-            return None
-        return (income * percent / Decimal("100")).quantize(Decimal("0.01"))
+    def _reward(income: Decimal | None, lead_reward: Decimal | None) -> Decimal | None:
+        return partner_reward(income, lead_reward)
 
     @staticmethod
     def _team_profit(
@@ -178,8 +178,7 @@ class LeadAssignmentService:
         if income is None:
             return None
         profit = income - (partner_reward or Decimal("0"))
-        if not lead_reward_paid_separately:
-            profit -= lead_reward or Decimal("0")
+        profit -= lead_reward or Decimal("0")
         if profit < 0:
             raise DomainError("Ставки дают отрицательную командную прибыль")
         return profit.quantize(Decimal("0.01"))

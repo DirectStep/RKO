@@ -3,6 +3,7 @@ import re
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +18,7 @@ from app.domain.enums import (
     UserRole,
 )
 from app.domain.operations import DomainError, confirm_payment, validate_payment_transition
+from app.domain.partner_economics import PARTNER_PERCENT, partner_reward
 from app.domain.statuses import external_bank_status, external_lead_status
 from app.models import Bank, BankRate, DuplicateLeadReview, Lead, LeadBank, Partner, Payment, User
 
@@ -360,7 +362,7 @@ class WorkflowService:
             percent = None
             if lead.partner_id is not None:
                 partner = await session.get(Partner, lead.partner_id)
-                percent = partner.commission_percent if partner else None
+                percent = PARTNER_PERCENT if partner else None
             rates = list(
                 await session.scalars(
                     select(BankRate).where(
@@ -376,7 +378,11 @@ class WorkflowService:
             result: list[LeadBank] = []
             for bank_id in unique_bank_ids:
                 rate = rates_by_bank[bank_id]
-                partner_reward = self._reward(rate.base_payout, percent)
+                partner_reward = (
+                    self._reward(rate.base_payout, rate.lead_payout)
+                    if percent is not None
+                    else None
+                )
                 team_profit = self._team_profit(
                     income=rate.base_payout,
                     partner_reward=partner_reward,
@@ -452,6 +458,11 @@ class WorkflowService:
             )
             if lead_bank is None:
                 raise DomainError("Банк заявки не найден")
+            if (
+                income_fact is not None
+                and (status or lead_bank.internal_status) is not BankInternalStatus.ACCOUNT_OPENED
+            ):
+                raise DomainError("Фактический доход можно указать после активации счёта")
             if actor_role is UserRole.MANAGER:
                 manager_id = await session.scalar(
                     select(Lead.manager_id).where(Lead.id == lead_bank.lead_id)
@@ -462,8 +473,10 @@ class WorkflowService:
                 self._apply_bank_status(lead_bank, status, close_reason)
             if income_estimate is not None:
                 lead_bank.bank_income_estimate = income_estimate
-                lead_bank.partner_reward_estimate = self._reward(
-                    income_estimate, lead_bank.partner_percent_snapshot
+                lead_bank.partner_reward_estimate = (
+                    self._reward(income_estimate, lead_bank.lead_reward_estimate)
+                    if lead_bank.partner_percent_snapshot is not None
+                    else None
                 )
                 lead_bank.team_profit_estimate = self._team_profit(
                     income=income_estimate,
@@ -473,8 +486,15 @@ class WorkflowService:
                 )
             if income_fact is not None:
                 lead_bank.bank_income_fact = income_fact
-                lead_bank.partner_reward_fact = self._reward(
-                    income_fact, lead_bank.partner_percent_snapshot
+                lead_bank.partner_reward_fact = (
+                    self._reward(
+                        income_fact,
+                        lead_bank.lead_reward_fact
+                        if lead_bank.lead_reward_paid_at is not None
+                        else lead_bank.lead_reward_estimate,
+                    )
+                    if lead_bank.partner_percent_snapshot is not None
+                    else None
                 )
                 lead_bank.team_profit_fact = self._team_profit(
                     income=income_fact,
@@ -500,6 +520,37 @@ class WorkflowService:
                     session.add(payment)
                 payment.partner_reward_fact = lead_bank.partner_reward_fact
                 payment.status = PaymentStatus.AWAITING_CONFIRMATION
+            elif (
+                status is BankInternalStatus.ACCOUNT_OPENED
+                and lead_bank.bank_income_fact is not None
+            ):
+                payment = await session.scalar(
+                    select(Payment).where(Payment.lead_bank_id == lead_bank.id).with_for_update()
+                )
+                if payment is not None and payment.status in {
+                    PaymentStatus.CONFIRMED,
+                    PaymentStatus.IN_REGISTRY,
+                    PaymentStatus.PAID,
+                }:
+                    lead_bank.last_updated_at = datetime.now(UTC)
+                    return lead_bank
+                lead_cost = (
+                    lead_bank.lead_reward_fact
+                    if lead_bank.lead_reward_paid_at is not None
+                    else lead_bank.lead_reward_estimate
+                )
+                if lead_bank.partner_percent_snapshot is not None:
+                    lead_bank.partner_reward_fact = self._reward(
+                        lead_bank.bank_income_fact, lead_cost
+                    )
+                lead_bank.team_profit_fact = self._team_profit(
+                    income=lead_bank.bank_income_fact,
+                    partner_reward=lead_bank.partner_reward_fact,
+                    lead_reward=lead_cost,
+                    lead_reward_paid_separately=lead_bank.lead_reward_paid_separately,
+                )
+                if payment is not None:
+                    payment.partner_reward_fact = lead_bank.partner_reward_fact
             lead_bank.last_updated_at = datetime.now(UTC)
             return lead_bank
 
@@ -522,15 +573,33 @@ class WorkflowService:
                 raise DomainError("Сначала отметьте счёт как активированный")
             if lead_bank.lead_reward_paid_at is not None:
                 raise DomainError("Выплата лиду уже подтверждена")
+            payment = await session.scalar(
+                select(Payment).where(Payment.lead_bank_id == lead_bank.id).with_for_update()
+            )
+            if payment is not None and payment.status in {
+                PaymentStatus.CONFIRMED,
+                PaymentStatus.IN_REGISTRY,
+                PaymentStatus.PAID,
+            }:
+                raise DomainError("Сначала завершите или отмените подтверждённый расчёт партнёра")
+            if lead_bank.bank_income_fact is not None and amount > lead_bank.bank_income_fact:
+                raise DomainError("Выплата лиду не может превышать общую ставку банка")
             lead_bank.lead_reward_fact = amount
             lead_bank.lead_reward_paid_at = datetime.now(UTC)
             if lead_bank.bank_income_fact is not None:
+                lead_bank.partner_reward_fact = (
+                    self._reward(lead_bank.bank_income_fact, amount)
+                    if lead_bank.partner_percent_snapshot is not None
+                    else None
+                )
                 lead_bank.team_profit_fact = self._team_profit(
                     income=lead_bank.bank_income_fact,
                     partner_reward=lead_bank.partner_reward_fact,
                     lead_reward=amount,
                     lead_reward_paid_separately=lead_bank.lead_reward_paid_separately,
                 )
+                if payment is not None:
+                    payment.partner_reward_fact = lead_bank.partner_reward_fact
             lead_bank.last_updated_at = datetime.now(UTC)
             return lead_bank
 
@@ -551,6 +620,8 @@ class WorkflowService:
             )
             if lead_bank is None or payment is None or lead_bank.partner_reward_fact is None:
                 raise DomainError("Сначала укажите фактический доход банка")
+            if lead_bank.lead_reward_paid_at is None:
+                raise DomainError("Сначала подтвердите фактическую выплату лиду")
             confirmation = confirm_payment(
                 actor_role=actor_role,
                 current_status=payment.status,
@@ -584,6 +655,8 @@ class WorkflowService:
             )
             if payment is None:
                 raise DomainError("Выплата не найдена")
+            if new_status is PaymentStatus.PAID and new_status is not payment.status:
+                paid_at = datetime.now(ZoneInfo("Europe/Moscow")).date()
             validate_payment_transition(
                 actor_role=actor_role,
                 current_status=payment.status,
@@ -617,9 +690,7 @@ class WorkflowService:
                 raise DomainError("Заявка не найдена")
             lead_banks = list(
                 await session.scalars(
-                    select(LeadBank)
-                    .where(LeadBank.lead_id == lead_id)
-                    .with_for_update()
+                    select(LeadBank).where(LeadBank.lead_id == lead_id).with_for_update()
                 )
             )
             self._validate_lead_deletion(actor_role, actor_user_id, lead, lead_banks)
@@ -656,9 +727,8 @@ class WorkflowService:
         lead: Lead,
         lead_banks: list[LeadBank],
     ) -> None:
-        if (
-            actor_role is UserRole.MANAGER
-            and (actor_user_id is None or lead.manager_id != actor_user_id)
+        if actor_role is UserRole.MANAGER and (
+            actor_user_id is None or lead.manager_id != actor_user_id
         ):
             raise DomainError("Менеджер может удалить только свою заявку")
         if any(
@@ -710,10 +780,8 @@ class WorkflowService:
             lead.payment_status = status
 
     @staticmethod
-    def _reward(income: Decimal, percent: Decimal | None) -> Decimal | None:
-        if percent is None:
-            return None
-        return (income * percent / Decimal("100")).quantize(Decimal("0.01"))
+    def _reward(income: Decimal, lead_reward: Decimal | None) -> Decimal:
+        return partner_reward(income, lead_reward)
 
     @staticmethod
     def _team_profit(
@@ -724,8 +792,7 @@ class WorkflowService:
         lead_reward_paid_separately: bool,
     ) -> Decimal:
         profit = income - (partner_reward or Decimal("0"))
-        if not lead_reward_paid_separately:
-            profit -= lead_reward or Decimal("0")
+        profit -= lead_reward or Decimal("0")
         if profit < 0:
             raise DomainError("Ставки дают отрицательную командную прибыль")
         return profit.quantize(Decimal("0.01"))

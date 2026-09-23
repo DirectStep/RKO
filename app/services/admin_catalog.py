@@ -11,6 +11,7 @@ from sqlalchemy import delete, func, or_, select, update
 from app.database import Database
 from app.domain.enums import AccessStatus, UserRole
 from app.domain.operations import DomainError
+from app.domain.partner_economics import PARTNER_PERCENT
 from app.models import Channel, Lead, LeadDraft, Partner, User
 
 
@@ -92,8 +93,8 @@ class AdminCatalogService:
         clean_name = name.strip()
         if len(clean_name) < 2 or len(clean_name) > 160:
             raise DomainError("Название партнёра должно быть от 2 до 160 символов")
-        if commission_percent < 0 or commission_percent > 100:
-            raise DomainError("Процент должен быть от 0 до 100")
+        if commission_percent != PARTNER_PERCENT:
+            raise DomainError("Для всех партнёров действует единая ставка 20%")
         async with self.database.session() as session, session.begin():
             existing = await session.scalar(select(Partner).where(Partner.name == clean_name))
             if existing is not None:
@@ -110,7 +111,7 @@ class AdminCatalogService:
                 name=clean_name,
                 telegram_username=telegram_username,
                 partner_type="other",
-                commission_percent=commission_percent,
+                commission_percent=PARTNER_PERCENT,
                 assigned_manager_id=actor_user_id,
             )
             session.add(partner)
@@ -137,6 +138,8 @@ class AdminCatalogService:
     ) -> Partner:
         self._require_admin(actor_role)
         commission = self.parse_commission(str(commission_percent))
+        if commission != PARTNER_PERCENT:
+            raise DomainError("Для всех партнёров действует единая ставка 20%")
         async with self.database.session() as session, session.begin():
             partner = await session.scalar(
                 select(Partner).where(Partner.id == partner_id).with_for_update()

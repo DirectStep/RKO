@@ -4,6 +4,7 @@ from typing import Any
 import gspread
 
 LEAD_REGISTRY_TITLE = "РКО — база лидов"
+PARTNER_PAYOUTS_TITLE = "РКО — выплаты партнёрам"
 LEAD_REGISTRY_HEADERS = (
     "ID заявки",
     "Дата активации",
@@ -79,6 +80,22 @@ class GoogleSheetsGateway:
             worksheet.clear()
             worksheet.update(values, "A1", raw=True)
             worksheet.freeze(rows=1)
+            if sheet.title == PARTNER_PAYOUTS_TITLE:
+                worksheet.set_basic_filter("A1:H")
+                worksheet.format(
+                    "A1:H1",
+                    {
+                        "backgroundColor": {"red": 0.88, "green": 0.93, "blue": 1.0},
+                        "textFormat": {"bold": True},
+                    },
+                )
+                worksheet.format(
+                    "F2:F",
+                    {
+                        "numberFormat": {"type": "NUMBER", "pattern": '#,##0.00 "₽"'},
+                    },
+                )
+                worksheet.columns_auto_resize(0, len(sheet.headers))
 
     def ensure_lead_registry(self) -> gspread.Worksheet:
         created = False
@@ -122,8 +139,7 @@ class GoogleSheetsGateway:
         worksheet.update([values], f"A{row_number}:K{row_number}", raw=True)
 
     def update_lead_payment(
-        self, application_id: str, bank: str, paid_at: str, amount: float,
-        status: str = "Выплачено"
+        self, application_id: str, bank: str, paid_at: str, amount: float, status: str = "Выплачено"
     ) -> None:
         worksheet = self.ensure_lead_registry()
         row_number, _ = self._find_registry_row(worksheet, application_id, bank)
@@ -143,7 +159,9 @@ class GoogleSheetsGateway:
             if len(values) > 4 and values[0] == application_id and values[4] == bank
         ]
         if len(matches) > 1:
-            raise RuntimeError(f"Найдены дубли банка {bank} заявки {application_id} в Google Sheets")
+            raise RuntimeError(
+                f"Найдены дубли банка {bank} заявки {application_id} в Google Sheets"
+            )
         if not matches:
             return None, []
         row_number, values = matches[0]

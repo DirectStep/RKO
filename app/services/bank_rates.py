@@ -4,8 +4,10 @@ from decimal import Decimal
 from sqlalchemy import select
 
 from app.database import Database
+from app.domain.partner_economics import PARTNER_PERCENT
+from app.domain.partner_economics import partner_reward as calculate_partner_reward
 from app.integrations.bank_rates import BankRateRow
-from app.models import Bank, BankRate, Lead, LeadBank, Partner
+from app.models import Bank, BankRate, Lead, LeadBank
 from app.services.bank_conditions import normalize_bank_name
 
 
@@ -88,18 +90,16 @@ class BankRatesService:
                 if rate is None:
                     continue
                 lead = await session.get(Lead, lead_bank.lead_id)
-                percent = lead_bank.partner_percent_snapshot
-                if percent is None and lead is not None and lead.partner_id is not None:
-                    partner = await session.get(Partner, lead.partner_id)
-                    percent = partner.commission_percent if partner is not None else None
+                percent = (
+                    PARTNER_PERCENT if lead is not None and lead.partner_id is not None else None
+                )
                 partner_reward = (
-                    (rate.base_payout * percent / Decimal("100")).quantize(Decimal("0.01"))
+                    calculate_partner_reward(rate.base_payout, rate.lead_payout)
                     if percent is not None
                     else None
                 )
                 profit = rate.base_payout - (partner_reward or Decimal("0"))
-                if not rate.lead_payout_paid_separately:
-                    profit -= rate.lead_payout
+                profit -= rate.lead_payout
                 if profit < 0:
                     raise ValueError(f"{rate.offer_code}: ставки дают отрицательную прибыль")
                 lead_bank.bank_rate_id = rate.id
