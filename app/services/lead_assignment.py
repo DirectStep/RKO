@@ -144,12 +144,16 @@ class LeadAssignmentService:
                     lead_bank.bank_income_fact,
                     lead_bank.lead_reward_fact
                     if lead_bank.lead_reward_paid_at is not None
-                    else lead_bank.lead_reward_estimate,
+                    else None,
                 )
                 lead_bank.team_profit_fact = cls._team_profit(
                     income=lead_bank.bank_income_fact,
                     partner_reward=lead_bank.partner_reward_fact,
-                    lead_reward=lead_bank.lead_reward_fact,
+                    lead_reward=(
+                        lead_bank.lead_reward_fact
+                        if lead_bank.lead_reward_paid_at is not None
+                        else None
+                    ),
                     lead_reward_paid_separately=lead_bank.lead_reward_paid_separately,
                 )
                 payment = payments_by_bank.get(lead_bank.id)
@@ -175,12 +179,10 @@ class LeadAssignmentService:
         lead_reward: Decimal | None,
         lead_reward_paid_separately: bool,
     ) -> Decimal | None:
-        if income is None:
+        if income is None or lead_reward is None:
             return None
         profit = income - (partner_reward or Decimal("0"))
-        profit -= lead_reward or Decimal("0")
-        if profit < 0:
-            raise DomainError("Ставки дают отрицательную командную прибыль")
+        profit -= lead_reward
         return profit.quantize(Decimal("0.01"))
 
     async def mark_direct(self, *, actor_role: UserRole, lead_id: UUID) -> Lead:

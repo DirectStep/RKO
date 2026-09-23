@@ -106,14 +106,13 @@ def test_team_profit_always_subtracts_lead_payment_before_partner_share() -> Non
     ) == Decimal("3000.00")
 
 
-def test_negative_team_profit_is_rejected() -> None:
-    with pytest.raises(DomainError, match="отрицательную"):
-        WorkflowService._team_profit(
-            income=Decimal("1000"),
-            partner_reward=Decimal("700"),
-            lead_reward=Decimal("500"),
-            lead_reward_paid_separately=False,
-        )
+def test_negative_team_profit_is_recorded() -> None:
+    assert WorkflowService._team_profit(
+        income=Decimal("1000"),
+        partner_reward=Decimal("0"),
+        lead_reward=Decimal("1100"),
+        lead_reward_paid_separately=False,
+    ) == Decimal("-100.00")
 
 
 @pytest.mark.asyncio

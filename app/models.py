@@ -332,9 +332,7 @@ class LeadBank(Base):
         ),
         CheckConstraint(
             "(lead_reward_estimate IS NULL OR lead_reward_estimate >= 0) AND "
-            "(lead_reward_fact IS NULL OR lead_reward_fact >= 0) AND "
-            "(team_profit_estimate IS NULL OR team_profit_estimate >= 0) AND "
-            "(team_profit_fact IS NULL OR team_profit_fact >= 0)",
+            "(lead_reward_fact IS NULL OR lead_reward_fact >= 0)",
             name="ck_lead_bank_financial_snapshots_nonnegative",
         ),
     )

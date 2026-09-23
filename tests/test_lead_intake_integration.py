@@ -1316,11 +1316,11 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
             income_fact=Decimal("10000.00"),
         )
         assert lead_bank.partner_reward_estimate == Decimal("1800.00")
-        assert lead_bank.partner_reward_fact == Decimal("1400.00")
+        assert lead_bank.partner_reward_fact is None
         assert lead_bank.lead_reward_estimate == Decimal("3000.00")
         assert lead_bank.lead_reward_fact is None
         assert lead_bank.team_profit_estimate == Decimal("7200.00")
-        assert lead_bank.team_profit_fact == Decimal("5600.00")
+        assert lead_bank.team_profit_fact is None
         assert lead_bank.opened_at is not None
 
         lead_bank = await workflow.confirm_lead_reward_payment(

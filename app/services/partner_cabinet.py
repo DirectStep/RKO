@@ -174,6 +174,7 @@ async def partner_cabinet_data(
                     Lead.partner_id == partner_id,
                     LeadBank.selected_by_lead.is_(True),
                     LeadBank.internal_status == BankInternalStatus.ACCOUNT_OPENED,
+                    LeadBank.lead_reward_paid_at.is_not(None),
                 )
             )
         )

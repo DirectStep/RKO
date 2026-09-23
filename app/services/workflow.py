@@ -491,7 +491,7 @@ class WorkflowService:
                         income_fact,
                         lead_bank.lead_reward_fact
                         if lead_bank.lead_reward_paid_at is not None
-                        else lead_bank.lead_reward_estimate,
+                        else None,
                     )
                     if lead_bank.partner_percent_snapshot is not None
                     else None
@@ -502,7 +502,7 @@ class WorkflowService:
                     lead_reward=(
                         lead_bank.lead_reward_fact
                         if lead_bank.lead_reward_paid_at is not None
-                        else lead_bank.lead_reward_estimate
+                        else None
                     ),
                     lead_reward_paid_separately=lead_bank.lead_reward_paid_separately,
                 )
@@ -537,7 +537,7 @@ class WorkflowService:
                 lead_cost = (
                     lead_bank.lead_reward_fact
                     if lead_bank.lead_reward_paid_at is not None
-                    else lead_bank.lead_reward_estimate
+                    else None
                 )
                 if lead_bank.partner_percent_snapshot is not None:
                     lead_bank.partner_reward_fact = self._reward(
@@ -582,8 +582,6 @@ class WorkflowService:
                 PaymentStatus.PAID,
             }:
                 raise DomainError("Сначала завершите или отмените подтверждённый расчёт партнёра")
-            if lead_bank.bank_income_fact is not None and amount > lead_bank.bank_income_fact:
-                raise DomainError("Выплата лиду не может превышать общую ставку банка")
             lead_bank.lead_reward_fact = amount
             lead_bank.lead_reward_paid_at = datetime.now(UTC)
             if lead_bank.bank_income_fact is not None:
@@ -780,7 +778,7 @@ class WorkflowService:
             lead.payment_status = status
 
     @staticmethod
-    def _reward(income: Decimal, lead_reward: Decimal | None) -> Decimal:
+    def _reward(income: Decimal, lead_reward: Decimal | None) -> Decimal | None:
         return partner_reward(income, lead_reward)
 
     @staticmethod
@@ -790,11 +788,11 @@ class WorkflowService:
         partner_reward: Decimal | None,
         lead_reward: Decimal | None,
         lead_reward_paid_separately: bool,
-    ) -> Decimal:
+    ) -> Decimal | None:
+        if lead_reward is None:
+            return None
         profit = income - (partner_reward or Decimal("0"))
-        profit -= lead_reward or Decimal("0")
-        if profit < 0:
-            raise DomainError("Ставки дают отрицательную командную прибыль")
+        profit -= lead_reward
         return profit.quantize(Decimal("0.01"))
 
     @staticmethod

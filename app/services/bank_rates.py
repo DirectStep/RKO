@@ -100,8 +100,6 @@ class BankRatesService:
                 )
                 profit = rate.base_payout - (partner_reward or Decimal("0"))
                 profit -= rate.lead_payout
-                if profit < 0:
-                    raise ValueError(f"{rate.offer_code}: ставки дают отрицательную прибыль")
                 lead_bank.bank_rate_id = rate.id
                 lead_bank.bank_income_estimate = rate.base_payout
                 lead_bank.partner_percent_snapshot = percent

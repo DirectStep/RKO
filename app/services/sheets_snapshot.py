@@ -98,7 +98,7 @@ def partner_payout_row(
         amount = None
     paid = payment is not None and payment.status is PaymentStatus.PAID
     activated = lead_bank.internal_status is BankInternalStatus.ACCOUNT_OPENED
-    if not activated and not paid:
+    if (not activated or lead_bank.lead_reward_paid_at is None) and not paid:
         amount = None
     return [
         f"@{partner.telegram_username}" if partner.telegram_username else partner.name,
