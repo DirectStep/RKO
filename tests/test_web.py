@@ -368,7 +368,7 @@ def test_partner_summary_uses_clear_application_and_payment_metrics() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 
     for label in (
-        "К выплате партнёру",
+        "К выплате",
         "Последняя выплата",
         "Выплачено всего",
         "Завершённые заявки",
@@ -525,7 +525,7 @@ def test_partner_paid_total_is_the_first_full_width_metric() -> None:
     markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
 
     paid = markup.index('class="metric-wide"><span>Выплачено всего')
-    expected = markup.index("К выплате партнёру")
+    expected = markup.index("К выплате")
     last = markup.index("Последняя выплата")
     assert paid < expected < last
 
