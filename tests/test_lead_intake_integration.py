@@ -1218,6 +1218,13 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
             role=UserRole.MANAGER,
         )
         ids["manager"] = manager.id
+        admin = await workflow.create_staff(
+            actor_role=UserRole.ADMIN,
+            telegram_id=f"9{suffix}",
+            telegram_username=f"admin_{suffix}",
+            role=UserRole.ADMIN,
+        )
+        ids["admin"] = admin.id
         partner = await catalog.create_partner(
             actor_role=UserRole.ADMIN,
             name=f"Партнёр workflow {suffix}",
@@ -1302,9 +1309,34 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
             bank_id=bank.id,
         )
         ids["lead_bank"] = lead_bank.id
+        async with database.session() as session, session.begin():
+            bank_in_db = await session.get(LeadBank, lead_bank.id)
+            bank_in_db.selected_by_lead = False
+        with pytest.raises(DomainError, match="не выбрал"):
+            await workflow.update_lead_bank(
+                actor_role=UserRole.ADMIN,
+                actor_user_id=admin.id,
+                lead_bank_id=lead_bank.id,
+                status=BankInternalStatus.ACCOUNT_OPENED,
+            )
+        async with database.session() as session, session.begin():
+            bank_in_db = await session.get(LeadBank, lead_bank.id)
+            bank_in_db.selected_by_lead = True
+            lead_in_db = await session.get(Lead, lead.id)
+            lead_in_db.archived_at = now
+        with pytest.raises(DomainError, match="Архивную"):
+            await workflow.update_lead_bank(
+                actor_role=UserRole.ADMIN,
+                actor_user_id=admin.id,
+                lead_bank_id=lead_bank.id,
+                status=BankInternalStatus.ACCOUNT_OPENED,
+            )
+        async with database.session() as session, session.begin():
+            lead_in_db = await session.get(Lead, lead.id)
+            lead_in_db.archived_at = None
         lead_bank = await workflow.update_lead_bank(
-            actor_role=UserRole.MANAGER,
-            actor_user_id=manager.id,
+            actor_role=UserRole.ADMIN,
+            actor_user_id=admin.id,
             lead_bank_id=lead_bank.id,
             status=BankInternalStatus.ACCOUNT_OPENED,
         )
@@ -1338,7 +1370,7 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
 
         payment = await workflow.confirm_lead_bank_payment(
             actor_role=UserRole.ADMIN,
-            actor_user_id=manager.id,
+            actor_user_id=admin.id,
             lead_bank_id=lead_bank.id,
             payment_period="2026-08",
             registry_number="REG-1",
@@ -1380,7 +1412,7 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
         with pytest.raises(DomainError, match="Источник нельзя изменить"):
             await LeadAssignmentService(database).assign_direct(
                 actor_role=UserRole.ADMIN,
-                actor_id=manager.id,
+                actor_id=admin.id,
                 lead_id=lead.id,
             )
         with pytest.raises(DomainError, match="удалить нельзя"):
@@ -1401,7 +1433,7 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
                 await session.execute(delete(BankRate).where(BankRate.id == ids["bank_rate"]))
             if "bank" in ids:
                 await session.execute(delete(Bank).where(Bank.id == ids["bank"]))
-            user_ids = [ids[key] for key in ("manager", "partner_user") if ids.get(key)]
+            user_ids = [ids[key] for key in ("admin", "manager", "partner_user") if ids.get(key)]
             if user_ids:
                 await session.execute(delete(User).where(User.id.in_(user_ids)))
         await database.close()

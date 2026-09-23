@@ -437,19 +437,15 @@ class WorkflowService:
             income_estimate is not None or income_fact is not None
         ):
             raise DomainError("Менеджер не может изменять финансовые данные")
-        manager_decisions = {
+        bank_decisions = {
             BankInternalStatus.ACCOUNT_OPENED,
             BankInternalStatus.BANK_REJECTED,
             BankInternalStatus.CLIENT_REFUSED,
         }
-        if (
-            actor_role is UserRole.MANAGER
-            and status is not None
-            and status not in manager_decisions
-        ):
-            raise DomainError("Менеджер может выбрать только активацию или отказ")
-        if actor_role is UserRole.ADMIN and status is not None:
-            raise DomainError("Статус счёта изменяет назначенный менеджер")
+        if actor_role is UserRole.MANAGER and status is not None:
+            raise DomainError("Активацию счёта или отказ оформляет администратор")
+        if actor_role is UserRole.ADMIN and status is not None and status not in bank_decisions:
+            raise DomainError("Администратор может выбрать только активацию или отказ")
         self._validate_money(income_estimate)
         self._validate_money(income_fact)
         async with self.database.session() as session, session.begin():
@@ -458,17 +454,20 @@ class WorkflowService:
             )
             if lead_bank is None:
                 raise DomainError("Банк заявки не найден")
+            lead = await session.get(Lead, lead_bank.lead_id)
+            if lead is None:
+                raise DomainError("Заявка не найдена")
+            if status is not None and lead.archived_at is not None:
+                raise DomainError("Архивную заявку нельзя изменить")
+            if status is not None and lead_bank.selected_by_lead is not True:
+                raise DomainError("Лид не выбрал этот банк")
             if (
                 income_fact is not None
                 and (status or lead_bank.internal_status) is not BankInternalStatus.ACCOUNT_OPENED
             ):
                 raise DomainError("Фактический доход можно указать после активации счёта")
-            if actor_role is UserRole.MANAGER:
-                manager_id = await session.scalar(
-                    select(Lead.manager_id).where(Lead.id == lead_bank.lead_id)
-                )
-                if manager_id != actor_user_id:
-                    raise DomainError("Эта заявка закреплена за другим менеджером")
+            if actor_role is UserRole.MANAGER and lead.manager_id != actor_user_id:
+                raise DomainError("Эта заявка закреплена за другим менеджером")
             if status is not None:
                 self._apply_bank_status(lead_bank, status, close_reason)
             if income_estimate is not None:

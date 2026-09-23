@@ -61,8 +61,8 @@ from app.services.admin_catalog import AdminCatalogService
 from app.services.bank_conditions import normalize_bank_name
 from app.services.bank_rates import BankRatesService
 from app.services.duplicate_reviews import DuplicateReviewService
-from app.services.lead_workflow import LeadWorkflowService
 from app.services.lead_registry import LeadRegistryService
+from app.services.lead_workflow import LeadWorkflowService
 from app.services.partner_cabinet import partner_cabinet_data, partner_contact
 from app.services.user_access import UserAccessService
 from app.services.workflow import WorkflowService
@@ -148,20 +148,6 @@ def format_partner_reward_message(application_number: str, amount: Decimal) -> s
         f"Заявка: <b>{html.escape(application_number)}</b>\n"
         '<tg-emoji emoji-id="5224257782013769471">💰</tg-emoji> '
         f"Сумма выплаты: <b>{format_reward_amount(amount)} ₽</b>"
-    )
-
-
-def format_account_opened_admin_message(
-    manager_name: str, bank_name: str, application_number: str
-) -> str:
-    return (
-        "🟢 <b>Счёт активирован</b>\n\n"
-        '<tg-emoji emoji-id="5188234920639632382">👤</tg-emoji> '
-        f"Менеджер: <b>{html.escape(manager_name)}</b>\n"
-        '<tg-emoji emoji-id="5226831738734400762">🏦</tg-emoji> '
-        f"Банк: <b>{html.escape(bank_name)}</b>\n"
-        '<tg-emoji emoji-id="5395444784611480792">📝</tg-emoji> '
-        f"Заявка: <code>{html.escape(application_number)}</code>"
     )
 
 
@@ -721,35 +707,6 @@ def create_web_app(
             except Exception:
                 logger.exception(
                     "Failed to notify client for lead %s via bot %s",
-                    lead_id,
-                    current_bot.id,
-                )
-
-    async def notify_primary_admin(
-        lead_id: UUID, text: str, *, parse_mode: str | None = None
-    ) -> None:
-        if not notification_bots:
-            return
-        async with database.session() as db_session:
-            telegram_id = await db_session.scalar(
-                select(User.telegram_id)
-                .join(Lead, Lead.primary_admin_id == User.id)
-                .where(
-                    Lead.id == lead_id,
-                    User.role == UserRole.ADMIN,
-                    User.access_status == AccessStatus.ACTIVE,
-                )
-            )
-        if telegram_id is None:
-            return
-        for current_bot in notification_bots:
-            try:
-                await current_bot.send_message(
-                    chat_id=int(telegram_id), text=text, parse_mode=parse_mode
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to notify primary admin for lead %s via bot %s",
                     lead_id,
                     current_bot.id,
                 )
@@ -2145,26 +2102,17 @@ def create_web_app(
             raise domain_error(error) from error
         sheet_sync_error = ""
         if (
-            user.role is UserRole.MANAGER
+            user.role is UserRole.ADMIN
             and payload.status is BankInternalStatus.ACCOUNT_OPENED
             and previous_status is not BankInternalStatus.ACCOUNT_OPENED
         ):
             async with database.session() as db_session:
                 lead = await db_session.get(Lead, lead_bank.lead_id)
-                bank = await db_session.get(Bank, lead_bank.bank_id)
-                manager = await db_session.get(User, actor_id)
-            if lead is not None and bank is not None:
-                await notify_primary_admin(
-                    lead.id,
-                    format_account_opened_admin_message(
-                        format_user_name(manager), bank.name, lead.short_id
-                    ),
-                    parse_mode="HTML",
-                )
+            if lead is not None:
                 try:
                     registry_row = await LeadRegistryService(
                         database, settings.project_timezone
-                    ).activation_row(lead_bank.id, actor_id)
+                    ).activation_row(lead_bank.id, lead.manager_id or actor_id)
                     gateway = await registry_gateway()
                     await asyncio.to_thread(gateway.upsert_lead_activation, registry_row)
                 except Exception:

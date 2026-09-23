@@ -23,7 +23,6 @@ from app.services.workflow import WorkflowService
 from app.web import (
     CLIENT_STATUS_LABELS,
     build_mini_app_html,
-    format_account_opened_admin_message,
     format_lead_reward_message,
     format_partner_reward_message,
     lead_bank_sort_key,
@@ -258,36 +257,47 @@ def test_manager_cannot_delete_another_or_activated_application() -> None:
         )
 
 
-def test_admin_sees_manager_bank_decision_without_status_selector() -> None:
+def test_manager_sees_admin_bank_decision_without_status_selector() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 
+    assert "const canUseBankQuickActions=admin&&Boolean(lead.bank_selection_submitted_at)" in script
+    assert "data-bank-opened" in script
+    assert "data-bank-reject" in script
     assert "account_opened:'Счёт активирован'" in script
     assert "bank_rejected:'Отказ банка'" in script
     assert "client_refused:'Отказ клиента'" in script
-    assert "'Ожидается действие менеджера'" in script
+    assert "'Ожидается решение администратора'" in script
     assert "data-bank-status" not in script
     assert "data-reason" not in script
 
 
 @pytest.mark.asyncio
-async def test_manager_can_only_activate_or_reject_bank() -> None:
-    with pytest.raises(DomainError, match="только активацию или отказ"):
+@pytest.mark.parametrize(
+    "status",
+    [
+        BankInternalStatus.ACCOUNT_OPENED,
+        BankInternalStatus.BANK_REJECTED,
+        BankInternalStatus.CLIENT_REFUSED,
+    ],
+)
+async def test_manager_cannot_activate_or_reject_bank(status: BankInternalStatus) -> None:
+    with pytest.raises(DomainError, match="оформляет администратор"):
         await WorkflowService(SimpleNamespace()).update_lead_bank(
             actor_role=UserRole.MANAGER,
             actor_user_id=uuid4(),
             lead_bank_id=uuid4(),
-            status=BankInternalStatus.UNDER_REVIEW,
+            status=status,
         )
 
 
 @pytest.mark.asyncio
-async def test_admin_cannot_change_bank_status() -> None:
-    with pytest.raises(DomainError, match="изменяет назначенный менеджер"):
+async def test_admin_cannot_use_other_bank_statuses() -> None:
+    with pytest.raises(DomainError, match="только активацию или отказ"):
         await WorkflowService(SimpleNamespace()).update_lead_bank(
             actor_role=UserRole.ADMIN,
             actor_user_id=uuid4(),
             lead_bank_id=uuid4(),
-            status=BankInternalStatus.ACCOUNT_OPENED,
+            status=BankInternalStatus.UNDER_REVIEW,
         )
 
 
@@ -807,28 +817,12 @@ def test_partner_is_notified_only_after_reward_is_paid() -> None:
     assert "format_partner_reward_message(" in source
 
 
-def test_account_opened_message_uses_premium_emojis() -> None:
-    message = format_account_opened_admin_message(
-        "@manager", "Альфа <Банк>", "RKO-0001"
-    )
-
-    assert message == (
-        "🟢 <b>Счёт активирован</b>\n\n"
-        '<tg-emoji emoji-id="5188234920639632382">👤</tg-emoji> '
-        "Менеджер: <b>@manager</b>\n"
-        '<tg-emoji emoji-id="5226831738734400762">🏦</tg-emoji> '
-        "Банк: <b>Альфа &lt;Банк&gt;</b>\n"
-        '<tg-emoji emoji-id="5395444784611480792">📝</tg-emoji> '
-        "Заявка: <code>RKO-0001</code>"
-    )
-
-
-def test_manager_account_activation_notifies_primary_admin_once() -> None:
+def test_admin_account_activation_syncs_registry_once() -> None:
     source = (ASSETS_DIR.parent / "web.py").read_text(encoding="utf-8")
 
-    assert "await notify_primary_admin(" in source
-    assert "user.role is UserRole.MANAGER" in source
+    assert "user.role is UserRole.ADMIN" in source
     assert "previous_status is not BankInternalStatus.ACCOUNT_OPENED" in source
+    assert "activation_row(lead_bank.id, lead.manager_id or actor_id)" in source
 
 
 def test_telegram_sdk_does_not_block_application_startup() -> None:
