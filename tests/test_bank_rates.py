@@ -97,13 +97,13 @@ def test_team_profit_subtracts_partner_and_lead_rewards() -> None:
     ) == Decimal("1982.30")
 
 
-def test_team_profit_always_subtracts_lead_payment_before_partner_share() -> None:
+def test_team_profit_does_not_subtract_bank_paid_lead_bonus() -> None:
     assert WorkflowService._team_profit(
         income=Decimal("10000"),
         partner_reward=Decimal("2000"),
         lead_reward=Decimal("5000"),
         lead_reward_paid_separately=True,
-    ) == Decimal("3000.00")
+    ) == Decimal("8000.00")
 
 
 def test_negative_team_profit_is_recorded() -> None:

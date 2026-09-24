@@ -15,6 +15,51 @@ def test_partner_gets_twenty_percent_after_lead_payment() -> None:
     assert partner_reward(Decimal("10000"), Decimal("2800"), Decimal("20")) == Decimal("1440.00")
 
 
+def test_bank_paid_lead_bonus_does_not_reduce_partner_or_team_amount() -> None:
+    assert partner_reward(
+        Decimal("10000"),
+        Decimal("5000"),
+        Decimal("20"),
+        lead_reward_paid_separately=True,
+    ) == Decimal("2000.00")
+    assert WorkflowService._reward(
+        Decimal("10000"),
+        Decimal("5000"),
+        Decimal("20"),
+        lead_reward_paid_separately=True,
+    ) == Decimal("2000.00")
+    assert LeadAssignmentService._reward(
+        Decimal("10000"),
+        Decimal("5000"),
+        Decimal("20"),
+        lead_reward_paid_separately=True,
+    ) == Decimal("2000.00")
+    assert WorkflowService._team_profit(
+        income=Decimal("10000"),
+        partner_reward=Decimal("2000"),
+        lead_reward=Decimal("5000"),
+        lead_reward_paid_separately=True,
+    ) == Decimal("8000.00")
+    assert LeadAssignmentService._team_profit(
+        income=Decimal("10000"),
+        partner_reward=Decimal("2000"),
+        lead_reward=Decimal("5000"),
+        lead_reward_paid_separately=True,
+    ) == Decimal("8000.00")
+    assert partner_reward(
+        Decimal("10000"),
+        None,
+        Decimal("20"),
+        lead_reward_paid_separately=True,
+    ) == Decimal("2000.00")
+    assert WorkflowService._team_profit(
+        income=Decimal("10000"),
+        partner_reward=Decimal("2000"),
+        lead_reward=None,
+        lead_reward_paid_separately=True,
+    ) == Decimal("8000.00")
+
+
 def test_partner_reward_uses_saved_fractional_percent() -> None:
     assert partner_reward(Decimal("10000"), Decimal("3000"), Decimal("17.50")) == Decimal("1225.00")
     assert partner_reward(Decimal("10000"), Decimal("3000"), Decimal("0")) == Decimal("0.00")
@@ -53,6 +98,7 @@ def test_partner_sheet_row_tracks_one_selected_bank_and_payment() -> None:
         internal_status=BankInternalStatus.PLANNED,
         partner_reward_fact=None,
         lead_reward_paid_at=None,
+        lead_reward_paid_separately=False,
     )
     row = partner_payout_row(partner, lead, lead_bank, bank, None)
     assert row == ["@partner", "@client", "Альфа-Банк", "22.09.2026", "Не активирован", "", "", ""]
@@ -68,6 +114,10 @@ def test_partner_sheet_row_tracks_one_selected_bank_and_payment() -> None:
     )
     row = partner_payout_row(partner, lead, lead_bank, bank, payment)
     assert row[4:] == ["Активирован", "", "", ""]
+    lead_bank.lead_reward_paid_separately = True
+    row = partner_payout_row(partner, lead, lead_bank, bank, payment)
+    assert row[4:] == ["Активирован", 1440.0, "Не выплачено", ""]
+    lead_bank.lead_reward_paid_separately = False
     lead_bank.lead_reward_paid_at = datetime(2026, 9, 24, tzinfo=UTC)
     row = partner_payout_row(partner, lead, lead_bank, bank, payment)
     assert row[4:] == ["Активирован", 1440.0, "Не выплачено", ""]

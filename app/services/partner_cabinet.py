@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import TypedDict
 from uuid import UUID
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, or_, select
 
 from app.database import Database
 from app.domain.enums import (
@@ -176,7 +176,10 @@ async def partner_cabinet_data(
                     Lead.partner_id == partner_id,
                     LeadBank.selected_by_lead.is_(True),
                     LeadBank.internal_status == BankInternalStatus.ACCOUNT_OPENED,
-                    LeadBank.lead_reward_paid_at.is_not(None),
+                    or_(
+                        LeadBank.lead_reward_paid_at.is_not(None),
+                        LeadBank.lead_reward_paid_separately.is_(True),
+                    ),
                 )
             )
         )

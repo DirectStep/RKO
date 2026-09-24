@@ -386,7 +386,12 @@ class WorkflowService:
             for bank_id in unique_bank_ids:
                 rate = rates_by_bank[bank_id]
                 partner_reward = (
-                    self._reward(rate.base_payout, rate.lead_payout, percent)
+                    self._reward(
+                        rate.base_payout,
+                        rate.lead_payout,
+                        percent,
+                        lead_reward_paid_separately=rate.lead_payout_paid_separately,
+                    )
                     if percent is not None
                     else None
                 )
@@ -484,6 +489,7 @@ class WorkflowService:
                         income_estimate,
                         lead_bank.lead_reward_estimate,
                         lead_bank.partner_percent_snapshot,
+                        lead_reward_paid_separately=lead_bank.lead_reward_paid_separately,
                     )
                     if lead_bank.partner_percent_snapshot is not None
                     else None
@@ -503,6 +509,7 @@ class WorkflowService:
                         if lead_bank.lead_reward_paid_at is not None
                         else None,
                         lead_bank.partner_percent_snapshot,
+                        lead_reward_paid_separately=lead_bank.lead_reward_paid_separately,
                     )
                     if lead_bank.partner_percent_snapshot is not None
                     else None
@@ -555,6 +562,7 @@ class WorkflowService:
                         lead_bank.bank_income_fact,
                         lead_cost,
                         lead_bank.partner_percent_snapshot,
+                        lead_reward_paid_separately=lead_bank.lead_reward_paid_separately,
                     )
                 lead_bank.team_profit_fact = self._team_profit(
                     income=lead_bank.bank_income_fact,
@@ -603,6 +611,7 @@ class WorkflowService:
                         lead_bank.bank_income_fact,
                         amount,
                         lead_bank.partner_percent_snapshot,
+                        lead_reward_paid_separately=lead_bank.lead_reward_paid_separately,
                     )
                     if lead_bank.partner_percent_snapshot is not None
                     else None
@@ -635,7 +644,10 @@ class WorkflowService:
             )
             if lead_bank is None or payment is None or lead_bank.partner_reward_fact is None:
                 raise DomainError("Сначала укажите фактический доход банка")
-            if lead_bank.lead_reward_paid_at is None:
+            if (
+                lead_bank.lead_reward_paid_at is None
+                and not lead_bank.lead_reward_paid_separately
+            ):
                 raise DomainError("Сначала подтвердите фактическую выплату лиду")
             confirmation = confirm_payment(
                 actor_role=actor_role,
@@ -796,9 +808,22 @@ class WorkflowService:
 
     @staticmethod
     def _reward(
-        income: Decimal, lead_reward: Decimal | None, percent: Decimal | None
+        income: Decimal,
+        lead_reward: Decimal | None,
+        percent: Decimal | None,
+        *,
+        lead_reward_paid_separately: bool = False,
     ) -> Decimal | None:
-        return partner_reward(income, lead_reward, percent) if percent is not None else None
+        return (
+            partner_reward(
+                income,
+                lead_reward,
+                percent,
+                lead_reward_paid_separately=lead_reward_paid_separately,
+            )
+            if percent is not None
+            else None
+        )
 
     @staticmethod
     def _team_profit(
@@ -808,10 +833,10 @@ class WorkflowService:
         lead_reward: Decimal | None,
         lead_reward_paid_separately: bool,
     ) -> Decimal | None:
-        if lead_reward is None:
+        lead_cost = Decimal("0") if lead_reward_paid_separately else lead_reward
+        if lead_cost is None:
             return None
-        profit = income - (partner_reward or Decimal("0"))
-        profit -= lead_reward
+        profit = income - (partner_reward or Decimal("0")) - lead_cost
         return profit.quantize(Decimal("0.01"))
 
     @staticmethod

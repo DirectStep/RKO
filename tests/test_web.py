@@ -739,6 +739,30 @@ def test_partner_bank_progress_summary_is_present() -> None:
     assert "Запланировано / в работе / открыто" in script
 
 
+def test_bank_rate_preview_uses_net_income_except_bank_paid_lead_bonus() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+    preview = script.split("function updateCatalogPreview(){", 1)[1].split(
+        "function openCatalogBank(id=null){", 1
+    )[0]
+
+    assert (
+        "const leadCost=document.querySelector('#catalog-lead-separate').checked?0:lead"
+        in preview
+    )
+    assert "Math.max(base-leadCost,0)*percent/100" in preview
+    assert "base-partner-leadCost" in preview
+
+
+def test_bank_paid_bonus_allows_partner_confirmation_without_lead_payment() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+    card = script.split("function bankCard(item,employee,admin,quickActions){", 1)[1].split(
+        "async function openLead(id){", 1
+    )[0]
+
+    assert "(item.lead_reward_paid_at||item.lead_reward_paid_separately)" in card
+    assert "Банк платит отдельно" in card
+
+
 def test_partner_bank_details_show_only_partner_payments() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
     details = script.split("function openPartnerBank(lead,index){", 1)[1].split(

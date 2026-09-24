@@ -95,12 +95,18 @@ class BankRatesService:
                     else None
                 )
                 partner_reward = (
-                    calculate_partner_reward(rate.base_payout, rate.lead_payout, percent)
+                    calculate_partner_reward(
+                        rate.base_payout,
+                        rate.lead_payout,
+                        percent,
+                        lead_reward_paid_separately=rate.lead_payout_paid_separately,
+                    )
                     if percent is not None
                     else None
                 )
                 profit = rate.base_payout - (partner_reward or Decimal("0"))
-                profit -= rate.lead_payout
+                if not rate.lead_payout_paid_separately:
+                    profit -= rate.lead_payout
                 lead_bank.bank_rate_id = rate.id
                 lead_bank.bank_income_estimate = rate.base_payout
                 lead_bank.partner_percent_snapshot = percent

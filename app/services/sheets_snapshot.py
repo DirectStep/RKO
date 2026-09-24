@@ -98,7 +98,10 @@ def partner_payout_row(
         amount = None
     paid = payment is not None and payment.status is PaymentStatus.PAID
     activated = lead_bank.internal_status is BankInternalStatus.ACCOUNT_OPENED
-    if (not activated or lead_bank.lead_reward_paid_at is None) and not paid:
+    if (
+        not activated
+        or (lead_bank.lead_reward_paid_at is None and not lead_bank.lead_reward_paid_separately)
+    ) and not paid:
         amount = None
     return [
         f"@{partner.telegram_username}" if partner.telegram_username else partner.name,
@@ -108,7 +111,7 @@ def partner_payout_row(
         "Активирован" if activated else "Не активирован",
         float(amount) if amount is not None else "",
         "Выплачено" if paid else "Не выплачено" if amount is not None else "",
-        payment.paid_at.strftime("%d.%m.%Y") if paid and payment.paid_at else "",
+        payment.paid_at.strftime("%d.%m.%Y") if paid and payment and payment.paid_at else "",
     ]
 
 

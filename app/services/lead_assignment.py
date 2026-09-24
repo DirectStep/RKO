@@ -151,7 +151,10 @@ class LeadAssignmentService:
         for lead_bank in lead_banks:
             lead_bank.partner_percent_snapshot = percent
             lead_bank.partner_reward_estimate = cls._reward(
-                lead_bank.bank_income_estimate, lead_bank.lead_reward_estimate, percent
+                lead_bank.bank_income_estimate,
+                lead_bank.lead_reward_estimate,
+                percent,
+                lead_reward_paid_separately=lead_bank.lead_reward_paid_separately,
             )
             lead_bank.team_profit_estimate = cls._team_profit(
                 income=lead_bank.bank_income_estimate,
@@ -166,6 +169,7 @@ class LeadAssignmentService:
                     if lead_bank.lead_reward_paid_at is not None
                     else None,
                     percent,
+                    lead_reward_paid_separately=lead_bank.lead_reward_paid_separately,
                 )
                 lead_bank.team_profit_fact = cls._team_profit(
                     income=lead_bank.bank_income_fact,
@@ -201,9 +205,22 @@ class LeadAssignmentService:
 
     @staticmethod
     def _reward(
-        income: Decimal | None, lead_reward: Decimal | None, percent: Decimal | None
+        income: Decimal | None,
+        lead_reward: Decimal | None,
+        percent: Decimal | None,
+        *,
+        lead_reward_paid_separately: bool = False,
     ) -> Decimal | None:
-        return partner_reward(income, lead_reward, percent) if percent is not None else None
+        return (
+            partner_reward(
+                income,
+                lead_reward,
+                percent,
+                lead_reward_paid_separately=lead_reward_paid_separately,
+            )
+            if percent is not None
+            else None
+        )
 
     @staticmethod
     def _team_profit(
@@ -213,10 +230,10 @@ class LeadAssignmentService:
         lead_reward: Decimal | None,
         lead_reward_paid_separately: bool,
     ) -> Decimal | None:
-        if income is None or lead_reward is None:
+        lead_cost = Decimal("0") if lead_reward_paid_separately else lead_reward
+        if income is None or lead_cost is None:
             return None
-        profit = income - (partner_reward or Decimal("0"))
-        profit -= lead_reward
+        profit = income - (partner_reward or Decimal("0")) - lead_cost
         return profit.quantize(Decimal("0.01"))
 
     async def mark_direct(self, *, actor_role: UserRole, lead_id: UUID) -> Lead:
