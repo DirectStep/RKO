@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import Database
 from app.domain.enums import AssignmentStatus, PaymentStatus, UserRole
 from app.domain.operations import DomainError, confirm_assignment, mark_assignment_direct
-from app.domain.partner_economics import PARTNER_PERCENT, partner_reward
+from app.domain.partner_economics import partner_reward
 from app.models import Channel, Lead, LeadBank, Partner, Payment
 
 
@@ -28,6 +28,19 @@ class LeadAssignmentService:
                 channel_id=lead.proposed_channel_id,
                 confirmed_at=datetime.now(UTC),
             )
+            partner = await session.scalar(
+                select(Partner)
+                .where(Partner.id == confirmation.partner_id)
+                .with_for_update()
+            )
+            if partner is None:
+                raise DomainError("Партнёр не найден")
+            percent = self._percent_for_partner(lead, partner)
+            lead.partner_percent_snapshot = percent
+            if lead.original_partner_id is None:
+                lead.original_partner_id = partner.id
+                lead.original_partner_percent_snapshot = percent
+            await self._apply_partner_economics(session, lead_id=lead.id, percent=percent)
             lead.partner_id = confirmation.partner_id
             lead.channel_id = confirmation.channel_id
             lead.assignment_status = AssignmentStatus.CONFIRMED
@@ -79,13 +92,20 @@ class LeadAssignmentService:
             channel = await session.get(Channel, channel_id)
             if channel is None or channel.partner_id != partner_id or not channel.active:
                 raise DomainError("Активный канал партнёра не найден")
-            partner = await session.get(Partner, partner_id)
+            partner = await session.scalar(
+                select(Partner).where(Partner.id == partner_id).with_for_update()
+            )
             if partner is None or not partner.active:
                 raise DomainError("Активный партнёр не найден")
+            percent = self._percent_for_partner(lead, partner)
+            lead.partner_percent_snapshot = percent
+            if lead.original_partner_id is None:
+                lead.original_partner_id = partner.id
+                lead.original_partner_percent_snapshot = percent
             await self._apply_partner_economics(
                 session,
                 lead_id=lead.id,
-                percent=PARTNER_PERCENT,
+                percent=percent,
             )
             now = datetime.now(UTC)
             lead.proposed_partner_id = partner_id
@@ -131,7 +151,7 @@ class LeadAssignmentService:
         for lead_bank in lead_banks:
             lead_bank.partner_percent_snapshot = percent
             lead_bank.partner_reward_estimate = cls._reward(
-                lead_bank.bank_income_estimate, lead_bank.lead_reward_estimate
+                lead_bank.bank_income_estimate, lead_bank.lead_reward_estimate, percent
             )
             lead_bank.team_profit_estimate = cls._team_profit(
                 income=lead_bank.bank_income_estimate,
@@ -145,6 +165,7 @@ class LeadAssignmentService:
                     lead_bank.lead_reward_fact
                     if lead_bank.lead_reward_paid_at is not None
                     else None,
+                    percent,
                 )
                 lead_bank.team_profit_fact = cls._team_profit(
                     income=lead_bank.bank_income_fact,
@@ -168,8 +189,21 @@ class LeadAssignmentService:
             lead_bank.last_updated_at = now
 
     @staticmethod
-    def _reward(income: Decimal | None, lead_reward: Decimal | None) -> Decimal | None:
-        return partner_reward(income, lead_reward)
+    def _percent_for_partner(lead: Lead, partner: Partner) -> Decimal:
+        if lead.partner_id == partner.id and lead.partner_percent_snapshot is not None:
+            return lead.partner_percent_snapshot
+        if (
+            lead.original_partner_id == partner.id
+            and lead.original_partner_percent_snapshot is not None
+        ):
+            return lead.original_partner_percent_snapshot
+        return partner.commission_percent
+
+    @staticmethod
+    def _reward(
+        income: Decimal | None, lead_reward: Decimal | None, percent: Decimal | None
+    ) -> Decimal | None:
+        return partner_reward(income, lead_reward, percent) if percent is not None else None
 
     @staticmethod
     def _team_profit(

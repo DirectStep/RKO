@@ -1,3 +1,4 @@
+import logging
 from typing import cast
 from uuid import UUID
 
@@ -24,6 +25,7 @@ from app.models import Partner, User
 from app.services.admin_catalog import AdminCatalogService, ChannelSummary
 
 router = Router(name="admin_catalog")
+logger = logging.getLogger(__name__)
 
 
 async def admin_user_id(event: CallbackQuery | Message, database: Database) -> UUID | None:
@@ -242,7 +244,7 @@ async def partner_commission_save(
     service = AdminCatalogService(database)
     try:
         data = await state.get_data()
-        partner = await service.update_partner_commission(
+        partner, changed = await service.update_partner_commission(
             actor_role=UserRole.ADMIN,
             partner_id=UUID(str(data["edit_partner_id"])),
             commission_percent=service.parse_commission(message.text or ""),
@@ -253,8 +255,22 @@ async def partner_commission_save(
         await message.answer(str(error))
         return
     await state.clear()
+    notification_error = False
+    if changed and partner.telegram_user_id is not None and access and access.telegram_id:
+        try:
+            await message.bot.send_message(
+                chat_id=int(access.telegram_id),
+                text=(
+                    "Ваше партнёрское вознаграждение изменено и теперь составляет "
+                    f"{format(partner.commission_percent.normalize(), 'f')}%"
+                ),
+            )
+        except Exception:
+            logger.exception("Failed to notify partner %s about commission", partner.id)
+            notification_error = True
     await message.answer(
-        "Процент изменён.\n\n"
+        ("Процент сохранён, но уведомление партнёру не доставлено.\n\n"
+         if notification_error else "Процент изменён.\n\n")
         + format_partner(
             partner,
             channels,

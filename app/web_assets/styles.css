@@ -127,6 +127,9 @@ button { color: inherit; }
 }
 
 .live-badge i { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: var(--positive); }
+.partner-commission { margin-top: 0.35rem; }
+.partner-commission[hidden] { display: none; }
+.partner-commission span { color: var(--positive); }
 
 .summary-card {
   overflow: hidden;

@@ -77,6 +77,11 @@ class GoogleSheetsGateway:
                     cols=max(len(sheet.headers), 1),
                 )
             values: list[list[Any]] = [list(sheet.headers), *sheet.rows]
+            if worksheet.row_count < len(values) or worksheet.col_count < len(sheet.headers):
+                worksheet.resize(
+                    rows=max(worksheet.row_count, len(values)),
+                    cols=max(worksheet.col_count, len(sheet.headers)),
+                )
             worksheet.clear()
             worksheet.update(values, "A1", raw=True)
             worksheet.freeze(rows=1)

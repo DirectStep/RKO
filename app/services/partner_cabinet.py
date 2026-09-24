@@ -89,6 +89,7 @@ class PartnerMetrics(TypedDict):
 class PartnerCabinetData(TypedDict):
     metrics: PartnerMetrics
     leads: list[PartnerLeadData]
+    commission_percent: str
 
 
 @dataclass
@@ -142,6 +143,7 @@ async def partner_cabinet_data(
     search: str = "",
 ) -> PartnerCabinetData:
     async with database.session() as session:
+        partner = await session.get(Partner, partner_id)
         rows = list(
             await session.execute(
                 select(Lead, Channel, LeadBank, Bank, Payment)
@@ -326,4 +328,10 @@ async def partner_cabinet_data(
         "last_payout": str(last_payout),
         "paid": str(paid),
     }
-    return {"metrics": metrics, "leads": leads}
+    return {
+        "metrics": metrics,
+        "leads": leads,
+        "commission_percent": (
+            format(partner.commission_percent.normalize(), "f") if partner else ""
+        ),
+    }

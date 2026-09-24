@@ -100,6 +100,14 @@ class DuplicateReviewService:
                     else await LeadIntakeService._default_direct_admin_id(session)
                 )
                 default_manager_id = await LeadIntakeService._default_support_manager_id(session)
+                partner_percent = (
+                    await session.scalar(
+                        select(Partner.commission_percent)
+                        .where(Partner.id == channel.partner_id)
+                        .with_for_update()
+                    )
+                    if channel is not None else None
+                )
                 result_lead = Lead(
                     short_id=f"RKO-{number:04d}",
                     telegram_id=review.telegram_id,
@@ -115,6 +123,9 @@ class DuplicateReviewService:
                     proposed_partner_id=channel.partner_id if channel else None,
                     proposed_channel_id=channel.id if channel else None,
                     partner_id=channel.partner_id if channel else None,
+                    partner_percent_snapshot=partner_percent,
+                    original_partner_id=channel.partner_id if channel else None,
+                    original_partner_percent_snapshot=partner_percent,
                     channel_id=channel.id if channel else None,
                     assignment_status=(
                         AssignmentStatus.CONFIRMED if channel else AssignmentStatus.DIRECT

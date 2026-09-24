@@ -259,9 +259,9 @@ async def test_admin_reassigns_source_and_resolves_duplicate_as_separate_lead() 
         async with database.session() as session:
             reassigned_bank = await session.get(LeadBank, ids["lead_bank"])
             assert reassigned_bank is not None
-            assert reassigned_bank.partner_percent_snapshot == Decimal("20.00")
-            assert reassigned_bank.partner_reward_estimate == Decimal("1600.00")
-            assert reassigned_bank.team_profit_estimate == Decimal("6400.00")
+            assert reassigned_bank.partner_percent_snapshot == Decimal("5.00")
+            assert reassigned_bank.partner_reward_estimate == Decimal("400.00")
+            assert reassigned_bank.team_profit_estimate == Decimal("7600.00")
         partner_data = await partner_cabinet_data(database, ids["partner"])
         assert [item["id"] for item in partner_data["leads"]] == [str(ids["lead"])]
         assert partner_data["leads"][0]["reward_estimate"] == "0"
@@ -1143,6 +1143,191 @@ async def test_partner_creates_channel_only_for_own_cabinet() -> None:
 
 
 @pytest.mark.asyncio
+async def test_partner_commission_is_frozen_when_lead_is_created() -> None:
+    database = Database(
+        Settings(
+            bot_token="123456:test-token",
+            app_env="test",
+            database_url=TEST_DATABASE_URL or "postgresql+asyncpg://unused",
+        )
+    )
+    suffix = uuid4().hex[:10]
+    partner_id = channel_id = second_partner_id = second_channel_id = None
+    bank_ids: list[UUID] = []
+    lead_ids: list[UUID] = []
+    now = datetime.now(UTC)
+    try:
+        catalog = AdminCatalogService(database)
+        workflow = WorkflowService(database)
+        intake = LeadIntakeService(database)
+        partner = await catalog.create_partner(
+            actor_role=UserRole.ADMIN,
+            name=f"Ставка {suffix}",
+            commission_percent=Decimal("20"),
+        )
+        partner_id = partner.id
+        channel = await catalog.create_channel(
+            actor_role=UserRole.ADMIN,
+            partner_id=partner_id,
+            name="Источник",
+            bot_username="RKOrko_bot",
+        )
+        channel_id = channel.id
+        for index in range(2):
+            bank = await workflow.create_bank(
+                actor_role=UserRole.ADMIN,
+                name=f"Банк ставки {suffix} {index}",
+                display_order=index,
+            )
+            bank_ids.append(bank.id)
+        async with database.session() as session, session.begin():
+            for index, bank_id in enumerate(bank_ids):
+                session.add(
+                    BankRate(
+                        offer_code=f"commission-{suffix}-{index}",
+                        bank_id=bank_id,
+                        online_text="Да",
+                        base_payout=Decimal("10000"),
+                        lead_payout=Decimal("2000"),
+                        lead_payout_paid_separately=False,
+                        active=True,
+                        display_order=index,
+                        source_row=index + 2,
+                        synced_at=now,
+                    )
+                )
+
+        async def submit(index: int) -> UUID:
+            result = await intake.submit(
+                telegram_id=f"commission-{suffix}-{index}",
+                telegram_username=f"commission_{suffix}_{index}",
+                display_name="Тестовый лид",
+                phone=f"+745{suffix}{index}",
+                referral_code=channel.referral_code,
+                first_click_at=now,
+                consent_at=now,
+                answers={"city": "Москва"},
+            )
+            assert result.status is SubmissionStatus.CREATED
+            assert result.lead_id is not None
+            lead_ids.append(result.lead_id)
+            return result.lead_id
+
+        old_lead_id = await submit(1)
+        _, changed = await catalog.update_partner_commission(
+            actor_role=UserRole.ADMIN,
+            partner_id=partner_id,
+            commission_percent=Decimal("17.50"),
+        )
+        assert changed
+        new_lead_id = await submit(2)
+
+        old_banks = await workflow.add_banks_to_lead(
+            actor_role=UserRole.ADMIN, lead_id=old_lead_id, bank_ids=bank_ids
+        )
+        new_banks = await workflow.add_banks_to_lead(
+            actor_role=UserRole.ADMIN, lead_id=new_lead_id, bank_ids=bank_ids[:1]
+        )
+        async with database.session() as session:
+            old_lead = await session.get(Lead, old_lead_id)
+            new_lead = await session.get(Lead, new_lead_id)
+            assert old_lead.partner_percent_snapshot == Decimal("20.00")
+            assert new_lead.partner_percent_snapshot == Decimal("17.50")
+        assert [bank.partner_percent_snapshot for bank in old_banks] == [Decimal("20.00")] * 2
+        assert [bank.partner_reward_estimate for bank in old_banks] == [Decimal("1600.00")] * 2
+        assert new_banks[0].partner_percent_snapshot == Decimal("17.50")
+        assert new_banks[0].partner_reward_estimate == Decimal("1400.00")
+        cabinet = await partner_cabinet_data(database, partner_id)
+        assert cabinet["commission_percent"] == "17.5"
+
+        second_partner = await catalog.create_partner(
+            actor_role=UserRole.ADMIN,
+            name=f"Новый источник {suffix}",
+            commission_percent=Decimal("7.50"),
+        )
+        second_partner_id = second_partner.id
+        second_channel = await catalog.create_channel(
+            actor_role=UserRole.ADMIN,
+            partner_id=second_partner_id,
+            name="Другой канал",
+            bot_username="RKOrko_bot",
+        )
+        second_channel_id = second_channel.id
+        await LeadAssignmentService(database).assign_source(
+            actor_role=UserRole.ADMIN,
+            actor_id=uuid4(),
+            lead_id=old_lead_id,
+            partner_id=second_partner_id,
+            channel_id=second_channel_id,
+        )
+        async with database.session() as session:
+            switched_lead = await session.get(Lead, old_lead_id)
+            switched_banks = list(
+                await session.scalars(select(LeadBank).where(LeadBank.lead_id == old_lead_id))
+            )
+            assert switched_lead.partner_percent_snapshot == Decimal("7.50")
+            assert {bank.partner_percent_snapshot for bank in switched_banks} == {
+                Decimal("7.50")
+            }
+            assert {bank.partner_reward_estimate for bank in switched_banks} == {
+                Decimal("600.00")
+            }
+        await catalog.update_partner_commission(
+            actor_role=UserRole.ADMIN,
+            partner_id=partner_id,
+            commission_percent=Decimal("30"),
+        )
+        await LeadAssignmentService(database).assign_source(
+            actor_role=UserRole.ADMIN,
+            actor_id=uuid4(),
+            lead_id=old_lead_id,
+            partner_id=partner_id,
+            channel_id=channel_id,
+        )
+        async with database.session() as session:
+            restored_lead = await session.get(Lead, old_lead_id)
+            restored_banks = list(
+                await session.scalars(select(LeadBank).where(LeadBank.lead_id == old_lead_id))
+            )
+            assert restored_lead.partner_percent_snapshot == Decimal("20.00")
+            assert restored_lead.original_partner_percent_snapshot == Decimal("20.00")
+            assert {bank.partner_reward_estimate for bank in restored_banks} == {
+                Decimal("1600.00")
+            }
+        await LeadAssignmentService(database).assign_source(
+            actor_role=UserRole.ADMIN,
+            actor_id=uuid4(),
+            lead_id=old_lead_id,
+            partner_id=second_partner_id,
+            channel_id=second_channel_id,
+        )
+        assert (
+            await catalog.delete_partner(actor_role=UserRole.ADMIN, partner_id=partner_id)
+            is False
+        )
+    finally:
+        async with database.session() as session, session.begin():
+            if lead_ids:
+                await session.execute(delete(LeadBank).where(LeadBank.lead_id.in_(lead_ids)))
+                await session.execute(delete(Lead).where(Lead.id.in_(lead_ids)))
+            if bank_ids:
+                await session.execute(delete(BankRate).where(BankRate.bank_id.in_(bank_ids)))
+                await session.execute(delete(Bank).where(Bank.id.in_(bank_ids)))
+            if channel_id is not None:
+                await session.execute(delete(Channel).where(Channel.id == channel_id))
+            if second_channel_id is not None:
+                await session.execute(delete(Channel).where(Channel.id == second_channel_id))
+            if partner_id is not None:
+                await session.execute(delete(Partner).where(Partner.id == partner_id))
+            if second_partner_id is not None:
+                await session.execute(delete(Partner).where(Partner.id == second_partner_id))
+            await session.execute(
+                delete(LeadDraft).where(LeadDraft.telegram_id.like(f"commission-{suffix}-%"))
+            )
+        await database.close()
+
+
+@pytest.mark.asyncio
 async def test_partner_restores_only_own_disabled_channel() -> None:
     database = Database(
         Settings(
@@ -1240,12 +1425,19 @@ async def test_admin_deletes_unused_partner_and_its_channels() -> None:
         )
         channel_id = channel.id
 
-        with pytest.raises(DomainError, match="20%"):
-            await catalog.update_partner_commission(
-                actor_role=UserRole.ADMIN,
-                partner_id=partner.id,
-                commission_percent=Decimal("12.50"),
-            )
+        updated_partner, changed = await catalog.update_partner_commission(
+            actor_role=UserRole.ADMIN,
+            partner_id=partner.id,
+            commission_percent=Decimal("12.50"),
+        )
+        assert changed
+        assert updated_partner.commission_percent == Decimal("12.50")
+        _, changed = await catalog.update_partner_commission(
+            actor_role=UserRole.ADMIN,
+            partner_id=partner.id,
+            commission_percent=Decimal("12.50"),
+        )
+        assert not changed
         updated = await catalog.update_partner_username(
             actor_role=UserRole.ADMIN,
             partner_id=partner.id,

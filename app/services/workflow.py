@@ -18,7 +18,7 @@ from app.domain.enums import (
     UserRole,
 )
 from app.domain.operations import DomainError, confirm_payment, validate_payment_transition
-from app.domain.partner_economics import PARTNER_PERCENT, partner_reward
+from app.domain.partner_economics import partner_reward
 from app.domain.statuses import external_bank_status, external_lead_status
 from app.models import Bank, BankRate, DuplicateLeadReview, Lead, LeadBank, Partner, Payment, User
 
@@ -362,7 +362,14 @@ class WorkflowService:
             percent = None
             if lead.partner_id is not None:
                 partner = await session.get(Partner, lead.partner_id)
-                percent = PARTNER_PERCENT if partner else None
+                if partner is not None:
+                    percent = lead.partner_percent_snapshot
+                    if percent is None:
+                        percent = partner.commission_percent
+                        lead.partner_percent_snapshot = percent
+                        if lead.original_partner_id is None:
+                            lead.original_partner_id = partner.id
+                            lead.original_partner_percent_snapshot = percent
             rates = list(
                 await session.scalars(
                     select(BankRate).where(
@@ -379,7 +386,7 @@ class WorkflowService:
             for bank_id in unique_bank_ids:
                 rate = rates_by_bank[bank_id]
                 partner_reward = (
-                    self._reward(rate.base_payout, rate.lead_payout)
+                    self._reward(rate.base_payout, rate.lead_payout, percent)
                     if percent is not None
                     else None
                 )
@@ -473,7 +480,11 @@ class WorkflowService:
             if income_estimate is not None:
                 lead_bank.bank_income_estimate = income_estimate
                 lead_bank.partner_reward_estimate = (
-                    self._reward(income_estimate, lead_bank.lead_reward_estimate)
+                    self._reward(
+                        income_estimate,
+                        lead_bank.lead_reward_estimate,
+                        lead_bank.partner_percent_snapshot,
+                    )
                     if lead_bank.partner_percent_snapshot is not None
                     else None
                 )
@@ -491,6 +502,7 @@ class WorkflowService:
                         lead_bank.lead_reward_fact
                         if lead_bank.lead_reward_paid_at is not None
                         else None,
+                        lead_bank.partner_percent_snapshot,
                     )
                     if lead_bank.partner_percent_snapshot is not None
                     else None
@@ -540,7 +552,9 @@ class WorkflowService:
                 )
                 if lead_bank.partner_percent_snapshot is not None:
                     lead_bank.partner_reward_fact = self._reward(
-                        lead_bank.bank_income_fact, lead_cost
+                        lead_bank.bank_income_fact,
+                        lead_cost,
+                        lead_bank.partner_percent_snapshot,
                     )
                 lead_bank.team_profit_fact = self._team_profit(
                     income=lead_bank.bank_income_fact,
@@ -585,7 +599,11 @@ class WorkflowService:
             lead_bank.lead_reward_paid_at = datetime.now(UTC)
             if lead_bank.bank_income_fact is not None:
                 lead_bank.partner_reward_fact = (
-                    self._reward(lead_bank.bank_income_fact, amount)
+                    self._reward(
+                        lead_bank.bank_income_fact,
+                        amount,
+                        lead_bank.partner_percent_snapshot,
+                    )
                     if lead_bank.partner_percent_snapshot is not None
                     else None
                 )
@@ -777,8 +795,10 @@ class WorkflowService:
             lead.payment_status = status
 
     @staticmethod
-    def _reward(income: Decimal, lead_reward: Decimal | None) -> Decimal | None:
-        return partner_reward(income, lead_reward)
+    def _reward(
+        income: Decimal, lead_reward: Decimal | None, percent: Decimal | None
+    ) -> Decimal | None:
+        return partner_reward(income, lead_reward, percent) if percent is not None else None
 
     @staticmethod
     def _team_profit(

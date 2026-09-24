@@ -1812,7 +1812,7 @@ def create_web_app(
         partner_id: UUID,
         payload: PartnerUpdate,
         user: Annotated[MiniAppUser, Depends(current_user)],
-    ) -> dict[str, str]:
+    ) -> dict[str, object]:
         require_admin(user)
         if (
             payload.commission_percent is None
@@ -1821,10 +1821,11 @@ def create_web_app(
         ):
             raise HTTPException(status_code=400, detail="Не указаны изменения")
         service = AdminCatalogService(database)
+        commission_changed = False
         try:
             partner = None
             if payload.commission_percent is not None:
-                partner = await service.update_partner_commission(
+                partner, commission_changed = await service.update_partner_commission(
                     actor_role=user.role,
                     partner_id=partner_id,
                     commission_percent=payload.commission_percent,
@@ -1845,7 +1846,29 @@ def create_web_app(
             raise domain_error(error) from error
         if partner is None:
             raise HTTPException(status_code=400, detail="Не указаны изменения")
-        return {"id": str(partner.id), "commission": str(partner.commission_percent)}
+        notification_error = False
+        if commission_changed and partner.telegram_user_id is not None:
+            access = await service.get_partner_access(partner.id)
+            if access and access.telegram_id:
+                message = (
+                    "Ваше партнёрское вознаграждение изменено и теперь составляет "
+                    f"{format(partner.commission_percent.normalize(), 'f')}%"
+                )
+                for current_bot in notification_bots:
+                    try:
+                        await current_bot.send_message(
+                            chat_id=int(access.telegram_id), text=message
+                        )
+                        break
+                    except Exception:
+                        logger.exception("Failed to notify partner %s about commission", partner.id)
+                else:
+                    notification_error = True
+        return {
+            "id": str(partner.id),
+            "commission": str(partner.commission_percent),
+            "notification_error": notification_error,
+        }
 
     @app.delete("/api/partners/{partner_id}")
     async def delete_partner(

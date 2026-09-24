@@ -11,7 +11,6 @@ from sqlalchemy import delete, func, or_, select, update
 from app.database import Database
 from app.domain.enums import AccessStatus, UserRole
 from app.domain.operations import DomainError
-from app.domain.partner_economics import PARTNER_PERCENT
 from app.models import Channel, Lead, LeadDraft, Partner, User
 
 
@@ -93,8 +92,7 @@ class AdminCatalogService:
         clean_name = name.strip()
         if len(clean_name) < 2 or len(clean_name) > 160:
             raise DomainError("Название партнёра должно быть от 2 до 160 символов")
-        if commission_percent != PARTNER_PERCENT:
-            raise DomainError("Для всех партнёров действует единая ставка 20%")
+        commission = self.parse_commission(str(commission_percent))
         async with self.database.session() as session, session.begin():
             existing = await session.scalar(select(Partner).where(Partner.name == clean_name))
             if existing is not None:
@@ -111,7 +109,7 @@ class AdminCatalogService:
                 name=clean_name,
                 telegram_username=telegram_username,
                 partner_type="other",
-                commission_percent=PARTNER_PERCENT,
+                commission_percent=commission,
                 assigned_manager_id=actor_user_id,
             )
             session.add(partner)
@@ -135,19 +133,18 @@ class AdminCatalogService:
         actor_role: UserRole,
         partner_id: UUID,
         commission_percent: Decimal,
-    ) -> Partner:
+    ) -> tuple[Partner, bool]:
         self._require_admin(actor_role)
         commission = self.parse_commission(str(commission_percent))
-        if commission != PARTNER_PERCENT:
-            raise DomainError("Для всех партнёров действует единая ставка 20%")
         async with self.database.session() as session, session.begin():
             partner = await session.scalar(
                 select(Partner).where(Partner.id == partner_id).with_for_update()
             )
             if partner is None:
                 raise DomainError("Партнёр не найден")
+            changed = partner.commission_percent != commission
             partner.commission_percent = commission
-            return partner
+            return partner, changed
 
     async def update_partner_username(
         self,
@@ -249,6 +246,7 @@ class AdminCatalogService:
                     or_(
                         Lead.partner_id == partner_id,
                         Lead.proposed_partner_id == partner_id,
+                        Lead.original_partner_id == partner_id,
                     )
                 )
                 .limit(1)

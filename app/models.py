@@ -158,6 +158,17 @@ class Lead(Base):
             "assignment_confirmed_at IS NULL OR assignment_status = 'confirmed'",
             name="ck_lead_confirmation_date_status",
         ),
+        CheckConstraint(
+            "partner_percent_snapshot IS NULL OR "
+            "(partner_percent_snapshot >= 0 AND partner_percent_snapshot <= 100)",
+            name="ck_lead_partner_percent_snapshot",
+        ),
+        CheckConstraint(
+            "original_partner_percent_snapshot IS NULL OR "
+            "(original_partner_percent_snapshot >= 0 "
+            "AND original_partner_percent_snapshot <= 100)",
+            name="ck_lead_original_partner_percent_snapshot",
+        ),
     )
     id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     module_code: Mapped[str] = mapped_column(String(16), default="rko", server_default="rko")
@@ -173,6 +184,9 @@ class Lead(Base):
     proposed_partner_id: Mapped[UUID | None] = mapped_column(ForeignKey("partners.id"))
     proposed_channel_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
     partner_id: Mapped[UUID | None] = mapped_column(ForeignKey("partners.id"))
+    partner_percent_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    original_partner_id: Mapped[UUID | None] = mapped_column(ForeignKey("partners.id"))
+    original_partner_percent_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     channel_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
     assignment_status: Mapped[AssignmentStatus] = mapped_column(
         enum_column(AssignmentStatus), default=AssignmentStatus.UNRESOLVED, nullable=False

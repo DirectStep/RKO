@@ -167,7 +167,23 @@ def test_partner_channel_controls_are_present() -> None:
     assert 'id="restore-channel"' in script
     assert "channel.active?'<button class=\"danger-button\"" in script
     assert "`/api/channels/${channel.id}/restore`" in script
-    assert ".restore-button { color: var(--positive);" in (ASSETS_DIR / "styles.css").read_text(encoding="utf-8")
+    assert ".restore-button { color: var(--positive);" in (
+        ASSETS_DIR / "styles.css"
+    ).read_text(encoding="utf-8")
+
+
+def test_partner_commission_is_visible_and_editable() -> None:
+    markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+    styles = (ASSETS_DIR / "styles.css").read_text(encoding="utf-8")
+
+    assert 'id="partner-commission-row"' in markup
+    assert 'id="partner-commission-value"' in markup
+    assert "state.partnerData?.commission_percent" in script
+    assert "x.dataset.screen==='partners'" in script
+    assert ".partner-commission span { color: var(--positive); }" in styles
+    assert "document.querySelector('#partner-commission').disabled=true" not in script
+    assert "document.querySelector('#save-commission').hidden=true" not in script
 
 
 def test_admin_partner_activation_and_lead_filters_are_present() -> None:

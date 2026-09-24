@@ -3,6 +3,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from app.config import Settings
+from app.integrations.google_sheets import GoogleSheetsGateway, SheetData
 from app.services.sheets_snapshot import SHEET_MODELS, serialize_cell
 
 
@@ -51,3 +52,37 @@ def test_sheet_cell_serialization() -> None:
     assert serialize_cell(Decimal("12.50")) == "12.50"
     assert serialize_cell(datetime(2026, 8, 17, 12, 0, tzinfo=UTC)) == "2026-08-17T12:00:00+00:00"
     assert serialize_cell({"city": "Москва"}) == '{"city": "Москва"}'
+
+
+def test_existing_sheet_expands_for_new_snapshot_columns() -> None:
+    class Worksheet:
+        title = "Заявки"
+        row_count = 2
+        col_count = 1
+
+        def resize(self, *, rows: int, cols: int) -> None:
+            self.row_count, self.col_count = rows, cols
+
+        def clear(self) -> None:
+            pass
+
+        def update(self, values: list[list[str]], cell: str, *, raw: bool) -> None:
+            assert cell == "A1" and raw
+            assert values == [["id", "partner_percent_snapshot"], ["1", "20"]]
+            assert self.row_count >= len(values)
+            assert self.col_count >= len(values[0])
+
+        def freeze(self, *, rows: int) -> None:
+            assert rows == 1
+
+    class Spreadsheet:
+        def worksheets(self) -> list[Worksheet]:
+            return [worksheet]
+
+    worksheet = Worksheet()
+    gateway = object.__new__(GoogleSheetsGateway)
+    gateway.spreadsheet = Spreadsheet()
+    gateway.replace_all(
+        [SheetData("Заявки", ("id", "partner_percent_snapshot"), [["1", "20"]])]
+    )
+    assert worksheet.col_count == 2

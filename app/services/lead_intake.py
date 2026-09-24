@@ -244,6 +244,18 @@ class LeadIntakeService:
             else:
                 primary_admin_id = await self._default_direct_admin_id(session)
             default_manager_id = await self._default_support_manager_id(session)
+            partner_id = (
+                previous_lead.partner_id or previous_lead.proposed_partner_id
+                if previous_lead else channel.partner_id if channel else None
+            )
+            partner_percent = (
+                await session.scalar(
+                    select(Partner.commission_percent)
+                    .where(Partner.id == partner_id)
+                    .with_for_update()
+                )
+                if partner_id is not None else None
+            )
             lead = Lead(
                 short_id=short_id,
                 telegram_id=telegram_id,
@@ -281,6 +293,9 @@ class LeadIntakeService:
                     if channel
                     else None
                 ),
+                partner_percent_snapshot=partner_percent,
+                original_partner_id=partner_id,
+                original_partner_percent_snapshot=partner_percent,
                 channel_id=(
                     previous_lead.channel_id if previous_lead else channel.id if channel else None
                 ),
