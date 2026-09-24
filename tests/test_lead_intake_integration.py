@@ -1143,6 +1143,76 @@ async def test_partner_creates_channel_only_for_own_cabinet() -> None:
 
 
 @pytest.mark.asyncio
+async def test_partner_restores_only_own_disabled_channel() -> None:
+    database = Database(
+        Settings(
+            bot_token="123456:test-token",
+            app_env="test",
+            database_url=TEST_DATABASE_URL or "postgresql+asyncpg://unused",
+        )
+    )
+    partner_ids: list[UUID] = []
+    channel_id = None
+    try:
+        catalog = AdminCatalogService(database)
+        owner = await catalog.create_partner(
+            actor_role=UserRole.ADMIN,
+            name=f"Владелец {uuid4().hex[:10]}",
+            commission_percent=Decimal("20"),
+        )
+        stranger = await catalog.create_partner(
+            actor_role=UserRole.ADMIN,
+            name=f"Чужой {uuid4().hex[:10]}",
+            commission_percent=Decimal("20"),
+        )
+        partner_ids.extend([owner.id, stranger.id])
+        channel = await catalog.create_channel(
+            actor_role=UserRole.PARTNER,
+            actor_partner_id=owner.id,
+            partner_id=owner.id,
+            name="Восстанавливаемый канал",
+            bot_username="RKOrko_bot",
+        )
+        channel_id = channel.id
+        original_code = channel.referral_code
+        original_link = channel.referral_link
+        async with database.session() as session, session.begin():
+            stored = await session.get(Channel, channel_id)
+            stored.active = False
+
+        with pytest.raises(DomainError, match="только свой канал"):
+            await catalog.restore_channel(
+                actor_role=UserRole.PARTNER,
+                actor_partner_id=stranger.id,
+                channel_id=channel_id,
+            )
+        restored = await catalog.restore_channel(
+            actor_role=UserRole.PARTNER,
+            actor_partner_id=owner.id,
+            channel_id=channel_id,
+        )
+        assert restored.active
+        assert restored.referral_code == original_code
+        assert restored.referral_link == original_link
+        await catalog.restore_channel(
+            actor_role=UserRole.PARTNER,
+            actor_partner_id=owner.id,
+            channel_id=channel_id,
+        )
+        async with database.session() as session:
+            stored = await session.get(Channel, channel_id)
+            assert stored.active
+            assert stored.referral_link == original_link
+    finally:
+        async with database.session() as session, session.begin():
+            if channel_id is not None:
+                await session.execute(delete(Channel).where(Channel.id == channel_id))
+            if partner_ids:
+                await session.execute(delete(Partner).where(Partner.id.in_(partner_ids)))
+        await database.close()
+
+
+@pytest.mark.asyncio
 async def test_admin_deletes_unused_partner_and_its_channels() -> None:
     database = Database(
         Settings(

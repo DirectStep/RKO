@@ -392,6 +392,29 @@ class AdminCatalogService:
             await session.delete(channel)
             return True
 
+    async def restore_channel(
+        self,
+        *,
+        actor_role: UserRole,
+        channel_id: UUID,
+        actor_partner_id: UUID | None = None,
+    ) -> Channel:
+        async with self.database.session() as session, session.begin():
+            channel = await session.scalar(
+                select(Channel).where(Channel.id == channel_id).with_for_update()
+            )
+            if channel is None:
+                raise DomainError("Канал не найден")
+            if actor_role is not UserRole.ADMIN and not (
+                actor_role is UserRole.PARTNER and actor_partner_id == channel.partner_id
+            ):
+                raise DomainError("Можно восстановить только свой канал")
+            partner = await session.get(Partner, channel.partner_id)
+            if partner is None or not partner.active:
+                raise DomainError("Сначала включи партнёра")
+            channel.active = True
+            return channel
+
     @staticmethod
     def _require_admin(actor_role: UserRole) -> None:
         if actor_role is not UserRole.ADMIN:

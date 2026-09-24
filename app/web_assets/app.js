@@ -400,10 +400,11 @@ function openNewPartner(){
 function openChannel(id){
   const channel=state.channels.find(item=>item.id===id)
   if(!channel)return toast('Канал не найден')
-  openSheet(channel.name,channel.active?'Канал работает':'Канал отключён',`${referralLinkRows(channel)}<div class="button-stack"><button class="danger-button" id="remove-channel">Удалить канал</button><button class="secondary-button" id="cancel-channel">Закрыть</button></div>`)
+  openSheet(channel.name,channel.active?'Канал работает':'Канал отключён',`${referralLinkRows(channel)}<div class="button-stack">${channel.active?'<button class="danger-button" id="remove-channel">Удалить канал</button>':'<button class="restore-button" id="restore-channel">Восстановить канал</button>'}<button class="secondary-button" id="cancel-channel">Закрыть</button></div>`)
   bindReferralLinkCopies(channel)
   document.querySelector('#cancel-channel').addEventListener('click',closeSheet)
-  document.querySelector('#remove-channel').addEventListener('click',async()=>{if(!window.confirm('Удалить канал? Если по нему уже были заявки, он будет отключён с сохранением истории.'))return;const result=await api(`/api/channels/${channel.id}`,{method:'DELETE'});toast(result.message);closeSheet();await load();showScreen('partners')})
+  document.querySelector('#remove-channel')?.addEventListener('click',async()=>{try{if(!window.confirm('Удалить канал? Если по нему уже были заявки, он будет отключён с сохранением истории.'))return;const result=await api(`/api/channels/${channel.id}`,{method:'DELETE'});toast(result.message);closeSheet();await load();showScreen('partners')}catch(error){toast(error.message)}})
+  document.querySelector('#restore-channel')?.addEventListener('click',async()=>{try{const result=await api(`/api/channels/${channel.id}/restore`,{method:'POST'});toast(result.message);closeSheet();await load();showScreen('partners')}catch(error){toast(error.message)}})
 }
 function bankFormValues(){
   return {offer_code:document.querySelector('#catalog-offer-code').value.trim(),name:document.querySelector('#catalog-bank-name').value.trim(),online_text:document.querySelector('#catalog-online').value,base_payout:document.querySelector('#catalog-base').value.replace(',','.'),lead_payout:document.querySelector('#catalog-lead').value.replace(',','.'),lead_payout_paid_separately:document.querySelector('#catalog-lead-separate').checked,active:document.querySelector('#catalog-active').checked,display_order:Number(document.querySelector('#catalog-order').value||0)}

@@ -164,6 +164,10 @@ def test_partner_channel_controls_are_present() -> None:
     assert 'class="contact-row channel-link-row" data-channel=' in script
     assert "bindReferralLinkCopies(channel)" in script
     assert 'id="remove-channel"' in script
+    assert 'id="restore-channel"' in script
+    assert "channel.active?'<button class=\"danger-button\"" in script
+    assert "`/api/channels/${channel.id}/restore`" in script
+    assert ".restore-button { color: var(--positive);" in (ASSETS_DIR / "styles.css").read_text(encoding="utf-8")
 
 
 def test_admin_partner_activation_and_lead_filters_are_present() -> None:

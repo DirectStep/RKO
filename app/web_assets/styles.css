@@ -440,7 +440,7 @@ button.contact-row { width: 100%; border-right: 0; border-bottom: 0; border-left
 .inset-button { width: calc(100% - 1.8rem); margin: 0.35rem 0.9rem 0.9rem; }
 
 .button-stack { display: grid; gap: 0.55rem; margin: 0.8rem 0; }
-.primary-button, .secondary-button, .danger-button {
+.primary-button, .secondary-button, .danger-button, .restore-button {
   min-height: 3rem;
   padding: 0 1rem;
   border: 0;
@@ -450,6 +450,7 @@ button.contact-row { width: 100%; border-right: 0; border-bottom: 0; border-left
 .primary-button { color: var(--accent-text); background: var(--accent); }
 .secondary-button { color: var(--accent); background: var(--surface); }
 .danger-button { color: #d64242; background: var(--surface); }
+.restore-button { color: var(--positive); background: var(--surface); }
 .bank-quick-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.72fr); gap: 0.55rem; margin: 0.75rem 0; }
 .bank-quick-actions button { min-height: 3rem; }
 .lead-payment-form { display: grid; gap: 0.65rem; margin-top: 0.75rem; padding: 0.8rem; border-radius: 0.75rem; background: var(--bg); }

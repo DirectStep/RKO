@@ -1758,6 +1758,23 @@ def create_web_app(
             "message": ("Канал удалён" if deleted else "Канал отключён, история заявок сохранена"),
         }
 
+    @app.post("/api/channels/{channel_id}/restore")
+    async def restore_channel(
+        channel_id: UUID,
+        user: Annotated[MiniAppUser, Depends(current_user)],
+    ) -> dict[str, object]:
+        if user.role not in {UserRole.ADMIN, UserRole.PARTNER}:
+            raise HTTPException(status_code=403, detail="Восстановление каналов недоступно")
+        try:
+            channel = await AdminCatalogService(database).restore_channel(
+                actor_role=user.role,
+                actor_partner_id=user.partner_id,
+                channel_id=channel_id,
+            )
+        except DomainError as error:
+            raise domain_error(error) from error
+        return {"id": str(channel.id), "active": channel.active, "message": "Канал восстановлен"}
+
     @app.put("/api/partners/{partner_id}/access")
     async def bind_partner_access(
         partner_id: UUID,
