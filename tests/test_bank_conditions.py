@@ -8,7 +8,6 @@ def condition_sheets() -> dict[str, list[list[str]]]:
     return {
         "Оборот": [
             ["Название банка", "Сумма оборота, ₽", "Количество платежей"],
-            ["Ак Барс банк", "35 000 ₽", "4"],
             ["Демо Банк", "10 000 ₽", "1"],
         ],
         "Открытие": [
@@ -24,6 +23,10 @@ def condition_sheets() -> dict[str, list[list[str]]]:
             ["Название банка", "Тариф, ₽"],
             ["ПСБ", "700 ₽"],
         ],
+        "Оборот + тариф": [
+            ["Название банка", "Сумма оборота, ₽", "Количество платежей", "Тариф, ₽"],
+            ["Ак Барс банк", "35 000 ₽", "4", "690 ₽"],
+        ],
     }
 
 
@@ -31,7 +34,10 @@ def test_all_condition_types_and_aliases_are_parsed() -> None:
     rows = parse_bank_condition_sheets(condition_sheets())
     by_name = {row.bank_name: row.action_text for row in rows}
 
-    assert by_name["Акбарс"] == "Сделать оборот 35 000 ₽ — минимум 4 платежа"
+    assert by_name["Акбарс"] == (
+        "Сделать оборот 35 000 ₽ — минимум 4 платежа "
+        "и оплатить тариф стоимостью 690 ₽"
+    )
     assert by_name["Акбарс Банк"] == by_name["Акбарс"]
     assert by_name["Демо Банк"] == "Сделать оборот 10 000 ₽ — минимум 1 платёж"
     assert by_name["Озон (можно онлайн даже без КЭП)"] == "Открыть расчётный счёт"
@@ -71,9 +77,11 @@ def test_multiple_conditions_are_combined_as_a_list() -> None:
     ("mutation", "message"),
     [
         (lambda sheets: sheets.pop("Холд"), "Холд"),
+        (lambda sheets: sheets.pop("Оборот + тариф"), "Оборот \\+ тариф"),
         (lambda sheets: sheets["Оборот"].__setitem__(0, ["Банк"]), "Оборот"),
         (lambda sheets: sheets["Тариф"].append(["Банк", ""]), "заполните"),
         (lambda sheets: sheets["Холд"].append(["Банк", "100 ₽", "0"]), "больше нуля"),
+        (lambda sheets: sheets["Оборот + тариф"].append(["Банк", "100 ₽", "1", ""]), "заполните"),
     ],
 )
 def test_invalid_condition_sheets_are_rejected(mutation: object, message: str) -> None:

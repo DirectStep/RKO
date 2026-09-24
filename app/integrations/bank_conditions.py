@@ -8,6 +8,12 @@ WORKSHEET_HEADERS = {
     "Открытие": ("Название банка",),
     "Холд": ("Название банка", "Сумма холда, ₽", "Количество дней"),
     "Тариф": ("Название банка", "Тариф, ₽"),
+    "Оборот + тариф": (
+        "Название банка",
+        "Сумма оборота, ₽",
+        "Количество платежей",
+        "Тариф, ₽",
+    ),
 }
 
 BANK_ALIASES = {
@@ -61,6 +67,11 @@ def _plural(number: int, one: str, few: str, many: str) -> str:
 
 
 def _condition_text(sheet: str, cells: list[str], row: int) -> str:
+    if sheet == "Оборот + тариф":
+        return (
+            f"{_condition_text('Оборот', cells, row)} и оплатить тариф "
+            f"стоимостью {_clean(cells[3])}"
+        )
     if sheet == "Оборот":
         count = _positive_int(cells[2], sheet, row, "Количество платежей")
         return (
