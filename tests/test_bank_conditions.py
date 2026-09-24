@@ -32,12 +32,26 @@ def test_all_condition_types_and_aliases_are_parsed() -> None:
     by_name = {row.bank_name: row.action_text for row in rows}
 
     assert by_name["Акбарс"] == "Сделать оборот 35 000 ₽ — минимум 4 платежа"
+    assert by_name["Акбарс Банк"] == by_name["Акбарс"]
     assert by_name["Демо Банк"] == "Сделать оборот 10 000 ₽ — минимум 1 платёж"
     assert by_name["Озон (можно онлайн даже без КЭП)"] == "Открыть расчётный счёт"
+    assert by_name["Озон"] == by_name["Озон (можно онлайн даже без КЭП)"]
     assert by_name["ВТБ"] == "Пополнить счёт на 6 000 ₽ и удерживать сумму 4 дня"
     assert by_name["ПСБ"] == "Оплатить тариф стоимостью 700 ₽"
     assert by_name["Альфа (ИП+РКО) +5к лиду бонусами сама альфа платит"] == "Открыть расчётный счёт"
     assert by_name["Альфа счёт (без открытия ИП в Альфе)"] == "Открыть расчётный счёт"
+    assert by_name["Альфа-Банк (ИП+счёт)"] == "Открыть расчётный счёт"
+    assert by_name["Альфа-Банк (без открытия ИП)"] == "Открыть расчётный счёт"
+
+
+def test_saint_petersburg_condition_matches_current_catalog_name() -> None:
+    sheets = condition_sheets()
+    sheets["Оборот"].append(["Банк Санкт-Петербург", "10 000 ₽", "3"])
+
+    by_name = {row.bank_name: row.action_text for row in parse_bank_condition_sheets(sheets)}
+
+    assert by_name["Банк Санкт-Петербург"] == "Сделать оборот 10 000 ₽ — минимум 3 платежа"
+    assert by_name["БСПБ (гео маленькое)"] == by_name["Банк Санкт-Петербург"]
 
 
 def test_multiple_conditions_are_combined_as_a_list() -> None:

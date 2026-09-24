@@ -781,6 +781,17 @@ def test_partner_bank_details_keep_client_payment_without_opening_conditions() -
         assert "Условие активации" not in content
 
 
+def test_admin_catalog_shows_bank_activation_condition_from_api() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+    catalog = script.split("function openCatalogBank(id=null){", 1)[1].split(
+        "function openDuplicateQueue(){", 1
+    )[0]
+
+    assert "Условие активации" in catalog
+    assert "bank.action_text" in catalog
+    assert "Не указано в листе «Условия банков»" in catalog
+
+
 def test_partner_creates_one_referral_link() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 
