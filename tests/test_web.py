@@ -739,6 +739,20 @@ def test_partner_bank_progress_summary_is_present() -> None:
     assert "Запланировано / в работе / открыто" in script
 
 
+def test_partner_bank_details_show_only_partner_payments() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+    details = script.split("function openPartnerBank(lead,index){", 1)[1].split(
+        "function bindLeadActions(lead,admin){", 1
+    )[0]
+
+    assert "Статус счёта" in details
+    assert "Ваша ожидаемая выплата" in details
+    assert "Вам подтверждено" in details
+    assert "Выплата клиенту" not in details
+    assert "Можно открыть онлайн" not in details
+    assert "Условие активации" not in details
+
+
 def test_partner_creates_one_referral_link() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 

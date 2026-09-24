@@ -345,7 +345,7 @@ function openPartnerLead(id){
 function openPartnerBank(lead,index){
   const bank=lead.banks[index]
   if(!bank)return openPartnerLead(lead.id)
-  openSheet(bank.bank,'Ставки по заявке',`<section class="detail-section"><div class="value-row"><span>Статус счёта</span><strong>${esc(bankLabels[bank.status]||bank.status)}</strong></div><div class="value-row"><span>Ваша ожидаемая выплата</span><strong>${money(bank.reward_estimate)}</strong></div><div class="value-row"><span>Вам подтверждено</span><strong>${money(bank.reward_fact)}</strong></div><div class="value-row"><span>Выплата клиенту</span><strong>${money(bank.lead_reward_estimate)}</strong></div><div class="value-row"><span>Можно открыть онлайн</span><strong>${String(bank.online_text||'').toLowerCase().startsWith('да')?'Да':'Нет'}</strong></div></section><section class="activation-action"><span>Условие активации</span><p>${esc(bank.action_text||'Условие уточняется')}</p></section><button class="secondary-button" id="back-to-partner-lead">Назад к заявке</button>`)
+  openSheet(bank.bank,'Ставки по заявке',`<section class="detail-section"><div class="value-row"><span>Статус счёта</span><strong>${esc(bankLabels[bank.status]||bank.status)}</strong></div><div class="value-row"><span>Ваша ожидаемая выплата</span><strong>${money(bank.reward_estimate)}</strong></div><div class="value-row"><span>Вам подтверждено</span><strong>${money(bank.reward_fact)}</strong></div></section><button class="secondary-button" id="back-to-partner-lead">Назад к заявке</button>`)
   document.querySelector('#back-to-partner-lead').addEventListener('click',()=>openPartnerLead(lead.id))
 }
 function bindLeadActions(lead,admin){
