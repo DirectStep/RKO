@@ -763,8 +763,11 @@ def test_bank_paid_bonus_allows_partner_confirmation_without_lead_payment() -> N
     assert "Банк платит отдельно" in card
 
 
-def test_partner_bank_details_show_only_partner_payments() -> None:
+def test_partner_bank_details_keep_client_payment_without_opening_conditions() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+    cards = script.split("function openPartnerLead(id){", 1)[1].split(
+        "function openPartnerBank(lead,index){", 1
+    )[0]
     details = script.split("function openPartnerBank(lead,index){", 1)[1].split(
         "function bindLeadActions(lead,admin){", 1
     )[0]
@@ -772,9 +775,10 @@ def test_partner_bank_details_show_only_partner_payments() -> None:
     assert "Статус счёта" in details
     assert "Ваша ожидаемая выплата" in details
     assert "Вам подтверждено" in details
-    assert "Выплата клиенту" not in details
-    assert "Можно открыть онлайн" not in details
-    assert "Условие активации" not in details
+    assert "Выплата клиенту" in details
+    for content in (cards, details):
+        assert "Можно открыть онлайн" not in content
+        assert "Условие активации" not in content
 
 
 def test_partner_creates_one_referral_link() -> None:
