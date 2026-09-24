@@ -441,6 +441,7 @@ class WorkflowService:
         lead_bank_id: UUID,
         status: BankInternalStatus | None = None,
         close_reason: str | None = None,
+        reoffer_to_lead: bool | None = None,
         income_estimate: Decimal | None = None,
         income_fact: Decimal | None = None,
     ) -> LeadBank:
@@ -450,14 +451,20 @@ class WorkflowService:
         ):
             raise DomainError("Менеджер не может изменять финансовые данные")
         bank_decisions = {
+            BankInternalStatus.AWAITING_ACTIVATION,
             BankInternalStatus.ACCOUNT_OPENED,
+            BankInternalStatus.NOT_OPENED,
+            BankInternalStatus.CUT,
+            BankInternalStatus.DUPLICATE,
             BankInternalStatus.BANK_REJECTED,
             BankInternalStatus.CLIENT_REFUSED,
         }
         if actor_role is UserRole.MANAGER and status is not None:
             raise DomainError("Активацию счёта или отказ оформляет администратор")
+        if actor_role is UserRole.MANAGER and reoffer_to_lead is not None:
+            raise DomainError("Вернуть банк в список может только администратор")
         if actor_role is UserRole.ADMIN and status is not None and status not in bank_decisions:
-            raise DomainError("Администратор может выбрать только активацию или отказ")
+            raise DomainError("Администратор может выбрать только открытие, активацию или отказ")
         self._validate_money(income_estimate)
         self._validate_money(income_fact)
         async with self.database.session() as session, session.begin():
@@ -469,19 +476,80 @@ class WorkflowService:
             lead = await session.get(Lead, lead_bank.lead_id)
             if lead is None:
                 raise DomainError("Заявка не найдена")
-            if status is not None and lead.archived_at is not None:
+            if (status is not None or reoffer_to_lead is not None) and lead.archived_at is not None:
                 raise DomainError("Архивную заявку нельзя изменить")
             if status is not None and lead_bank.selected_by_lead is not True:
                 raise DomainError("Лид не выбрал этот банк")
+            if status is not None:
+                if lead_bank.internal_status is BankInternalStatus.PLANNED:
+                    if status not in {
+                        BankInternalStatus.AWAITING_ACTIVATION,
+                        BankInternalStatus.NOT_OPENED,
+                    }:
+                        raise DomainError("Выберите открытие счёта или отметьте, что он не открыт")
+                elif lead_bank.internal_status is BankInternalStatus.AWAITING_ACTIVATION:
+                    if status not in {
+                        BankInternalStatus.ACCOUNT_OPENED,
+                        BankInternalStatus.BANK_REJECTED,
+                        BankInternalStatus.CLIENT_REFUSED,
+                    }:
+                        raise DomainError("После открытия счёта выберите активацию или отказ")
+                elif lead_bank.internal_status is BankInternalStatus.ACCOUNT_OPENED:
+                    if status not in {BankInternalStatus.CUT, BankInternalStatus.DUPLICATE}:
+                        raise DomainError("После активации доступны только срез или дубль")
+                else:
+                    raise DomainError("Решение по этому банку уже принято")
+            if reoffer_to_lead is not None and status is not BankInternalStatus.NOT_OPENED:
+                if status is not None or lead_bank.internal_status is not BankInternalStatus.NOT_OPENED:
+                    raise DomainError("Вернуть в список можно только неоткрытый счёт")
+            if reoffer_to_lead:
+                bank = await session.get(Bank, lead_bank.bank_id)
+                if bank is None or not bank.active:
+                    raise DomainError("Отключённый банк нельзя вернуть в список клиента")
             if (
                 income_fact is not None
                 and (status or lead_bank.internal_status) is not BankInternalStatus.ACCOUNT_OPENED
             ):
                 raise DomainError("Фактический доход можно указать после активации счёта")
+            closing_statuses = {
+                BankInternalStatus.NOT_OPENED,
+                BankInternalStatus.CUT,
+                BankInternalStatus.DUPLICATE,
+                BankInternalStatus.BANK_REJECTED,
+                BankInternalStatus.CLIENT_REFUSED,
+            }
+            if (status or lead_bank.internal_status) in closing_statuses and (
+                income_estimate is not None or income_fact is not None
+            ):
+                raise DomainError("По закрытому банку финансовые суммы не меняются")
             if actor_role is UserRole.MANAGER and lead.manager_id != actor_user_id:
                 raise DomainError("Эта заявка закреплена за другим менеджером")
             if status is not None:
+                if status in closing_statuses:
+                    payment = await session.scalar(
+                        select(Payment).where(Payment.lead_bank_id == lead_bank.id).with_for_update()
+                    )
+                    if lead_bank.lead_reward_paid_at is not None or (
+                        payment is not None
+                        and payment.status in {
+                            PaymentStatus.CONFIRMED,
+                            PaymentStatus.IN_REGISTRY,
+                            PaymentStatus.PAID,
+                        }
+                    ):
+                        raise DomainError("После подтверждённой выплаты закрыть банк нельзя")
                 self._apply_bank_status(lead_bank, status, close_reason)
+                if status in closing_statuses:
+                    lead_bank.partner_reward_estimate = Decimal("0")
+                    lead_bank.partner_reward_fact = Decimal("0")
+                    lead_bank.team_profit_estimate = Decimal("0")
+                    lead_bank.team_profit_fact = Decimal("0")
+                    if payment is not None and payment.status is not PaymentStatus.CANCELLED:
+                        payment.partner_reward_fact = Decimal("0")
+                        payment.status = PaymentStatus.CANCELLED
+                        payment.internal_comment = close_reason.strip() if close_reason else None
+            if reoffer_to_lead is not None:
+                lead_bank.selected_by_lead = not reoffer_to_lead
             if income_estimate is not None:
                 lead_bank.bank_income_estimate = income_estimate
                 lead_bank.partner_reward_estimate = (
@@ -771,6 +839,9 @@ class WorkflowService:
         lead_bank: LeadBank, status: BankInternalStatus, close_reason: str | None
     ) -> None:
         closing = {
+            BankInternalStatus.NOT_OPENED,
+            BankInternalStatus.CUT,
+            BankInternalStatus.DUPLICATE,
             BankInternalStatus.BANK_REJECTED,
             BankInternalStatus.CLIENT_REFUSED,
             BankInternalStatus.EXCLUDED,
@@ -791,7 +862,12 @@ class WorkflowService:
             BankInternalStatus.REVISION_REQUIRED: "revision_requested_at",
             BankInternalStatus.ACCOUNT_OPENED: "opened_at",
         }
-        if status in closing:
+        if status in {
+            BankInternalStatus.NOT_OPENED,
+            BankInternalStatus.BANK_REJECTED,
+            BankInternalStatus.CLIENT_REFUSED,
+            BankInternalStatus.EXCLUDED,
+        }:
             lead_bank.closed_without_open_at = now
         elif status in date_fields:
             field = date_fields[status]

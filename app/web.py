@@ -41,6 +41,7 @@ from app.domain.enums import (
     UserRole,
 )
 from app.domain.operations import DomainError
+from app.domain.statuses import bank_display_status
 from app.integrations.bank_rates import BankRateRow, BankRatesGateway
 from app.integrations.google_sheets import GoogleSheetsGateway, LeadRegistryRowNotFound
 from app.models import (
@@ -343,6 +344,9 @@ def serialize_lead_bank(
             if role is UserRole.PARTNER
             else lead_bank.internal_status.value
         ),
+        "display_status": bank_display_status(
+            lead_bank.internal_status, lead_bank.lead_reward_paid_at is not None
+        ),
         "opened_at": lead_bank.opened_at.isoformat() if lead_bank.opened_at else None,
         "payment_status": (payment.status.value if payment else PaymentStatus.NOT_CALCULATED.value),
         "online_text": online_text,
@@ -377,6 +381,10 @@ def serialize_lead_bank(
                 "offered_to_lead": lead_bank.offered_to_lead,
                 "selected_by_lead": lead_bank.selected_by_lead,
                 "lead_reward_paid": lead_bank.lead_reward_paid_at is not None,
+                "lead_reward_paid_at": (
+                    lead_bank.lead_reward_paid_at.isoformat()
+                    if lead_bank.lead_reward_paid_at else None
+                ),
             }
         )
         if role is UserRole.ADMIN:
@@ -911,6 +919,9 @@ def create_web_app(
                     "bank": bank.name,
                     "bank_id": str(bank.id),
                     "status": lead_bank.external_status.value,
+                    "display_status": bank_display_status(
+                        lead_bank.internal_status, lead_bank.lead_reward_paid_at is not None
+                    ),
                     "refusal_type": (
                         lead_bank.internal_status.value
                         if lead_bank.internal_status
@@ -1395,6 +1406,7 @@ def create_web_app(
                     or_(
                         LeadBank.selected_by_lead.is_(True),
                         LeadBank.internal_status == BankInternalStatus.CLIENT_REFUSED,
+                        LeadBank.internal_status == BankInternalStatus.NOT_OPENED,
                     )
                 )
             rows = await db_session.execute(banks_query.order_by(LeadBank.planned_at))
@@ -2168,6 +2180,7 @@ def create_web_app(
                 lead_bank_id=lead_bank_id,
                 status=payload.status,
                 close_reason=payload.close_reason,
+                reoffer_to_lead=payload.reoffer_to_lead,
                 income_estimate=payload.income_estimate,
                 income_fact=payload.income_fact,
             )
@@ -2197,6 +2210,7 @@ def create_web_app(
         result: dict[str, object] = {
             "id": str(lead_bank.id),
             "status": lead_bank.internal_status.value,
+            "reoffer_to_lead": lead_bank.selected_by_lead is False,
         }
         if user.role is UserRole.ADMIN:
             result.update(

@@ -282,11 +282,15 @@ def test_manager_sees_admin_bank_decision_without_status_selector() -> None:
 
     assert "const canUseBankQuickActions=admin&&Boolean(lead.bank_selection_submitted_at)" in script
     assert "data-bank-opened" in script
+    assert "data-bank-awaiting" in script
+    assert "data-bank-not-opened" in script
+    assert "data-bank-cut" in script
+    assert "data-bank-duplicate" in script
     assert "data-bank-reject" in script
-    assert "account_opened:'Счёт активирован'" in script
+    assert "account_opened:'Счёт активирован (холд)'" in script
     assert "bank_rejected:'Отказ банка'" in script
     assert "client_refused:'Отказ клиента'" in script
-    assert "'Ожидается решение администратора'" in script
+    assert "item.display_status||item.status" in script
     assert "data-bank-status" not in script
     assert "data-reason" not in script
 
@@ -312,7 +316,7 @@ async def test_manager_cannot_activate_or_reject_bank(status: BankInternalStatus
 
 @pytest.mark.asyncio
 async def test_admin_cannot_use_other_bank_statuses() -> None:
-    with pytest.raises(DomainError, match="только активацию или отказ"):
+    with pytest.raises(DomainError, match="только открытие, активацию или отказ"):
         await WorkflowService(SimpleNamespace()).update_lead_bank(
             actor_role=UserRole.ADMIN,
             actor_user_id=uuid4(),
@@ -434,8 +438,8 @@ def test_lead_cabinet_has_separate_read_only_sections() -> None:
     assert "lead_payout_paid_separately" in script
     assert "`до ${value}`" in script
     assert "item.online_available" in script
-    assert "item.status==='opened'?'is-positive'" in script
-    assert "bankRejected||item.status==='will_not_open'?'is-negative'" in script
+    assert "displayStatus==='account_opened'||displayStatus==='lead_reward_paid'" in script
+    assert "'cut','duplicate'" in script
     assert ".client-bank-card header p.is-positive" in styles
     assert ".client-bank-card header p.is-negative" in styles
     assert "const infoIcon=" in script
@@ -651,8 +655,10 @@ def test_manager_sees_selected_banks_and_client_refusal_history() -> None:
     assert "if user.role is UserRole.MANAGER:" in backend
     assert "LeadBank.selected_by_lead.is_(True)" in backend
     assert "LeadBank.internal_status == BankInternalStatus.CLIENT_REFUSED" in backend
+    assert "LeadBank.internal_status == BankInternalStatus.NOT_OPENED" in backend
     assert "lead_bank.selected_by_lead = True" in workflow
-    assert "lead_bank.internal_status is BankInternalStatus.CLIENT_REFUSED" in workflow
+    assert "BankInternalStatus.CLIENT_REFUSED" in workflow
+    assert "BankInternalStatus.NOT_OPENED" in workflow
 
 
 def test_client_refusal_returns_bank_to_lead_selection() -> None:
@@ -683,9 +689,8 @@ def test_manual_lead_status_editor_is_removed() -> None:
         "async def list_banks", 1
     )[0]
     assert "internal_status:" not in update_lead
-    assert "refusal_type" in script
-    assert "bankRejected?'Отказ банка'" in script
-    assert "clientRefused?'':" in script
+    assert "item.display_status||item.status" in script
+    assert "client_refused:'Отказ клиента'" in script
     assert "is-unselected" in script
 
 

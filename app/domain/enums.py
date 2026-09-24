@@ -67,12 +67,16 @@ class LeadWorkflowStage(StrEnum):
 
 class BankInternalStatus(StrEnum):
     PLANNED = "planned"
+    AWAITING_ACTIVATION = "awaiting_activation"
     AWAITING_DATA = "awaiting_data"
     PREPARING_APPLICATION = "preparing_application"
     APPLICATION_SENT = "application_sent"
     UNDER_REVIEW = "under_review"
     REVISION_REQUIRED = "revision_required"
     ACCOUNT_OPENED = "account_opened"
+    NOT_OPENED = "not_opened"
+    CUT = "cut"
+    DUPLICATE = "duplicate"
     BANK_REJECTED = "bank_rejected"
     CLIENT_REFUSED = "client_refused"
     EXCLUDED = "excluded"

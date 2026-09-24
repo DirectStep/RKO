@@ -1600,8 +1600,43 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
             actor_role=UserRole.ADMIN,
             actor_user_id=admin.id,
             lead_bank_id=lead_bank.id,
+            status=BankInternalStatus.NOT_OPENED,
+            close_reason="Оффер временно недоступен",
+            reoffer_to_lead=True,
+        )
+        assert lead_bank.selected_by_lead is False
+        assert lead_bank.partner_reward_estimate == Decimal("0")
+        assert lead_bank.team_profit_estimate == Decimal("0")
+        sheets = await SheetsSnapshotService(database).build()
+        payout_sheet = next(sheet for sheet in sheets if sheet.title == "РКО — выплаты партнёрам")
+        assert any(row[2] == bank.name for row in payout_sheet.rows)
+        await LeadWorkflowService(database).submit_bank_selection(
+            lead_id=lead.id, selected_bank_ids={bank.id}
+        )
+        async with database.session() as session:
+            lead_bank = await session.get(LeadBank, lead_bank.id)
+            assert lead_bank.internal_status is BankInternalStatus.PLANNED
+            assert lead_bank.selected_by_lead is True
+            assert lead_bank.partner_reward_estimate == Decimal("1800.00")
+        lead_bank = await workflow.update_lead_bank(
+            actor_role=UserRole.ADMIN,
+            actor_user_id=admin.id,
+            lead_bank_id=lead_bank.id,
+            status=BankInternalStatus.AWAITING_ACTIVATION,
+        )
+        lead_bank = await workflow.update_lead_bank(
+            actor_role=UserRole.ADMIN,
+            actor_user_id=admin.id,
+            lead_bank_id=lead_bank.id,
             status=BankInternalStatus.ACCOUNT_OPENED,
         )
+        with pytest.raises(DomainError, match="причину"):
+            await workflow.update_lead_bank(
+                actor_role=UserRole.ADMIN,
+                actor_user_id=admin.id,
+                lead_bank_id=lead_bank.id,
+                status=BankInternalStatus.CUT,
+            )
         lead_bank = await workflow.update_lead_bank(
             actor_role=UserRole.ADMIN,
             actor_user_id=manager.id,
@@ -1626,6 +1661,14 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
         assert lead_bank.lead_reward_paid_at is not None
         assert lead_bank.partner_reward_fact == Decimal("1440.00")
         assert lead_bank.team_profit_fact == Decimal("5760.00")
+        with pytest.raises(DomainError, match="После подтверждённой выплаты"):
+            await workflow.update_lead_bank(
+                actor_role=UserRole.ADMIN,
+                actor_user_id=admin.id,
+                lead_bank_id=lead_bank.id,
+                status=BankInternalStatus.DUPLICATE,
+                close_reason="Обнаружен дубль",
+            )
 
         partner_data = await partner_cabinet_data(database, ids["partner"])
         assert partner_data["metrics"]["estimated_payout"] == "1440.00"

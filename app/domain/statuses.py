@@ -27,12 +27,16 @@ LEAD_STATUS_MAP = {
 
 BANK_STATUS_MAP = {
     BankInternalStatus.PLANNED: BankExternalStatus.PLANNED,
+    BankInternalStatus.AWAITING_ACTIVATION: BankExternalStatus.IN_PROGRESS,
     BankInternalStatus.AWAITING_DATA: BankExternalStatus.IN_PROGRESS,
     BankInternalStatus.PREPARING_APPLICATION: BankExternalStatus.IN_PROGRESS,
     BankInternalStatus.APPLICATION_SENT: BankExternalStatus.IN_PROGRESS,
     BankInternalStatus.UNDER_REVIEW: BankExternalStatus.IN_PROGRESS,
     BankInternalStatus.REVISION_REQUIRED: BankExternalStatus.IN_PROGRESS,
     BankInternalStatus.ACCOUNT_OPENED: BankExternalStatus.OPENED,
+    BankInternalStatus.NOT_OPENED: BankExternalStatus.NOT_OPENED,
+    BankInternalStatus.CUT: BankExternalStatus.WILL_NOT_OPEN,
+    BankInternalStatus.DUPLICATE: BankExternalStatus.WILL_NOT_OPEN,
     BankInternalStatus.BANK_REJECTED: BankExternalStatus.NOT_OPENED,
     BankInternalStatus.CLIENT_REFUSED: BankExternalStatus.NOT_OPENED,
     BankInternalStatus.EXCLUDED: BankExternalStatus.WILL_NOT_OPEN,
@@ -45,3 +49,9 @@ def external_lead_status(status: LeadInternalStatus) -> LeadExternalStatus:
 
 def external_bank_status(status: BankInternalStatus) -> BankExternalStatus:
     return BANK_STATUS_MAP[status]
+
+
+def bank_display_status(status: BankInternalStatus, lead_reward_paid: bool = False) -> str:
+    if status is BankInternalStatus.ACCOUNT_OPENED and lead_reward_paid:
+        return "lead_reward_paid"
+    return status.value

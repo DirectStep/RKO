@@ -82,6 +82,7 @@ class LeadBankSelection(BaseModel):
 class LeadBankUpdate(BaseModel):
     status: BankInternalStatus | None = None
     close_reason: str | None = None
+    reoffer_to_lead: bool | None = None
     income_estimate: Decimal | None = None
     income_fact: Decimal | None = None
 

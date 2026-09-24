@@ -15,6 +15,7 @@ from app.domain.enums import (
     LeadExternalStatus,
     PaymentStatus,
 )
+from app.domain.statuses import bank_display_status
 from app.models import (
     Bank,
     BankActivationCondition,
@@ -45,6 +46,7 @@ class PartnerBankData(TypedDict):
     id: str
     bank: str
     status: str
+    display_status: str
     reward_estimate: str
     reward_fact: str
     lead_reward_estimate: str
@@ -152,7 +154,10 @@ async def partner_cabinet_data(
                     LeadBank,
                     and_(
                         LeadBank.lead_id == Lead.id,
-                        LeadBank.selected_by_lead.is_(True),
+                        or_(
+                            LeadBank.selected_by_lead.is_(True),
+                            LeadBank.internal_status == BankInternalStatus.NOT_OPENED,
+                        ),
                     ),
                 )
                 .outerjoin(Bank, Bank.id == LeadBank.bank_id)
@@ -258,6 +263,9 @@ async def partner_cabinet_data(
                 "id": str(lead_bank.id),
                 "bank": bank.name,
                 "status": lead_bank.external_status.value,
+                "display_status": bank_display_status(
+                    lead_bank.internal_status, lead_bank.lead_reward_paid_at is not None
+                ),
                 "reward_estimate": str(estimate),
                 "reward_fact": str(actual),
                 "lead_reward_estimate": str(lead_estimate),

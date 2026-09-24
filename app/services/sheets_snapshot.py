@@ -71,6 +71,7 @@ class SheetsSnapshotService:
                     or_(
                         LeadBank.selected_by_lead.is_(True),
                         LeadBank.internal_status == BankInternalStatus.CLIENT_REFUSED,
+                        LeadBank.internal_status == BankInternalStatus.NOT_OPENED,
                     )
                 )
                 .order_by(Lead.application_at, Lead.short_id, Bank.name)
