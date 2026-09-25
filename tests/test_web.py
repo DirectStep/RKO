@@ -81,51 +81,33 @@ def test_secondary_bot_init_data_is_accepted() -> None:
 
 
 def test_lead_expected_payout_excludes_refusals_and_paid_rewards() -> None:
-    unpaid = None
-    paid = SimpleNamespace(
-        external_status=BankExternalStatus.OPENED,
-        lead_reward_estimate=Decimal("3000"),
-        lead_reward_fact=Decimal("2500"),
-        lead_reward_paid_at=object(),
-    )
+    def bank(status: BankInternalStatus, amount: str, *, paid: bool = False) -> SimpleNamespace:
+        return SimpleNamespace(
+            internal_status=status,
+            selected_by_lead=True,
+            account_opened_at=object() if status in {
+                BankInternalStatus.AWAITING_ACTIVATION, BankInternalStatus.ACCOUNT_OPENED
+            } else None,
+            opened_at=object() if status is BankInternalStatus.ACCOUNT_OPENED else None,
+            lead_reward_estimate=Decimal(amount),
+            lead_reward_fact=Decimal("2500") if paid else None,
+            lead_reward_paid_at=object() if paid else None,
+            lead_reward_paid_separately=False,
+        )
+
     banks = [
-        SimpleNamespace(
-            external_status=BankExternalStatus.PLANNED,
-            lead_reward_estimate=Decimal("1000"),
-            lead_reward_fact=None,
-            lead_reward_paid_at=unpaid,
-        ),
-        SimpleNamespace(
-            external_status=BankExternalStatus.IN_PROGRESS,
-            lead_reward_estimate=Decimal("2000"),
-            lead_reward_fact=None,
-            lead_reward_paid_at=unpaid,
-        ),
-        SimpleNamespace(
-            external_status=BankExternalStatus.OPENED,
-            lead_reward_estimate=Decimal("5000"),
-            lead_reward_fact=None,
-            lead_reward_paid_at=unpaid,
-        ),
-        SimpleNamespace(
-            external_status=BankExternalStatus.NOT_OPENED,
-            lead_reward_estimate=Decimal("4000"),
-            lead_reward_fact=None,
-            lead_reward_paid_at=unpaid,
-        ),
-        SimpleNamespace(
-            external_status=BankExternalStatus.WILL_NOT_OPEN,
-            lead_reward_estimate=Decimal("4500"),
-            lead_reward_fact=None,
-            lead_reward_paid_at=unpaid,
-        ),
-        paid,
+        bank(BankInternalStatus.PLANNED, "1000"),
+        bank(BankInternalStatus.AWAITING_ACTIVATION, "2000"),
+        bank(BankInternalStatus.ACCOUNT_OPENED, "5000"),
+        bank(BankInternalStatus.NOT_OPENED, "4000"),
+        bank(BankInternalStatus.CLIENT_REFUSED, "4500"),
+        bank(BankInternalStatus.ACCOUNT_OPENED, "3000", paid=True),
     ]
 
     metrics = lead_cabinet_metrics(banks)
 
     assert metrics == {
-        "planned_accounts": 2,
+        "planned_accounts": 1,
         "activated_accounts": 2,
         "expected_payout": Decimal("8000"),
         "paid_total": Decimal("2500"),
@@ -198,11 +180,11 @@ def test_admin_partner_activation_and_lead_filters_are_present() -> None:
         "admin-date-from",
         "admin-date-to",
         "admin-lead-status",
-        "admin-payment-status",
     ):
         assert f'id="{control_id}"' in markup
     assert "function renderAdminFilters" in script
     assert "function filteredLeads" in script
+    assert 'id="admin-payment-status"' not in markup
     assert "/activation-link" in script
     assert "referralLinkRows(result)" in script
     assert "bindReferralLinkCopies(result)" in script
@@ -661,7 +643,7 @@ def test_manager_sees_selected_banks_and_client_refusal_history() -> None:
     assert "BankInternalStatus.NOT_OPENED" in workflow
 
 
-def test_client_refusal_returns_bank_to_lead_selection() -> None:
+def test_client_refusal_keeps_bank_in_selected_history() -> None:
     lead_bank = SimpleNamespace(selected_by_lead=True)
 
     WorkflowService._apply_bank_status(
@@ -670,7 +652,7 @@ def test_client_refusal_returns_bank_to_lead_selection() -> None:
         "Клиент решил вернуться позже",
     )
 
-    assert lead_bank.selected_by_lead is False
+    assert lead_bank.selected_by_lead is True
     assert lead_bank.internal_status is BankInternalStatus.CLIENT_REFUSED
     assert lead_bank.external_status is BankExternalStatus.NOT_OPENED
     assert lead_bank.close_reason == "Клиент решил вернуться позже"
@@ -741,7 +723,9 @@ def test_admin_contact_actions_copy_phone_and_email() -> None:
 def test_partner_bank_progress_summary_is_present() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 
-    assert "Запланировано / в работе / открыто" in script
+    for label in ("Открыто", "Активировано", "Ожидаемые выплаты", "Подтверждённые выплаты"):
+        assert label in script
+    assert "Запланировано / в работе / открыто" not in script
 
 
 def test_bank_rate_preview_uses_net_income_except_bank_paid_lead_bonus() -> None:
@@ -914,7 +898,7 @@ def test_telegram_sdk_does_not_block_application_startup() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 
     assert 'telegram-web-app.js?59" async' in markup
-    assert 'app.js?v=20260829-01" data-inline="app"></script>' in markup
+    assert 'app.js?v=20260925-01" data-inline="app"></script>' in markup
     assert markup.index('window.addEventListener("error"') < markup.index('data-inline="app"')
     assert "await waitForTelegramContext()" in script
     assert "Загружаем справочник банков" in script

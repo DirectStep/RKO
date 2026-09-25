@@ -1672,6 +1672,20 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
 
         partner_data = await partner_cabinet_data(database, ids["partner"])
         assert partner_data["metrics"]["estimated_payout"] == "1440.00"
+        assert partner_data["leads"][0]["application_status"] == "completed"
+        assert partner_data["leads"][0]["bank_progress"] == {
+            "opened": 1,
+            "activated": 1,
+            "total": 1,
+            "expected_payout": "0",
+            "confirmed_payout": "2800.00",
+        }
+        assert len(
+            (await partner_cabinet_data(database, ids["partner"], lead_status="completed"))["leads"]
+        ) == 1
+        assert not (
+            await partner_cabinet_data(database, ids["partner"], lead_status="opening_accounts")
+        )["leads"]
 
         payment = await workflow.confirm_lead_bank_payment(
             actor_role=UserRole.ADMIN,

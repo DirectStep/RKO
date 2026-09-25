@@ -852,8 +852,8 @@ class WorkflowService:
         lead_bank.internal_status = status
         lead_bank.external_status = external_bank_status(status)
         lead_bank.close_reason = (close_reason or "").strip() or None
-        if status is BankInternalStatus.CLIENT_REFUSED:
-            lead_bank.selected_by_lead = False
+        if status is BankInternalStatus.AWAITING_ACTIVATION and lead_bank.account_opened_at is None:
+            lead_bank.account_opened_at = now
         date_fields = {
             BankInternalStatus.AWAITING_DATA: "data_requested_at",
             BankInternalStatus.PREPARING_APPLICATION: "preparation_started_at",

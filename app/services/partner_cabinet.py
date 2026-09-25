@@ -28,13 +28,9 @@ from app.models import (
     User,
 )
 from app.services.bank_conditions import normalize_bank_name
+from app.services.application_progress import application_progress
 
-ACTIVE_LEAD_STATUSES = {
-    LeadExternalStatus.IN_PROGRESS,
-    LeadExternalStatus.OPENING_ACCOUNTS,
-    LeadExternalStatus.PARTIALLY_COMPLETED,
-    LeadExternalStatus.PAUSED,
-}
+ACTIVE_APPLICATION_STATUSES = {"banks_selected", "opening_accounts", "activating_accounts"}
 CONFIRMED_PAYMENT_STATUSES = {
     PaymentStatus.CONFIRMED,
     PaymentStatus.IN_REGISTRY,
@@ -73,6 +69,8 @@ class PartnerLeadData(TypedDict):
     bank_counts: dict[str, int]
     reward_estimate: str
     reward_fact: str
+    application_status: str
+    bank_progress: dict[str, object]
 
 
 class PartnerMetrics(TypedDict):
@@ -100,6 +98,7 @@ class _LeadAccumulator:
     bank_counts: defaultdict[str, int] = field(default_factory=lambda: defaultdict(int))
     reward_estimate: Decimal = Decimal("0")
     reward_fact: Decimal = Decimal("0")
+    progress_banks: list[LeadBank] = field(default_factory=list)
 
 
 def _money(value: Decimal | None) -> Decimal:
@@ -140,7 +139,7 @@ async def partner_cabinet_data(
     date_from: date | None = None,
     date_to: date | None = None,
     channel_id: UUID | None = None,
-    lead_status: LeadExternalStatus | None = None,
+    lead_status: str | None = None,
     payment_status: PaymentStatus | None = None,
     search: str = "",
 ) -> PartnerCabinetData:
@@ -207,8 +206,6 @@ async def partner_cabinet_data(
             continue
         if channel_id is not None and channel.id != channel_id:
             continue
-        if lead_status is not None and lead.external_status is not lead_status:
-            continue
         searchable = f"{lead.short_id} {lead.display_name}".lower()
         if normalized_search and normalized_search not in searchable:
             continue
@@ -230,11 +227,15 @@ async def partner_cabinet_data(
                     "bank_counts": {},
                     "reward_estimate": "0",
                     "reward_fact": "0",
+                    "application_status": "questionnaire_completed",
+                    "bank_progress": {},
                 }
             ),
         )
         if lead_bank is None or bank is None:
             continue
+        if lead_bank.selected_by_lead is True:
+            item.progress_banks.append(lead_bank)
         effective_payment_status = payment.status if payment else PaymentStatus.NOT_CALCULATED
         if payment_status is not None and effective_payment_status is not payment_status:
             continue
@@ -291,12 +292,15 @@ async def partner_cabinet_data(
 
     leads: list[PartnerLeadData] = []
     for item in grouped.values():
+        item.lead.update(application_progress(item.progress_banks))
         item.lead["bank_counts"] = {
             status.value: item.bank_counts[status.value] for status in BankExternalStatus
         }
         item.lead["reward_estimate"] = str(item.reward_estimate)
         item.lead["reward_fact"] = str(item.reward_fact)
         leads.append(item.lead)
+    if lead_status is not None:
+        leads = [lead for lead in leads if lead["application_status"] == lead_status]
 
     opened_banks = 0
     planned_banks = 0
@@ -321,13 +325,15 @@ async def partner_cabinet_data(
     last_payout = paid_by_date[max(paid_by_date)] if paid_by_date else Decimal("0")
     metrics: PartnerMetrics = {
         "total": len(leads),
-        "new": sum(lead_item["status"] == LeadExternalStatus.NEW.value for lead_item in leads),
+        "new": sum(
+            lead_item["application_status"] == "questionnaire_completed" for lead_item in leads
+        ),
         "active": sum(
-            lead_item["status"] in {status.value for status in ACTIVE_LEAD_STATUSES}
+            lead_item["application_status"] in ACTIVE_APPLICATION_STATUSES
             for lead_item in leads
         ),
         "completed": sum(
-            lead_item["status"] == LeadExternalStatus.COMPLETED.value for lead_item in leads
+            lead_item["application_status"] == "completed" for lead_item in leads
         ),
         "cancelled": sum(
             lead_item["status"] == LeadExternalStatus.CLOSED_WITHOUT_RESULT.value

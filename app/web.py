@@ -59,6 +59,7 @@ from app.models import (
 )
 from app.reports.partner_report import build_partner_report
 from app.services.admin_catalog import AdminCatalogService
+from app.services.application_progress import application_progress
 from app.services.bank_conditions import normalize_bank_name
 from app.services.bank_rates import BankRatesService
 from app.services.duplicate_reviews import DuplicateReviewService
@@ -158,34 +159,14 @@ def format_partner_reward_message(
 
 
 def lead_cabinet_metrics(lead_banks: list[LeadBank]) -> dict[str, int | Decimal]:
-    planned_banks = [
-        bank
-        for bank in lead_banks
-        if bank.external_status in {BankExternalStatus.PLANNED, BankExternalStatus.IN_PROGRESS}
-    ]
+    progress = application_progress(lead_banks)["bank_progress"]
     return {
-        "planned_accounts": len(planned_banks),
-        "activated_accounts": sum(
-            bank.external_status is BankExternalStatus.OPENED for bank in lead_banks
+        "planned_accounts": sum(
+            bank.internal_status is BankInternalStatus.PLANNED for bank in lead_banks
         ),
-        "expected_payout": sum(
-            (
-                bank.lead_reward_estimate or Decimal("0")
-                for bank in lead_banks
-                if bank.lead_reward_paid_at is None
-                and bank.external_status
-                not in {BankExternalStatus.NOT_OPENED, BankExternalStatus.WILL_NOT_OPEN}
-            ),
-            start=Decimal("0"),
-        ),
-        "paid_total": sum(
-            (
-                bank.lead_reward_fact or Decimal("0")
-                for bank in lead_banks
-                if bank.lead_reward_paid_at is not None
-            ),
-            start=Decimal("0"),
-        ),
+        "activated_accounts": progress["activated"],
+        "expected_payout": Decimal(progress["expected_payout"]),
+        "paid_total": Decimal(progress["confirmed_payout"]),
     }
 
 
@@ -252,7 +233,7 @@ def build_mini_app_html() -> str:
     style_marker = (
         '<link rel="stylesheet" href="/assets/styles.css?v=20260829-01" data-inline="styles" />'
     )
-    script_marker = '<script src="/assets/app.js?v=20260829-01" data-inline="app"></script>'
+    script_marker = '<script src="/assets/app.js?v=20260925-01" data-inline="app"></script>'
     if style_marker not in markup or script_marker not in markup:
         raise RuntimeError("Не найдены точки встраивания файлов мини-приложения")
     return markup.replace(style_marker, f"<style>{styles}</style>", 1).replace(
@@ -864,12 +845,14 @@ def create_web_app(
         if lead is None:
             raise HTTPException(status_code=404, detail="Заявка не найдена")
         metrics = lead_cabinet_metrics(lead_banks)
+        progress = application_progress(lead_banks)
         return {
             "short_id": lead.short_id,
             "name": lead.display_name,
             "date": lead.application_at.isoformat(),
             "updated": lead.last_updated_at.isoformat(),
             "status": lead.external_status.value,
+            **progress,
             "workflow_stage": lead.workflow_stage.value,
             "is_repeat": lead.is_repeat,
             "admin": format_user_name(admin),
@@ -997,7 +980,7 @@ def create_web_app(
         date_from: date | None = None,
         date_to: date | None = None,
         channel_id: UUID | None = None,
-        lead_status: LeadExternalStatus | None = None,
+        lead_status: str | None = None,
         payment_status: PaymentStatus | None = None,
         search: str = "",
     ) -> dict[str, object]:
@@ -1214,6 +1197,14 @@ def create_web_app(
                 select(Lead).where(scope).order_by(Lead.application_at.desc()).limit(1000)
             )
             items = list(result)
+            bank_rows = list(
+                await db_session.scalars(
+                    select(LeadBank).where(LeadBank.lead_id.in_([lead.id for lead in items]))
+                )
+            ) if items else []
+        banks_by_lead: dict[UUID, list[LeadBank]] = {}
+        for bank in bank_rows:
+            banks_by_lead.setdefault(bank.lead_id, []).append(bank)
         response: list[dict[str, object]] = []
         for lead in items:
             item: dict[str, object] = {
@@ -1228,6 +1219,7 @@ def create_web_app(
                 "date": lead.application_at.isoformat(),
                 "is_repeat": lead.is_repeat,
                 "payment_status": lead.payment_status.value,
+                **application_progress(banks_by_lead.get(lead.id, [])),
             }
             if user.role is not UserRole.PARTNER:
                 item["username"] = f"@{lead.telegram_username}" if lead.telegram_username else ""
@@ -1409,7 +1401,7 @@ def create_web_app(
                         LeadBank.internal_status == BankInternalStatus.NOT_OPENED,
                     )
                 )
-            rows = await db_session.execute(banks_query.order_by(LeadBank.planned_at))
+            rows = list(await db_session.execute(banks_query.order_by(LeadBank.planned_at)))
             conditions = list(await db_session.scalars(select(BankActivationCondition)))
             rates = list(await db_session.scalars(select(BankRate)))
             manager = await db_session.get(User, lead.manager_id) if lead.manager_id else None
@@ -1436,6 +1428,16 @@ def create_web_app(
                     .order_by(Lead.application_at.desc())
                 )
             )
+            previous_bank_rows = list(
+                await db_session.scalars(
+                    select(LeadBank).where(
+                        LeadBank.lead_id.in_([previous.id for previous in previous_applications])
+                    )
+                )
+            ) if previous_applications else []
+        previous_banks: dict[UUID, list[LeadBank]] = {}
+        for previous_bank in previous_bank_rows:
+            previous_banks.setdefault(previous_bank.lead_id, []).append(previous_bank)
         conditions_by_name = {condition.normalized_bank_name: condition for condition in conditions}
         rates_by_bank = {rate.bank_id: rate for rate in rates}
         banks = []
@@ -1461,6 +1463,7 @@ def create_web_app(
                 "is_repeat": lead.is_repeat,
                 "contact": contact,
                 "banks": banks,
+                **application_progress([bank for bank, _, _ in rows]),
             }
         result: dict[str, object] = {
             "id": str(lead.id),
@@ -1483,6 +1486,9 @@ def create_web_app(
                     "short_id": previous.short_id,
                     "date": previous.application_at.isoformat(),
                     "status": previous.internal_status.value,
+                    "application_status": application_progress(
+                        previous_banks.get(previous.id, [])
+                    )["application_status"],
                     "is_repeat": previous.is_repeat,
                 }
                 for previous in previous_applications
@@ -1499,6 +1505,7 @@ def create_web_app(
             "is_assigned_manager": lead.manager_id == user.database_id,
             "manager_started": lead.manager_started_at is not None,
             "banks": banks,
+            **application_progress([bank for bank, _, _ in rows]),
         }
         result.update(
             {
