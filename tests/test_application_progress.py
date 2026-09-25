@@ -91,3 +91,12 @@ def test_one_lead_can_have_expected_and_confirmed_bank_payouts_at_once() -> None
     assert progress["application_status"] == "completed"
     assert progress["bank_progress"]["expected_payout"] == "1000"
     assert progress["bank_progress"]["confirmed_payout"] == "900"
+
+
+def test_bank_paid_bonus_is_visible_to_lead_but_not_partner_or_admin() -> None:
+    separate = bank(BankInternalStatus.ACCOUNT_OPENED, opened=True, activated=True)
+    separate.lead_reward_paid_separately = True
+    separate.lead_reward_estimate = Decimal("5000")
+    assert application_progress([separate])["bank_progress"]["expected_payout"] == "0"
+    lead_progress = application_progress([separate], include_bank_paid_lead_rewards=True)
+    assert lead_progress["bank_progress"]["expected_payout"] == "5000"

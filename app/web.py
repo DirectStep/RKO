@@ -159,7 +159,9 @@ def format_partner_reward_message(
 
 
 def lead_cabinet_metrics(lead_banks: list[LeadBank]) -> dict[str, int | Decimal]:
-    progress = application_progress(lead_banks)["bank_progress"]
+    progress = application_progress(
+        lead_banks, include_bank_paid_lead_rewards=True
+    )["bank_progress"]
     return {
         "planned_accounts": sum(
             bank.internal_status is BankInternalStatus.PLANNED for bank in lead_banks
@@ -845,7 +847,7 @@ def create_web_app(
         if lead is None:
             raise HTTPException(status_code=404, detail="Заявка не найдена")
         metrics = lead_cabinet_metrics(lead_banks)
-        progress = application_progress(lead_banks)
+        progress = application_progress(lead_banks, include_bank_paid_lead_rewards=True)
         return {
             "short_id": lead.short_id,
             "name": lead.display_name,

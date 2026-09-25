@@ -17,7 +17,9 @@ FINAL_BANK_STATUSES = {
 NO_PAYOUT_STATUSES = FINAL_BANK_STATUSES - {BankInternalStatus.ACCOUNT_OPENED}
 
 
-def application_progress(banks: Iterable[LeadBank]) -> dict[str, object]:
+def application_progress(
+    banks: Iterable[LeadBank], *, include_bank_paid_lead_rewards: bool = False
+) -> dict[str, object]:
     selected = [bank for bank in banks if bank.selected_by_lead is True]
     total = len(selected)
     opened = sum(
@@ -33,7 +35,7 @@ def application_progress(banks: Iterable[LeadBank]) -> dict[str, object]:
             for bank in selected
             if bank.lead_reward_paid_at is None
             and bank.internal_status not in NO_PAYOUT_STATUSES
-            and not bank.lead_reward_paid_separately
+            and (include_bank_paid_lead_rewards or not bank.lead_reward_paid_separately)
         ),
         Decimal("0"),
     )
