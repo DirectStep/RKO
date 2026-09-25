@@ -898,7 +898,7 @@ def test_telegram_sdk_does_not_block_application_startup() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 
     assert 'telegram-web-app.js?59" async' in markup
-    assert 'app.js?v=20260925-01" data-inline="app"></script>' in markup
+    assert 'app.js?v=20260925-02" data-inline="app"></script>' in markup
     assert markup.index('window.addEventListener("error"') < markup.index('data-inline="app"')
     assert "await waitForTelegramContext()" in script
     assert "Загружаем справочник банков" in script

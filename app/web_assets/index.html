@@ -98,7 +98,7 @@
               <label class="filter-field"><span>Дата по</span><input id="partner-date-to" type="date" /></label>
             </div>
             <label class="filter-field"><span>Канал</span><select id="partner-channel"><option value="">Все каналы</option></select></label>
-            <label class="filter-field"><span>Статус заявки</span><select id="partner-lead-status"><option value="">Все статусы</option><option value="questionnaire_completed">Анкета заполнена</option><option value="banks_selected">Банки выбраны</option><option value="opening_accounts">Оформление счетов</option><option value="activating_accounts">Активация счетов</option><option value="completed">Завершена</option></select></label>
+            <label class="filter-field"><span>Статус заявки</span><select id="partner-lead-status"><option value="">Все статусы</option><option value="questionnaire_completed">Анкета заполнена</option><option value="questionnaire_ineligible">Анкета не подходит</option><option value="banks_selected">Банки выбраны</option><option value="opening_accounts">Оформление счетов</option><option value="activating_accounts">Активация счетов</option><option value="completed">Завершена</option></select></label>
             <label class="filter-field"><span>Статус выплаты</span><select id="partner-payment-status"><option value="">Все выплаты</option><option value="not_calculated">Не рассчитана</option><option value="calculated">Рассчитана</option><option value="awaiting_confirmation">Ждёт подтверждения</option><option value="confirmed">Подтверждена</option><option value="in_registry">В реестре</option><option value="paid">Выплачена</option><option value="cancelled">Отменена</option></select></label>
           </div>
           <div class="filter-panel" id="admin-filters" hidden>
@@ -109,7 +109,7 @@
               <label class="filter-field"><span>Дата с</span><input id="admin-date-from" type="date" /></label>
               <label class="filter-field"><span>Дата по</span><input id="admin-date-to" type="date" /></label>
             </div>
-            <label class="filter-field"><span>Статус заявки</span><select id="admin-lead-status"><option value="">Все статусы</option><option value="questionnaire_completed">Анкета заполнена</option><option value="banks_selected">Банки выбраны</option><option value="opening_accounts">Оформление счетов</option><option value="activating_accounts">Активация счетов</option><option value="completed">Завершена</option></select></label>
+            <label class="filter-field"><span>Статус заявки</span><select id="admin-lead-status"><option value="">Все статусы</option><option value="questionnaire_completed">Анкета заполнена</option><option value="questionnaire_ineligible">Анкета не подходит</option><option value="banks_selected">Банки выбраны</option><option value="opening_accounts">Оформление счетов</option><option value="activating_accounts">Активация счетов</option><option value="completed">Завершена</option></select></label>
           </div>
           <div class="telegram-list" id="all-leads"></div>
         </section>
@@ -242,6 +242,6 @@
         document.querySelector("#error-state").hidden = false;
       }, 25000);
     </script>
-    <script src="/assets/app.js?v=20260925-01" data-inline="app"></script>
+    <script src="/assets/app.js?v=20260925-02" data-inline="app"></script>
   </body>
 </html>

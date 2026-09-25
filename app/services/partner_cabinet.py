@@ -13,6 +13,7 @@ from app.domain.enums import (
     BankExternalStatus,
     BankInternalStatus,
     LeadExternalStatus,
+    LeadWorkflowStage,
     PaymentStatus,
 )
 from app.domain.statuses import bank_display_status
@@ -99,6 +100,7 @@ class _LeadAccumulator:
     reward_estimate: Decimal = Decimal("0")
     reward_fact: Decimal = Decimal("0")
     progress_banks: list[LeadBank] = field(default_factory=list)
+    not_eligible: bool = False
 
 
 def _money(value: Decimal | None) -> Decimal:
@@ -212,6 +214,7 @@ async def partner_cabinet_data(
         item = grouped.setdefault(
             lead.id,
             _LeadAccumulator(
+                not_eligible=lead.workflow_stage is LeadWorkflowStage.NOT_ELIGIBLE,
                 lead={
                     "id": str(lead.id),
                     "short_id": lead.short_id,
@@ -292,7 +295,7 @@ async def partner_cabinet_data(
 
     leads: list[PartnerLeadData] = []
     for item in grouped.values():
-        item.lead.update(application_progress(item.progress_banks))
+        item.lead.update(application_progress(item.progress_banks, not_eligible=item.not_eligible))
         item.lead["bank_counts"] = {
             status.value: item.bank_counts[status.value] for status in BankExternalStatus
         }

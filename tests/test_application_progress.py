@@ -100,3 +100,10 @@ def test_bank_paid_bonus_is_visible_to_lead_but_not_partner_or_admin() -> None:
     assert application_progress([separate])["bank_progress"]["expected_payout"] == "0"
     lead_progress = application_progress([separate], include_bank_paid_lead_rewards=True)
     assert lead_progress["bank_progress"]["expected_payout"] == "5000"
+
+
+def test_ineligible_questionnaire_has_its_own_status_without_banks() -> None:
+    assert application_progress([])["application_status"] == "questionnaire_completed"
+    result = application_progress([], not_eligible=True)
+    assert result["application_status"] == "questionnaire_ineligible"
+    assert result["bank_progress"]["total"] == 0

@@ -235,7 +235,7 @@ def build_mini_app_html() -> str:
     style_marker = (
         '<link rel="stylesheet" href="/assets/styles.css?v=20260829-01" data-inline="styles" />'
     )
-    script_marker = '<script src="/assets/app.js?v=20260925-01" data-inline="app"></script>'
+    script_marker = '<script src="/assets/app.js?v=20260925-02" data-inline="app"></script>'
     if style_marker not in markup or script_marker not in markup:
         raise RuntimeError("Не найдены точки встраивания файлов мини-приложения")
     return markup.replace(style_marker, f"<style>{styles}</style>", 1).replace(
@@ -847,7 +847,11 @@ def create_web_app(
         if lead is None:
             raise HTTPException(status_code=404, detail="Заявка не найдена")
         metrics = lead_cabinet_metrics(lead_banks)
-        progress = application_progress(lead_banks, include_bank_paid_lead_rewards=True)
+        progress = application_progress(
+            lead_banks,
+            include_bank_paid_lead_rewards=True,
+            not_eligible=lead.workflow_stage is LeadWorkflowStage.NOT_ELIGIBLE,
+        )
         return {
             "short_id": lead.short_id,
             "name": lead.display_name,
@@ -1221,7 +1225,10 @@ def create_web_app(
                 "date": lead.application_at.isoformat(),
                 "is_repeat": lead.is_repeat,
                 "payment_status": lead.payment_status.value,
-                **application_progress(banks_by_lead.get(lead.id, [])),
+                **application_progress(
+                    banks_by_lead.get(lead.id, []),
+                    not_eligible=lead.workflow_stage is LeadWorkflowStage.NOT_ELIGIBLE,
+                ),
             }
             if user.role is not UserRole.PARTNER:
                 item["username"] = f"@{lead.telegram_username}" if lead.telegram_username else ""
@@ -1465,7 +1472,10 @@ def create_web_app(
                 "is_repeat": lead.is_repeat,
                 "contact": contact,
                 "banks": banks,
-                **application_progress([bank for bank, _, _ in rows]),
+                **application_progress(
+                    [bank for bank, _, _ in rows],
+                    not_eligible=lead.workflow_stage is LeadWorkflowStage.NOT_ELIGIBLE,
+                ),
             }
         result: dict[str, object] = {
             "id": str(lead.id),
@@ -1489,7 +1499,8 @@ def create_web_app(
                     "date": previous.application_at.isoformat(),
                     "status": previous.internal_status.value,
                     "application_status": application_progress(
-                        previous_banks.get(previous.id, [])
+                        previous_banks.get(previous.id, []),
+                        not_eligible=previous.workflow_stage is LeadWorkflowStage.NOT_ELIGIBLE,
                     )["application_status"],
                     "is_repeat": previous.is_repeat,
                 }
@@ -1507,7 +1518,10 @@ def create_web_app(
             "is_assigned_manager": lead.manager_id == user.database_id,
             "manager_started": lead.manager_started_at is not None,
             "banks": banks,
-            **application_progress([bank for bank, _, _ in rows]),
+            **application_progress(
+                [bank for bank, _, _ in rows],
+                not_eligible=lead.workflow_stage is LeadWorkflowStage.NOT_ELIGIBLE,
+            ),
         }
         result.update(
             {
