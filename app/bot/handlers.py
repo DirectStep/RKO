@@ -148,7 +148,10 @@ async def start(
         return
     current_lead = await get_current_lead(database, str(user.id))
     if current_lead is not None:
-        await message.answer(START_TEXT, parse_mode="HTML", reply_markup=continue_keyboard())
+        await message.answer(
+            "Ваша заявка уже создана. Откройте кабинет, чтобы посмотреть её статус.",
+            reply_markup=cabinet_keyboard(settings.mini_app_url),
+        )
         return
     try:
         first_click = await LeadIntakeService(database).record_first_click(
@@ -261,7 +264,6 @@ async def manager_home(callback: CallbackQuery, database: Database, settings: Se
 async def manager_lead(
     callback: CallbackQuery,
     database: Database,
-    notification_bots: tuple[Bot, ...],
 ) -> None:
     try:
         lead_id = UUID((callback.data or "").removeprefix("manager:lead:"))
@@ -275,9 +277,6 @@ async def manager_lead(
                 User.role == UserRole.MANAGER,
                 User.access_status == AccessStatus.ACTIVE,
             )
-        )
-        previous_manager_started_at = await session.scalar(
-            select(Lead.manager_started_at).where(Lead.id == lead_id)
         )
     if manager is None:
         await callback.answer("Раздел доступен менеджеру", show_alert=True)
@@ -310,29 +309,6 @@ async def manager_lead(
     )
     if isinstance(callback.message, Message):
         await callback.message.edit_text(text)
-    if previous_manager_started_at is None:
-        manager_name = (
-            f"@{manager.telegram_username}"
-            if manager.telegram_username
-            else manager.telegram_id or "менеджер"
-        )
-        for bot in notification_bots:
-            try:
-                await bot.send_message(
-                    chat_id=int(lead.telegram_id),
-                    text=(
-                        f"Ваш персональный менеджер — {manager_name}. "
-                        "Скоро он свяжется с вами и создаст отдельную группу "
-                        "для сопровождения."
-                    ),
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to notify client %s after manager opened lead %s via bot %s",
-                    lead.telegram_id,
-                    lead.id,
-                    bot.id,
-                )
     await callback.answer("Заявка переведена в работу")
 
 

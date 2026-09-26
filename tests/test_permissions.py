@@ -15,6 +15,10 @@ def test_only_admin_can_confirm_critical_operations(action: Action) -> None:
 def test_manager_can_update_leads_but_not_manage_partners() -> None:
     assert is_allowed(UserRole.MANAGER, Action.UPDATE_LEAD)
     assert not is_allowed(UserRole.MANAGER, Action.MANAGE_PARTNERS)
+    assert not is_allowed(UserRole.MANAGER, Action.DELETE_LEAD)
+    assert not is_allowed(UserRole.MANAGER, Action.MANAGE_LEAD_BANKS)
+    assert is_allowed(UserRole.ADMIN, Action.DELETE_LEAD)
+    assert is_allowed(UserRole.ADMIN, Action.MANAGE_LEAD_BANKS)
 
 
 def test_partner_resource_access_is_scoped_by_partner_id() -> None:

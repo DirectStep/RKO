@@ -40,9 +40,7 @@ ROLE_ACTIONS: dict[UserRole, frozenset[Action]] = {
         {
             Action.VIEW_ALL_LEADS,
             Action.UPDATE_LEAD,
-            Action.MANAGE_LEAD_BANKS,
             Action.VIEW_BANK_INCOME,
-            Action.DELETE_LEAD,
         }
     ),
     UserRole.ADMIN: frozenset(Action),

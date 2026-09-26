@@ -1566,7 +1566,7 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
         assert lead.internal_status is LeadInternalStatus.MANAGER_ASSIGNED
 
         lead_bank = await workflow.add_bank_to_lead(
-            actor_role=UserRole.MANAGER,
+            actor_role=UserRole.ADMIN,
             lead_id=lead.id,
             bank_id=bank.id,
         )

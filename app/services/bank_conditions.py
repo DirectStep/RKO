@@ -39,6 +39,7 @@ class BankConditionsService:
                     session.add(condition)
                 condition.bank_name = row.bank_name
                 condition.action_text = row.action_text
+                condition.source_sheets = list(row.source_sheets)
                 condition.payout_text = "Уточняется"
                 condition.active = True
                 condition.display_order = display_order

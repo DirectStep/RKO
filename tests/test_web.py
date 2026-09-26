@@ -206,46 +206,40 @@ def test_channels_show_only_the_new_bot_referral_link() -> None:
     ]
 
 
-def test_admin_and_assigned_manager_can_delete_application_from_mini_app() -> None:
+def test_only_admin_can_delete_application_from_mini_app() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
     workflow = (ASSETS_DIR.parent / "services" / "workflow.py").read_text(encoding="utf-8")
+    backend = (ASSETS_DIR.parent / "web.py").read_text(encoding="utf-8")
 
     assert 'id="show-delete-lead"' in script
     assert 'id="delete-lead-confirm"' in script
     assert "method:'DELETE'" in script
     assert "Telegram-аккаунт клиента и другие его заявки останутся" in script
     assert "!hasActivatedAccounts&&!hasConfirmedPayments" in script
-    assert "admin||(managerRole&&lead.is_assigned_manager)" in script
+    assert "const canDeleteApplication=admin&&!lead.archived" in script
+    assert "const canManageBanks=editable&&admin&&lead.is_primary_admin" in script
     assert "bank.lead_reward_paid" in script
     assert "['confirmed','in_registry','paid'].includes(bank.payment_status)" in script
-    assert "lead.manager_id != actor_user_id" in workflow
+    assert "Удалять заявки может только администратор" in workflow
+    assert "Добавлять банки к заявке может только администратор" in workflow
+    assert "actor_id = require_admin(user)" in backend
+    assert "actor_user_id = require_admin(user)" in backend
     assert "BankInternalStatus.ACCOUNT_OPENED" in workflow
     assert "Заявку с активированными счетами удалить нельзя" in workflow
 
 
-def test_manager_cannot_delete_another_or_activated_application() -> None:
+def test_manager_cannot_delete_any_application() -> None:
     manager_id = uuid4()
     lead = SimpleNamespace(manager_id=manager_id)
 
-    WorkflowService._validate_lead_deletion(
-        UserRole.MANAGER,
-        manager_id,
-        lead,
-        [
-            SimpleNamespace(
-                internal_status=BankInternalStatus.PLANNED,
-                lead_reward_paid_at=None,
-            )
-        ],
-    )
-    with pytest.raises(DomainError, match="только свою заявку"):
+    with pytest.raises(DomainError, match="только администратор"):
         WorkflowService._validate_lead_deletion(
             UserRole.MANAGER,
-            uuid4(),
+            manager_id,
             lead,
             [],
         )
-    with pytest.raises(DomainError, match="с активированными счетами"):
+    with pytest.raises(DomainError, match="только администратор"):
         WorkflowService._validate_lead_deletion(
             UserRole.MANAGER,
             manager_id,
@@ -257,6 +251,20 @@ def test_manager_cannot_delete_another_or_activated_application() -> None:
                 )
             ],
         )
+
+
+@pytest.mark.asyncio
+async def test_manager_cannot_add_banks_or_delete_lead_in_service() -> None:
+    service = object.__new__(WorkflowService)
+
+    with pytest.raises(DomainError, match="только администратор"):
+        await service.add_banks_to_lead(
+            actor_role=UserRole.MANAGER,
+            lead_id=uuid4(),
+            bank_ids=[uuid4()],
+        )
+    with pytest.raises(DomainError, match="только администратор"):
+        await service.delete_lead(actor_role=UserRole.MANAGER, lead_id=uuid4())
 
 
 def test_manager_sees_admin_bank_decision_without_status_selector() -> None:
@@ -950,30 +958,35 @@ def test_lead_banks_are_sorted_by_activation_then_payout() -> None:
         {
             "bank": "Оборот большой",
             "action_text": "Сделать оборот",
+            "source_sheets": ["Оборот"],
             "lead_payout": "5000",
             "order": 1,
         },
         {
             "bank": "Тариф дешевле",
             "action_text": "Оплатить тариф",
+            "source_sheets": ["Тариф"],
             "lead_payout": "1000",
             "order": 2,
         },
         {
             "bank": "Открытие меньше",
             "action_text": "Открыть счёт",
+            "source_sheets": ["Открытие"],
             "lead_payout": "700",
             "order": 3,
         },
         {
             "bank": "Холд",
             "action_text": "Удерживать сумму 4 дня",
+            "source_sheets": ["Холд"],
             "lead_payout": "1500",
             "order": 4,
         },
         {
             "bank": "Открытие больше",
             "action_text": "Открытие счёта",
+            "source_sheets": ["Открытие"],
             "lead_payout": "1700",
             "order": 5,
         },
@@ -990,3 +1003,50 @@ def test_lead_banks_are_sorted_by_activation_then_payout() -> None:
         "Оборот большой",
         "Без условия",
     ]
+
+
+def test_combined_turnover_and_tariff_is_last_even_for_higher_payout() -> None:
+    banks = [
+        {
+            "bank": "Акбарс Банк",
+            "source_sheets": ["Оборот + тариф", "Открытие"],
+            "lead_payout": "5000",
+            "order": 1,
+        },
+        {"bank": "ВТБ", "source_sheets": ["Оборот + тариф"], "lead_payout": "1900", "order": 2},
+        {"bank": "ПСБ", "source_sheets": ["Тариф"], "lead_payout": "2100", "order": 3},
+        {"bank": "Озон", "source_sheets": ["Оборот"], "lead_payout": "1700", "order": 4},
+        {"bank": "Без условия", "source_sheets": [], "lead_payout": "9000", "order": 5},
+    ]
+
+    assert [bank["bank"] for bank in sorted(banks, key=lead_bank_sort_key)] == [
+        "ПСБ", "Озон", "Без условия", "Акбарс Банк", "ВТБ"
+    ]
+
+
+def test_admin_financial_display_distinguishes_estimate_fact_and_paid() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "money(partnerActual?item.reward_fact:item.reward_estimate)" in script
+    assert "money(teamActual?item.team_profit_fact:item.team_profit_estimate)" in script
+    assert "Сделана · ${money(item.reward_fact)}" in script
+    assert "Выплата партнёру${partnerPaid?'':partnerActual?' · факт':' · прогноз'}" in script
+
+
+def test_bank_confirmation_and_activation_help_copy_are_scoped() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+    styles = (ASSETS_DIR / "styles.css").read_text(encoding="utf-8")
+
+    assert '<div class="value-row selected-bank-row"><strong>${esc(name)}</strong></div>' in script
+    assert "целевые действия, нужны" in script
+    assert ".selected-bank-row strong { text-align: left; }" in styles
+    assert ".activation-info-copy .info-copy { text-align: center; }" in styles
+
+
+def test_claiming_lead_does_not_send_manager_message_to_client() -> None:
+    backend = (ASSETS_DIR.parent / "web.py").read_text(encoding="utf-8")
+    bot = (ASSETS_DIR.parent / "bot" / "handlers.py").read_text(encoding="utf-8")
+
+    assert "Ваш персональный менеджер —" not in backend
+    assert "Ваш персональный менеджер —" not in bot
+    assert "Ваша заявка уже создана. Откройте кабинет" in bot

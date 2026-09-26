@@ -293,6 +293,9 @@ class BankActivationCondition(Base):
     bank_name: Mapped[str] = mapped_column(String(120), nullable=False)
     normalized_bank_name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
     action_text: Mapped[str] = mapped_column(Text, nullable=False)
+    source_sheets: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
     payout_text: Mapped[str] = mapped_column(
         Text, nullable=False, default="Уточняется", server_default="Уточняется"
     )

@@ -325,6 +325,8 @@ class WorkflowService:
         actor_user_id: UUID | None = None,
     ) -> list[LeadBank]:
         self._require_employee(actor_role)
+        if actor_role is not UserRole.ADMIN:
+            raise DomainError("Добавлять банки к заявке может только администратор")
         unique_bank_ids = list(dict.fromkeys(bank_ids))
         if not unique_bank_ids:
             raise DomainError("Выберите хотя бы один банк")
@@ -334,14 +336,8 @@ class WorkflowService:
                 raise DomainError("Заявка не найдена")
             if lead.archived_at is not None:
                 raise DomainError("В архивную заявку нельзя добавлять банки")
-            if actor_user_id is not None:
-                if actor_role is UserRole.ADMIN and lead.primary_admin_id != actor_user_id:
-                    raise DomainError("Добавлять банки может только ответственный администратор")
-                if actor_role is UserRole.MANAGER and (
-                    lead.manager_id != actor_user_id
-                    or lead.workflow_stage is not LeadWorkflowStage.MANAGER_PROCESSING
-                ):
-                    raise DomainError("Эта заявка не находится у вас в работе")
+            if actor_user_id is not None and lead.primary_admin_id != actor_user_id:
+                raise DomainError("Добавлять банки может только ответственный администратор")
             banks = list(
                 await session.scalars(
                     select(Bank).where(Bank.id.in_(unique_bank_ids), Bank.active.is_(True))
@@ -499,9 +495,15 @@ class WorkflowService:
                         raise DomainError("После активации доступны только срез или дубль")
                 else:
                     raise DomainError("Решение по этому банку уже принято")
-            if reoffer_to_lead is not None and status is not BankInternalStatus.NOT_OPENED:
-                if status is not None or lead_bank.internal_status is not BankInternalStatus.NOT_OPENED:
-                    raise DomainError("Вернуть в список можно только неоткрытый счёт")
+            if (
+                reoffer_to_lead is not None
+                and status is not BankInternalStatus.NOT_OPENED
+                and (
+                    status is not None
+                    or lead_bank.internal_status is not BankInternalStatus.NOT_OPENED
+                )
+            ):
+                raise DomainError("Вернуть в список можно только неоткрытый счёт")
             if reoffer_to_lead:
                 bank = await session.get(Bank, lead_bank.bank_id)
                 if bank is None or not bank.active:
@@ -527,7 +529,9 @@ class WorkflowService:
             if status is not None:
                 if status in closing_statuses:
                     payment = await session.scalar(
-                        select(Payment).where(Payment.lead_bank_id == lead_bank.id).with_for_update()
+                        select(Payment)
+                        .where(Payment.lead_bank_id == lead_bank.id)
+                        .with_for_update()
                     )
                     if lead_bank.lead_reward_paid_at is not None or (
                         payment is not None
@@ -778,7 +782,8 @@ class WorkflowService:
         lead_id: UUID,
         actor_user_id: UUID | None = None,
     ) -> None:
-        self._require_employee(actor_role)
+        if actor_role is not UserRole.ADMIN:
+            raise DomainError("Удалять заявки может только администратор")
         async with self.database.session() as session, session.begin():
             lead = await session.scalar(select(Lead).where(Lead.id == lead_id).with_for_update())
             if lead is None:
@@ -822,10 +827,8 @@ class WorkflowService:
         lead: Lead,
         lead_banks: list[LeadBank],
     ) -> None:
-        if actor_role is UserRole.MANAGER and (
-            actor_user_id is None or lead.manager_id != actor_user_id
-        ):
-            raise DomainError("Менеджер может удалить только свою заявку")
+        if actor_role is not UserRole.ADMIN:
+            raise DomainError("Удалять заявки может только администратор")
         if any(
             lead_bank.internal_status is BankInternalStatus.ACCOUNT_OPENED
             for lead_bank in lead_banks

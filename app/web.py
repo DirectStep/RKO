@@ -32,9 +32,7 @@ from app.database import Database
 from app.domain.enums import (
     AccessStatus,
     AssignmentStatus,
-    BankExternalStatus,
     BankInternalStatus,
-    LeadExternalStatus,
     LeadInternalStatus,
     LeadWorkflowStage,
     PaymentStatus,
@@ -188,21 +186,30 @@ def online_bank_info(bank_name: str, online_text: str) -> dict[str, object]:
 
 
 def lead_bank_sort_key(item: dict[str, object]) -> tuple[int, Decimal, int, str]:
-    action = str(item.get("action_text") or "").casefold()
-    conditions = (
-        ("откры",),
-        ("тариф",),
-        ("холд", "удерж"),
-        ("оборот",),
-    )
-    priority = next(
-        (
-            index
-            for index, markers in enumerate(conditions)
-            if any(marker in action for marker in markers)
-        ),
-        len(conditions),
-    )
+    sources = item.get("source_sheets") or []
+    if "Оборот + тариф" in sources:
+        priority = 5
+    elif not sources:
+        # Existing rows have no source category until the first successful sheet sync.
+        action = str(item.get("action_text") or "").casefold()
+        if "оборот" in action and "тариф" in action:
+            priority = 5
+        else:
+            markers = (("откры",), ("тариф",), ("холд", "удерж"), ("оборот",))
+            priority = next(
+                (
+                    index
+                    for index, words in enumerate(markers)
+                    if any(word in action for word in words)
+                ),
+                4,
+            )
+    else:
+        categories = ("Открытие", "Тариф", "Холд", "Оборот")
+        priority = min(
+            (index for index, category in enumerate(categories) if category in sources),
+            default=4,
+        )
     payout = Decimal(str(item.get("lead_payout") or "0"))
     order_value = item.get("order")
     order = order_value if isinstance(order_value, int) else int(str(order_value or 0))
@@ -936,6 +943,11 @@ def create_web_app(
                     "action_text": (
                         condition.action_text if condition is not None and condition.active else ""
                     ),
+                    "source_sheets": (
+                        condition.source_sheets
+                        if condition is not None and condition.active
+                        else []
+                    ),
                     "payout_text": (
                         condition.payout_text
                         if condition is not None and condition.active
@@ -1576,7 +1588,7 @@ def create_web_app(
         lead_id: UUID,
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> None:
-        actor_id = require_employee(user)
+        actor_id = require_admin(user)
         try:
             await WorkflowService(database).delete_lead(
                 actor_role=user.role,
@@ -2128,7 +2140,7 @@ def create_web_app(
         payload: LeadBankCreate,
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> dict[str, object]:
-        actor_user_id = require_employee(user)
+        actor_user_id = require_admin(user)
         async with database.session() as db_session:
             previous_internal_status = await db_session.scalar(
                 select(Lead.internal_status).where(Lead.id == lead_id)
@@ -2162,10 +2174,6 @@ def create_web_app(
         user: Annotated[MiniAppUser, Depends(current_user)],
     ) -> dict[str, str]:
         actor_id = require_employee(user)
-        async with database.session() as db_session:
-            previous_manager_started_at = await db_session.scalar(
-                select(Lead.manager_started_at).where(Lead.id == lead_id)
-            )
         try:
             lead = await LeadWorkflowService(database).claim_by_manager(
                 actor_role=user.role,
@@ -2174,15 +2182,6 @@ def create_web_app(
             )
         except DomainError as error:
             raise domain_error(error) from error
-        async with database.session() as db_session:
-            manager = await db_session.get(User, actor_id)
-        if previous_manager_started_at is None:
-            manager_name = format_user_name(manager)
-            await notify_client(
-                lead.id,
-                f"Ваш персональный менеджер — {manager_name}. "
-                "Скоро он свяжется с вами и создаст отдельную группу для сопровождения.",
-            )
         return {"id": str(lead.id), "workflow_stage": lead.workflow_stage.value}
 
     @app.patch("/api/lead-banks/{lead_bank_id}")

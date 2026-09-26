@@ -48,6 +48,9 @@ def test_all_condition_types_and_aliases_are_parsed() -> None:
     assert by_name["Альфа счёт (без открытия ИП в Альфе)"] == "Открыть расчётный счёт"
     assert by_name["Альфа-Банк (ИП+счёт)"] == "Открыть расчётный счёт"
     assert by_name["Альфа-Банк (без открытия ИП)"] == "Открыть расчётный счёт"
+    assert next(row.source_sheets for row in rows if row.bank_name == "Акбарс Банк") == (
+        "Оборот + тариф",
+    )
 
 
 def test_saint_petersburg_condition_matches_current_catalog_name() -> None:
@@ -71,6 +74,7 @@ def test_multiple_conditions_are_combined_as_a_list() -> None:
         "• Пополнить счёт на 6 000 ₽ и удерживать сумму 4 дня\n"
         "• Оплатить тариф стоимостью 500 ₽"
     )
+    assert next(row.source_sheets for row in rows if row.bank_name == "ВТБ") == ("Холд", "Тариф")
 
 
 @pytest.mark.parametrize(

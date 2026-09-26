@@ -414,6 +414,8 @@ button.list-row.is-not-eligible:active {
 .value-row { display: flex; justify-content: space-between; gap: 1rem; min-height: 2.9rem; padding: 0.75rem 0.9rem; border-top: 1px solid var(--separator); font-size: 0.85rem; }
 .value-row span { color: var(--muted); }
 .value-row strong { text-align: right; }
+.selected-bank-row strong { text-align: left; }
+.activation-info-copy .info-copy { text-align: center; }
 
 .contact-row {
   display: flex;

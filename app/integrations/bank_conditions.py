@@ -34,6 +34,7 @@ class BankConditionRow:
     bank_name: str
     action_text: str
     source_row: int
+    source_sheets: tuple[str, ...] = ()
 
 
 def _normalize(value: str) -> str:
@@ -95,6 +96,7 @@ def parse_bank_condition_sheets(
     conditions: dict[str, list[str]] = {}
     display_names: dict[str, str] = {}
     source_rows: dict[str, int] = {}
+    source_sheets: dict[str, list[str]] = {}
 
     for sheet, expected_headers in WORKSHEET_HEADERS.items():
         values = sheets.get(sheet)
@@ -121,6 +123,7 @@ def parse_bank_condition_sheets(
             for target_name in BANK_ALIASES.get(source_key, (source_name,)):
                 target_key = _normalize(target_name)
                 conditions.setdefault(target_key, []).append(text)
+                source_sheets.setdefault(target_key, []).append(sheet)
                 display_names[target_key] = target_name
                 source_rows.setdefault(target_key, row_number)
 
@@ -129,6 +132,7 @@ def parse_bank_condition_sheets(
             bank_name=display_names[key],
             action_text=(texts[0] if len(texts) == 1 else "\n".join(f"• {text}" for text in texts)),
             source_row=source_rows[key],
+            source_sheets=tuple(source_sheets[key]),
         )
         for key, texts in conditions.items()
     ]
