@@ -4,7 +4,6 @@ from decimal import Decimal
 from app.domain.enums import BankInternalStatus
 from app.models import LeadBank
 
-
 FINAL_BANK_STATUSES = {
     BankInternalStatus.ACCOUNT_OPENED,
     BankInternalStatus.NOT_OPENED,
@@ -18,8 +17,7 @@ NO_PAYOUT_STATUSES = FINAL_BANK_STATUSES - {BankInternalStatus.ACCOUNT_OPENED}
 
 
 def application_progress(
-    banks: Iterable[LeadBank], *, include_bank_paid_lead_rewards: bool = False,
-    not_eligible: bool = False,
+    banks: Iterable[LeadBank], *, not_eligible: bool = False,
 ) -> dict[str, object]:
     selected = [bank for bank in banks if bank.selected_by_lead is True]
     total = len(selected)
@@ -36,7 +34,7 @@ def application_progress(
             for bank in selected
             if bank.lead_reward_paid_at is None
             and bank.internal_status not in NO_PAYOUT_STATUSES
-            and (include_bank_paid_lead_rewards or not bank.lead_reward_paid_separately)
+            and not bank.lead_reward_paid_separately
         ),
         Decimal("0"),
     )
@@ -56,7 +54,8 @@ def application_progress(
         status = "banks_selected"
     elif any(
         bank.internal_status is BankInternalStatus.PLANNED
-        or bank.internal_status not in FINAL_BANK_STATUSES | {BankInternalStatus.AWAITING_ACTIVATION}
+        or bank.internal_status not in FINAL_BANK_STATUSES
+        | {BankInternalStatus.AWAITING_ACTIVATION}
         for bank in selected
     ):
         status = "opening_accounts"

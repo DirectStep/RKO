@@ -45,6 +45,9 @@ class LeadUpdate(BaseModel):
     update_manager: bool = False
     internal_comment: str | None = None
     update_comment: bool = False
+    street_address: str | None = None
+    inn_draft: str | None = None
+    update_contacts: bool = False
 
 
 class LeadSourceUpdate(BaseModel):

@@ -1677,8 +1677,8 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
             "opened": 1,
             "activated": 1,
             "total": 1,
-            "expected_payout": "0",
-            "confirmed_payout": "2800.00",
+            "expected_payout": "1440.00",
+            "confirmed_payout": "0",
         }
         assert len(
             (await partner_cabinet_data(database, ids["partner"], lead_status="completed"))["leads"]
@@ -1710,6 +1710,14 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
         )
         assert payment.status is PaymentStatus.PAID
         partner_data = await partner_cabinet_data(database, ids["partner"])
+        assert partner_data["leads"][0]["bank_progress"]["expected_payout"] == "1440.00"
+        assert partner_data["leads"][0]["bank_progress"]["confirmed_payout"] == "0"
+        async with database.session() as session, session.begin():
+            stored_payment = await session.get(Payment, payment.id)
+            stored_payment.partner_notification_sent_at = datetime.now(UTC)
+        partner_data = await partner_cabinet_data(database, ids["partner"])
+        assert partner_data["leads"][0]["bank_progress"]["expected_payout"] == "0"
+        assert partner_data["leads"][0]["bank_progress"]["confirmed_payout"] == "1440.00"
         metrics = partner_data["metrics"]
         assert all("username" not in item for item in partner_data["leads"])
         assert metrics["estimated_payout"] == "0"

@@ -5,7 +5,6 @@ from types import SimpleNamespace
 from app.domain.enums import BankInternalStatus
 from app.services.application_progress import application_progress
 
-
 NOW = datetime(2026, 9, 25, tzinfo=UTC)
 
 
@@ -82,6 +81,16 @@ def test_reoffered_bank_leaves_current_denominator_until_reselected() -> None:
     assert application_progress([selected, reoffered])["application_status"] == "banks_selected"
 
 
+def test_reoffered_bank_after_refusal_leaves_current_denominator() -> None:
+    refused = bank(BankInternalStatus.BANK_REJECTED, selected=False, opened=True)
+    active = bank(BankInternalStatus.PLANNED)
+    progress = application_progress([active, refused])["bank_progress"]
+    assert progress["total"] == 1
+    refused.internal_status = BankInternalStatus.PLANNED
+    refused.selected_by_lead = True
+    assert application_progress([active, refused])["bank_progress"]["total"] == 2
+
+
 def test_one_lead_can_have_expected_and_confirmed_bank_payouts_at_once() -> None:
     banks = [
         bank(BankInternalStatus.ACCOUNT_OPENED, opened=True, activated=True, paid=True),
@@ -93,13 +102,11 @@ def test_one_lead_can_have_expected_and_confirmed_bank_payouts_at_once() -> None
     assert progress["bank_progress"]["confirmed_payout"] == "900"
 
 
-def test_bank_paid_bonus_is_visible_to_lead_but_not_partner_or_admin() -> None:
+def test_bank_paid_bonus_is_excluded_from_expected_lead_payout() -> None:
     separate = bank(BankInternalStatus.ACCOUNT_OPENED, opened=True, activated=True)
     separate.lead_reward_paid_separately = True
     separate.lead_reward_estimate = Decimal("5000")
     assert application_progress([separate])["bank_progress"]["expected_payout"] == "0"
-    lead_progress = application_progress([separate], include_bank_paid_lead_rewards=True)
-    assert lead_progress["bank_progress"]["expected_payout"] == "5000"
 
 
 def test_ineligible_questionnaire_has_its_own_status_without_banks() -> None:

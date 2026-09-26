@@ -84,6 +84,7 @@ from app.web_schemas import (
     PaymentStatusUpdate,
     StaffCreate,
 )
+from app.workers.partner_payment_notifications import deliver_partner_payment_notification
 
 ASSETS_DIR = Path(__file__).parent / "web_assets"
 DOCUMENTS_DIR = Path(__file__).parent / "documents"
@@ -157,9 +158,7 @@ def format_partner_reward_message(
 
 
 def lead_cabinet_metrics(lead_banks: list[LeadBank]) -> dict[str, int | Decimal]:
-    progress = application_progress(
-        lead_banks, include_bank_paid_lead_rewards=True
-    )["bank_progress"]
+    progress = application_progress(lead_banks)["bank_progress"]
     return {
         "planned_accounts": sum(
             bank.internal_status is BankInternalStatus.PLANNED for bank in lead_banks
@@ -660,37 +659,6 @@ def create_web_app(
             raise HTTPException(status_code=500, detail="Банк записан, но не синхронизирован")
         return rate
 
-    async def notify_partner(
-        lead_id: UUID, text: str, *, parse_mode: str | None = None
-    ) -> None:
-        if not notification_bots:
-            return
-        async with database.session() as db_session:
-            telegram_id = await db_session.scalar(
-                select(User.telegram_id)
-                .join(Partner, Partner.telegram_user_id == User.id)
-                .join(Lead, Lead.partner_id == Partner.id)
-                .where(
-                    Lead.id == lead_id,
-                    Lead.assignment_status == AssignmentStatus.CONFIRMED,
-                    Partner.active.is_(True),
-                    User.access_status == AccessStatus.ACTIVE,
-                )
-            )
-        if telegram_id is None:
-            return
-        for current_bot in notification_bots:
-            try:
-                await current_bot.send_message(
-                    chat_id=int(telegram_id), text=text, parse_mode=parse_mode
-                )
-            except Exception:
-                logger.exception(
-                    "Failed to notify partner for lead %s via bot %s",
-                    lead_id,
-                    current_bot.id,
-                )
-
     async def notify_client(
         lead_id: UUID, text: str, *, parse_mode: str | None = None
     ) -> None:
@@ -722,7 +690,9 @@ def create_web_app(
             "Актуальная информация доступна в кабинете.",
         )
 
-    async def notify_manager_new_lead(lead: Lead, manager: User | None) -> None:
+    async def notify_manager_new_lead(
+        lead: Lead, manager: User | None, additional_banks: list[str] | None = None
+    ) -> None:
         if (
             not notification_bots
             or manager is None
@@ -730,11 +700,21 @@ def create_web_app(
             or manager.access_status is not AccessStatus.ACTIVE
         ):
             return
-        text = (
-            f"Новая заявка {lead.short_id}\n\n"
-            f"Клиент: {lead.display_name}\n"
-            "Клиент выбрал банки. Откройте заявку, чтобы взять её в работу."
-        )
+        if additional_banks:
+            text = (
+                f"Заявка {lead.short_id}: клиент выбрал ещё банки.\n\n"
+                + "\n".join(f"• {name}" for name in additional_banks)
+                + "\n\nОткройте заявку, чтобы посмотреть обновлённый список."
+            )
+        else:
+            text = (
+                f"Новая заявка {lead.short_id}\n\n"
+                f"Клиент: {lead.display_name}\n"
+                "Клиент выбрал банки.\n\n"
+                "Не забудьте сначала создать группу с лидом и запросить недостающие данные "
+                "(улица и номер дома и ИНН)‼️\n\n"
+                "Откройте заявку, чтобы взять её в работу и статус заявки перейдёт «в работе»."
+            )
         for current_bot in notification_bots:
             try:
                 await current_bot.send_message(
@@ -856,7 +836,6 @@ def create_web_app(
         metrics = lead_cabinet_metrics(lead_banks)
         progress = application_progress(
             lead_banks,
-            include_bank_paid_lead_rewards=True,
             not_eligible=lead.workflow_stage is LeadWorkflowStage.NOT_ELIGIBLE,
         )
         return {
@@ -915,8 +894,13 @@ def create_web_app(
                     "bank": bank.name,
                     "bank_id": str(bank.id),
                     "status": lead_bank.external_status.value,
-                    "display_status": bank_display_status(
-                        lead_bank.internal_status, lead_bank.lead_reward_paid_at is not None
+                    "display_status": (
+                        "account_activated"
+                        if lead_bank.internal_status is BankInternalStatus.ACCOUNT_OPENED
+                        and lead_bank.lead_reward_paid_separately
+                        else bank_display_status(
+                            lead_bank.internal_status, lead_bank.lead_reward_paid_at is not None
+                        )
                     ),
                     "refusal_type": (
                         lead_bank.internal_status.value
@@ -983,6 +967,14 @@ def create_web_app(
             manager = await db_session.get(User, lead.manager_id) if lead.manager_id else None
         if previous_stage is LeadWorkflowStage.AWAITING_CLIENT_SELECTION:
             await notify_manager_new_lead(lead, manager)
+        else:
+            async with database.session() as db_session:
+                names = list(
+                    await db_session.scalars(
+                        select(Bank.name).where(Bank.id.in_(payload.bank_ids)).order_by(Bank.name)
+                    )
+                )
+            await notify_manager_new_lead(lead, manager, names)
         await notify_client(
             lead.id,
             f"Спасибо, выбор отправлен. Менеджер сопровождения: {format_user_name(manager)}. "
@@ -1540,6 +1532,8 @@ def create_web_app(
                 "telegram_id": lead.telegram_id,
                 "phone": lead.phone,
                 "email": lead.email or "",
+                "street_address": lead.street_address or "",
+                "inn_draft": lead.inn_draft or "",
                 "consent": lead.consent_status,
                 "consent_at": lead.consent_at.isoformat(),
                 "external_status": lead.external_status.value,
@@ -1574,6 +1568,9 @@ def create_web_app(
                 update_manager=payload.update_manager,
                 internal_comment=payload.internal_comment,
                 update_comment=payload.update_comment,
+                street_address=payload.street_address,
+                inn_draft=payload.inn_draft,
+                update_contacts=payload.update_contacts,
             )
         except DomainError as error:
             raise domain_error(error) from error
@@ -2264,6 +2261,34 @@ def create_web_app(
             raise domain_error(error) from error
         return {"id": str(payment.id), "status": payment.status.value}
 
+    @app.post("/api/lead-banks/{lead_bank_id}/payment/pay")
+    async def pay_bank_partner(
+        lead_bank_id: UUID,
+        user: Annotated[MiniAppUser, Depends(current_user)],
+    ) -> dict[str, object]:
+        actor_user_id = require_admin(user)
+        try:
+            payment, _changed = await WorkflowService(database).pay_lead_bank_partner(
+                actor_role=user.role,
+                actor_user_id=actor_user_id,
+                lead_bank_id=lead_bank_id,
+            )
+        except DomainError as error:
+            raise domain_error(error) from error
+        pending = False
+        if payment.partner_reward_fact and payment.partner_reward_fact > 0:
+            await deliver_partner_payment_notification(database, notification_bots, payment.id)
+            async with database.session() as db_session:
+                sent_at = await db_session.scalar(
+                    select(Payment.partner_notification_sent_at).where(Payment.id == payment.id)
+                )
+            pending = sent_at is None
+        return {
+            "id": str(payment.id),
+            "status": payment.status.value,
+            "notification_pending": pending,
+        }
+
     @app.post("/api/lead-banks/{lead_bank_id}/lead-reward/confirm")
     async def confirm_lead_reward_payment(
         lead_bank_id: UUID,
@@ -2347,30 +2372,8 @@ def create_web_app(
             )
         except DomainError as error:
             raise domain_error(error) from error
-        if (
-            payment.status is PaymentStatus.PAID
-            and payment.partner_reward_fact is not None
-            and payment.partner_reward_fact > 0
-        ):
-            async with database.session() as db_session:
-                reward_details = (
-                    await db_session.execute(
-                        select(LeadBank.lead_id, Lead.short_id, Bank.name)
-                        .join(Lead, Lead.id == LeadBank.lead_id)
-                        .join(Bank, Bank.id == LeadBank.bank_id)
-                        .join(Payment, Payment.lead_bank_id == LeadBank.id)
-                        .where(Payment.id == payment.id)
-                    )
-                ).one()
-            await notify_partner(
-                reward_details.lead_id,
-                format_partner_reward_message(
-                    reward_details.short_id,
-                    reward_details.name,
-                    payment.partner_reward_fact,
-                ),
-                parse_mode="HTML",
-            )
+        if payment.status is PaymentStatus.PAID and payment.partner_reward_fact:
+            await deliver_partner_payment_notification(database, notification_bots, payment.id)
         return {"id": str(payment.id), "status": payment.status.value}
 
     return app

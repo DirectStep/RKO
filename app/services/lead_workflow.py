@@ -110,6 +110,7 @@ class LeadWorkflowService:
                     lead_bank.selected_by_lead = True
                     if lead_bank.internal_status in {
                         BankInternalStatus.CLIENT_REFUSED,
+                        BankInternalStatus.BANK_REJECTED,
                         BankInternalStatus.NOT_OPENED,
                     }:
                         lead_bank.internal_status = BankInternalStatus.PLANNED
@@ -117,6 +118,7 @@ class LeadWorkflowService:
                             BankInternalStatus.PLANNED
                         )
                         lead_bank.closed_without_open_at = None
+                        lead_bank.account_opened_at = None
                         lead_bank.close_reason = None
                         if (
                             lead_bank.bank_income_estimate is not None

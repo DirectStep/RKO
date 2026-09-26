@@ -428,7 +428,10 @@ def test_lead_cabinet_has_separate_read_only_sections() -> None:
     assert "lead_payout_paid_separately" in script
     assert "`до ${value}`" in script
     assert "item.online_available" in script
-    assert "displayStatus==='account_opened'||displayStatus==='lead_reward_paid'" in script
+    assert (
+        "['account_opened','account_activated','lead_reward_paid'].includes(displayStatus)"
+        in script
+    )
     assert "'cut','duplicate'" in script
     assert ".client-bank-card header p.is-positive" in styles
     assert ".client-bank-card header p.is-negative" in styles
@@ -758,6 +761,32 @@ def test_bank_paid_bonus_allows_partner_confirmation_without_lead_payment() -> N
 
     assert "(item.lead_reward_paid_at||item.lead_reward_paid_separately)" in card
     assert "Банк платит отдельно" in card
+    assert (
+        "['awaiting_confirmation','confirmed','in_registry'].includes(item.payment_status)"
+        in card
+    )
+    assert "Добавить в реестр" not in card
+    assert "Отметить выплаченной" not in card
+
+
+def test_archived_admin_keeps_financial_read_access_without_edit_actions() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+    card = script.split("function bankCard(item,employee,admin,quickActions){", 1)[1].split(
+        "async function openLead(id){", 1
+    )[0]
+    assert "bankCard(x,editable,admin,canUseBankQuickActions)" in script
+    assert "const economics=admin?" in card
+    assert "const financialEditable=admin&&employee" in card
+    assert "const confirm=admin&&employee" in card
+
+
+def test_partner_summary_uses_partner_amounts_and_lead_has_bonus_badge() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+    assert "data-bonus-help" in script
+    assert "Бонусы за задания" in script
+    assert "account_activated:'Счёт активирован'" in script
+    assert "id=\"save-lead-contacts\"" in script
+    assert "Доступен для повторного выбора" in script
 
 
 def test_partner_bank_details_keep_client_payment_without_opening_conditions() -> None:
@@ -876,6 +905,9 @@ def test_partner_is_notified_only_after_reward_is_paid() -> None:
         "RKO-0047", "Альфа <Банк>", Decimal("800.00")
     )
     source = (ASSETS_DIR.parent / "web.py").read_text(encoding="utf-8")
+    delivery = (ASSETS_DIR.parent / "workers" / "partner_payment_notifications.py").read_text(
+        encoding="utf-8"
+    )
 
     assert message == (
         '<tg-emoji emoji-id="5357146861880760304">🎉</tg-emoji> '
@@ -890,7 +922,9 @@ def test_partner_is_notified_only_after_reward_is_paid() -> None:
     assert "Вознаграждение по заявке подтверждено." not in source
     assert "format_partner_reward_message(" in source
     assert "payment.partner_reward_fact > 0" in source
-    assert "select(LeadBank.lead_id, Lead.short_id, Bank.name)" in source
+    assert "deliver_partner_payment_notification(database, notification_bots, payment.id)" in source
+    assert "payment.status is not PaymentStatus.PAID" in delivery
+    assert "payment.partner_notification_sent_at = datetime.now(UTC)" in delivery
 
 
 def test_admin_account_activation_syncs_registry_once() -> None:

@@ -236,6 +236,9 @@ class WorkflowService:
         update_manager: bool = False,
         internal_comment: str | None = None,
         update_comment: bool = False,
+        street_address: str | None = None,
+        inn_draft: str | None = None,
+        update_contacts: bool = False,
     ) -> Lead:
         if actor_role not in {UserRole.ADMIN, UserRole.MANAGER}:
             raise DomainError("Изменять заявку может только сотрудник")
@@ -264,6 +267,18 @@ class WorkflowService:
                     lead.external_status = external_lead_status(lead.internal_status)
             if update_comment:
                 lead.internal_comment = (internal_comment or "").strip() or None
+            if update_contacts:
+                if (
+                    lead.archived_at is not None
+                    or lead.workflow_stage is LeadWorkflowStage.NOT_ELIGIBLE
+                ):
+                    raise DomainError("Контакты этой заявки изменять нельзя")
+                address = (street_address or "").strip()
+                inn = (inn_draft or "").strip()
+                if len(address) > 300 or len(inn) > 120:
+                    raise DomainError("Слишком длинное значение контакта")
+                lead.street_address = address or None
+                lead.inn_draft = inn or None
             lead.last_updated_at = datetime.now(UTC)
             return lead
 
@@ -495,15 +510,16 @@ class WorkflowService:
                         raise DomainError("После активации доступны только срез или дубль")
                 else:
                     raise DomainError("Решение по этому банку уже принято")
+            reoffer_statuses = {
+                BankInternalStatus.NOT_OPENED,
+                BankInternalStatus.BANK_REJECTED,
+                BankInternalStatus.CLIENT_REFUSED,
+            }
             if (
                 reoffer_to_lead is not None
-                and status is not BankInternalStatus.NOT_OPENED
-                and (
-                    status is not None
-                    or lead_bank.internal_status is not BankInternalStatus.NOT_OPENED
-                )
+                and (status or lead_bank.internal_status) not in reoffer_statuses
             ):
-                raise DomainError("Вернуть в список можно только неоткрытый счёт")
+                raise DomainError("Вернуть в список можно только после отказа или неоткрытия счёта")
             if reoffer_to_lead:
                 bank = await session.get(Bank, lead_bank.bank_id)
                 if bank is None or not bank.active:
@@ -737,6 +753,38 @@ class WorkflowService:
             await self._update_lead_payment_status(session, lead_bank.lead_id, payment.status)
             return payment
 
+    async def pay_lead_bank_partner(
+        self, *, actor_role: UserRole, actor_user_id: UUID, lead_bank_id: UUID
+    ) -> tuple[Payment, bool]:
+        self._require_admin(actor_role)
+        async with self.database.session() as session, session.begin():
+            lead_bank = await session.scalar(
+                select(LeadBank).where(LeadBank.id == lead_bank_id).with_for_update()
+            )
+            payment = await session.scalar(
+                select(Payment).where(Payment.lead_bank_id == lead_bank_id).with_for_update()
+            )
+            if lead_bank is None or payment is None or lead_bank.partner_reward_fact is None:
+                raise DomainError("Сначала укажите фактический доход банка")
+            if payment.status is PaymentStatus.PAID:
+                return payment, False
+            if payment.status not in {
+                PaymentStatus.AWAITING_CONFIRMATION,
+                PaymentStatus.CONFIRMED,
+                PaymentStatus.IN_REGISTRY,
+            }:
+                raise DomainError("Выплата недоступна для подтверждения")
+            if lead_bank.lead_reward_paid_at is None and not lead_bank.lead_reward_paid_separately:
+                raise DomainError("Сначала подтвердите фактическую выплату лиду")
+            now = datetime.now(UTC)
+            payment.partner_reward_fact = lead_bank.partner_reward_fact
+            payment.confirmed_at = payment.confirmed_at or now
+            payment.confirmed_by_user_id = payment.confirmed_by_user_id or actor_user_id
+            payment.paid_at = now.astimezone(ZoneInfo("Europe/Moscow")).date()
+            payment.status = PaymentStatus.PAID
+            await self._update_lead_payment_status(session, lead_bank.lead_id, payment.status)
+            return payment, True
+
     async def change_payment_status(
         self,
         *,
@@ -855,6 +903,15 @@ class WorkflowService:
         lead_bank.internal_status = status
         lead_bank.external_status = external_bank_status(status)
         lead_bank.close_reason = (close_reason or "").strip() or None
+        if status in closing:
+            lead_bank.decision_history = [
+                *(getattr(lead_bank, "decision_history", None) or []),
+                {
+                    "status": status.value,
+                    "reason": lead_bank.close_reason or "",
+                    "at": now.isoformat(),
+                },
+            ]
         if status is BankInternalStatus.AWAITING_ACTIVATION and lead_bank.account_opened_at is None:
             lead_bank.account_opened_at = now
         date_fields = {

@@ -28,17 +28,10 @@ from app.models import (
     Payment,
     User,
 )
+from app.services.application_progress import NO_PAYOUT_STATUSES, application_progress
 from app.services.bank_conditions import normalize_bank_name
-from app.services.application_progress import application_progress
 
 ACTIVE_APPLICATION_STATUSES = {"banks_selected", "opening_accounts", "activating_accounts"}
-CONFIRMED_PAYMENT_STATUSES = {
-    PaymentStatus.CONFIRMED,
-    PaymentStatus.IN_REGISTRY,
-    PaymentStatus.PAID,
-}
-
-
 class PartnerBankData(TypedDict):
     id: str
     bank: str
@@ -173,33 +166,8 @@ async def partner_cabinet_data(
         )
         rates = list(await session.scalars(select(BankRate)))
         conditions = list(await session.scalars(select(BankActivationCondition)))
-        unpaid_rows = list(
-            await session.execute(
-                select(LeadBank.partner_reward_fact, Payment.partner_reward_fact, Payment.status)
-                .join(Lead, Lead.id == LeadBank.lead_id)
-                .outerjoin(Payment, Payment.lead_bank_id == LeadBank.id)
-                .where(
-                    Lead.partner_id == partner_id,
-                    LeadBank.selected_by_lead.is_(True),
-                    LeadBank.internal_status == BankInternalStatus.ACCOUNT_OPENED,
-                    or_(
-                        LeadBank.lead_reward_paid_at.is_not(None),
-                        LeadBank.lead_reward_paid_separately.is_(True),
-                    ),
-                )
-            )
-        )
-
     rates_by_bank = {rate.bank_id: rate for rate in rates}
     conditions_by_name = {condition.normalized_bank_name: condition for condition in conditions}
-    unpaid_total = sum(
-        (
-            _money(payment_amount if payment_amount is not None else bank_amount)
-            for bank_amount, payment_amount, status in unpaid_rows
-            if status not in {PaymentStatus.PAID, PaymentStatus.CANCELLED}
-        ),
-        Decimal("0"),
-    )
 
     grouped: dict[UUID, _LeadAccumulator] = {}
     normalized_search = search.strip().lower()
@@ -249,6 +217,23 @@ async def partner_cabinet_data(
             if payment and payment.partner_reward_fact is not None
             else lead_bank.partner_reward_fact
         )
+        projected = actual if lead_bank.partner_reward_fact is not None else estimate
+        eligible = (
+            lead_bank.selected_by_lead is True
+            and lead_bank.internal_status not in NO_PAYOUT_STATUSES
+        )
+        settled = (
+            effective_payment_status is PaymentStatus.PAID
+            and (payment.partner_notification_sent_at is not None if payment else False)
+        )
+        pending = (
+            projected if eligible and not settled
+            else Decimal("0")
+        )
+        confirmed = (
+            actual if eligible and settled
+            else Decimal("0")
+        )
         online_text = (
             rates_by_bank[bank.id].online_text if bank.id in rates_by_bank else "Уточняется"
         )
@@ -270,8 +255,8 @@ async def partner_cabinet_data(
                 "display_status": bank_display_status(
                     lead_bank.internal_status, lead_bank.lead_reward_paid_at is not None
                 ),
-                "reward_estimate": str(estimate),
-                "reward_fact": str(actual),
+                "reward_estimate": str(pending),
+                "reward_fact": str(confirmed),
                 "lead_reward_estimate": str(lead_estimate),
                 "payment_status": effective_payment_status.value,
                 "paid_at": payment.paid_at.isoformat() if payment and payment.paid_at else None,
@@ -286,9 +271,8 @@ async def partner_cabinet_data(
             }
         )
         item.bank_counts[lead_bank.external_status.value] += 1
-        item.reward_estimate += estimate
-        if effective_payment_status in CONFIRMED_PAYMENT_STATUSES:
-            item.reward_fact += actual
+        item.reward_estimate += pending
+        item.reward_fact += confirmed
 
     if payment_status is not None:
         grouped = {lead_id: item for lead_id, item in grouped.items() if item.lead["banks"]}
@@ -296,6 +280,8 @@ async def partner_cabinet_data(
     leads: list[PartnerLeadData] = []
     for item in grouped.values():
         item.lead.update(application_progress(item.progress_banks, not_eligible=item.not_eligible))
+        item.lead["bank_progress"]["expected_payout"] = str(item.reward_estimate)
+        item.lead["bank_progress"]["confirmed_payout"] = str(item.reward_fact)
         item.lead["bank_counts"] = {
             status.value: item.bank_counts[status.value] for status in BankExternalStatus
         }
@@ -344,7 +330,9 @@ async def partner_cabinet_data(
         ),
         "opened_banks": opened_banks,
         "planned_banks": planned_banks,
-        "estimated_payout": str(unpaid_total),
+        "estimated_payout": str(
+            sum((Decimal(lead_item["reward_estimate"]) for lead_item in leads), Decimal("0"))
+        ),
         "last_payout": str(last_payout),
         "paid": str(paid),
     }

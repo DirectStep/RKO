@@ -178,6 +178,8 @@ class Lead(Base):
     display_name: Mapped[str] = mapped_column(String(200), nullable=False)
     phone: Mapped[str] = mapped_column(String(24), nullable=False, index=True)
     email: Mapped[str | None] = mapped_column(String(254))
+    street_address: Mapped[str | None] = mapped_column(String(300))
+    inn_draft: Mapped[str | None] = mapped_column(String(120))
     consent_status: Mapped[bool] = mapped_column(Boolean, nullable=False)
     consent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     first_referral_code: Mapped[str | None] = mapped_column(String(64))
@@ -387,6 +389,9 @@ class LeadBank(Base):
     opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_without_open_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     close_reason: Mapped[str | None] = mapped_column(Text)
+    decision_history: Mapped[list[dict[str, str]]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
     bank_income_estimate: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     bank_income_fact: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     partner_percent_snapshot: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
@@ -439,4 +444,7 @@ class Payment(Base):
     paid_at: Mapped[date | None] = mapped_column(Date)
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     confirmed_by_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id"))
+    partner_notification_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     internal_comment: Mapped[str | None] = mapped_column(Text)
