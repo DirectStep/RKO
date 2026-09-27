@@ -23,6 +23,21 @@ def consent_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def partner_documents_keyboard(
+    *, offer_accepted: bool, pdn_consented: bool
+) -> InlineKeyboardMarkup | None:
+    rows = []
+    if not offer_accepted:
+        rows.append(
+            [InlineKeyboardButton(text="Принимаю оферту", callback_data="partner:accept_offer")]
+        )
+    if not pdn_consented:
+        rows.append(
+            [InlineKeyboardButton(text="Даю согласие на ПДн", callback_data="partner:consent_pdn")]
+        )
+    return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
+
+
 def consent_document_keyboard(*, application_started: bool) -> InlineKeyboardMarkup:
     if application_started:
         rows = [

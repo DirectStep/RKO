@@ -52,15 +52,36 @@ PARTNER_START_TEXT = (
     "на главном — привлечении клиентов и увеличении своего дохода."
 )
 
+PARTNER_OFFER_VERSION = "27.09.2026"
+PARTNER_PDN_VERSION = "20.09.2026"
+
+
 def consent_prompt(mini_app_url: str) -> str:
     public_root = mini_app_url.partition("?")[0].rstrip("/")
     consent_url = f"{public_root}/documents/soglasie-pdn.pdf"
     policy_url = f"{public_root}/documents/politika-pdn.pdf"
+    offer_url = f"{public_root}/documents/oferta-client-20260927.pdf"
     return (
         "Нажимая кнопку «Продолжить», я даю "
         f'<a href="{consent_url}">Согласие на обработку персональных данных</a> '
         "и подтверждаю, что ознакомился(-ась) с "
         f'<a href="{policy_url}">Политикой обработки персональных данных</a>'
+        f'\n\n<a href="{offer_url}">Публичная оферта для клиента</a>'
+    )
+
+
+def partner_documents_prompt(mini_app_url: str) -> str:
+    public_root = mini_app_url.partition("?")[0].rstrip("/")
+    return (
+        "Партнёрский кабинет подключён. Ознакомьтесь с документами:\n\n"
+        f'<a href="{public_root}/documents/oferta-partner-20260927.pdf">'
+        "Публичная оферта для партнёра</a>\n"
+        f'<a href="{public_root}/documents/politika-pdn.pdf">'
+        "Политика обработки персональных данных</a>\n"
+        f'<a href="{public_root}/documents/soglasie-pdn.pdf">'
+        "Согласие на обработку персональных данных</a>\n\n"
+        "Оферту и согласие на обработку данных подтвердите отдельными кнопками. "
+        "Кабинет уже доступен."
     )
 
 CONSENT_TEXT = (
@@ -75,6 +96,5 @@ CONSENT_TEXT = (
     "Согласие действует до достижения этой цели или моего отзыва. Отозвать согласие "
     "можно сообщением администратору @KryGerMan. После отзыва данные удаляются, "
     "если закон не требует хранить их дольше.\n\n"
-    "Оператор сервиса: администратор проекта «РКО». Перед публичным запуском здесь "
-    "необходимо указать полное имя или наименование и реквизиты оператора."
+    "Оператор сервиса: Данелян Артем Каренович."
 )

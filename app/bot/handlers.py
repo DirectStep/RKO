@@ -20,6 +20,7 @@ from app.bot.keyboards import (
     continue_keyboard,
     manager_leads_keyboard,
     manager_menu_keyboard,
+    partner_documents_keyboard,
     partner_menu_keyboard,
     phone_keyboard,
     resubmit_application_keyboard,
@@ -27,7 +28,15 @@ from app.bot.keyboards import (
     yes_no_keyboard,
 )
 from app.bot.states import LeadApplication
-from app.bot.texts import CONSENT_TEXT, PARTNER_START_TEXT, START_TEXT, consent_prompt
+from app.bot.texts import (
+    CONSENT_TEXT,
+    PARTNER_OFFER_VERSION,
+    PARTNER_PDN_VERSION,
+    PARTNER_START_TEXT,
+    START_TEXT,
+    consent_prompt,
+    partner_documents_prompt,
+)
 from app.config import Settings
 from app.database import Database
 from app.domain.enums import AccessStatus, LeadWorkflowStage, UserRole
@@ -88,6 +97,20 @@ async def get_partner(database: Database, telegram_id: str) -> Partner | None:
         )
 
 
+async def send_partner_documents(message: Message, partner: Partner, mini_app_url: str) -> None:
+    keyboard = partner_documents_keyboard(
+        offer_accepted=partner.offer_accepted_version == PARTNER_OFFER_VERSION,
+        pdn_consented=partner.pdn_consent_version == PARTNER_PDN_VERSION,
+    )
+    if keyboard is not None:
+        await message.answer(
+            partner_documents_prompt(mini_app_url),
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+            reply_markup=keyboard,
+        )
+
+
 @router.message(CommandStart())
 async def start(
     message: Message,
@@ -113,7 +136,7 @@ async def start(
             await message.answer("Сотрудника нельзя активировать как партнёра.")
             return
         try:
-            await WorkflowService(database).activate_partner_with_token(
+            partner = await WorkflowService(database).activate_partner_with_token(
                 telegram_id=str(user.id),
                 telegram_username=user.username,
                 token=requested_referral_code.removeprefix("partner_"),
@@ -126,6 +149,7 @@ async def start(
             parse_mode="HTML",
             reply_markup=partner_menu_keyboard(settings.mini_app_url),
         )
+        await send_partner_documents(message, partner, settings.mini_app_url)
         return
     if role is UserRole.ADMIN:
         await message.answer(
@@ -140,11 +164,14 @@ async def start(
         )
         return
     if role is UserRole.PARTNER:
+        linked_partner = await get_partner(database, str(user.id))
         await message.answer(
             PARTNER_START_TEXT,
             parse_mode="HTML",
             reply_markup=partner_menu_keyboard(settings.mini_app_url),
         )
+        if linked_partner is not None:
+            await send_partner_documents(message, linked_partner, settings.mini_app_url)
         return
     current_lead = await get_current_lead(database, str(user.id))
     if current_lead is not None:
@@ -310,6 +337,41 @@ async def manager_lead(
     if isinstance(callback.message, Message):
         await callback.message.edit_text(text)
     await callback.answer("Заявка переведена в работу")
+
+
+@router.callback_query(F.data.in_({"partner:accept_offer", "partner:consent_pdn"}))
+async def accept_partner_document(callback: CallbackQuery, database: Database) -> None:
+    async with database.session() as session, session.begin():
+        partner = await session.scalar(
+            select(Partner)
+            .join(User, User.id == Partner.telegram_user_id)
+            .where(
+                User.telegram_id == str(callback.from_user.id),
+                User.role == UserRole.PARTNER,
+                Partner.active.is_(True),
+            )
+            .with_for_update()
+        )
+        if partner is None:
+            await callback.answer("Партнёрский кабинет не найден", show_alert=True)
+            return
+        if callback.data == "partner:accept_offer":
+            if partner.offer_accepted_version != PARTNER_OFFER_VERSION:
+                partner.offer_accepted_at = datetime.now(UTC)
+                partner.offer_accepted_version = PARTNER_OFFER_VERSION
+            confirmation = "Принятие оферты сохранено"
+        else:
+            if partner.pdn_consent_version != PARTNER_PDN_VERSION:
+                partner.pdn_consented_at = datetime.now(UTC)
+                partner.pdn_consent_version = PARTNER_PDN_VERSION
+            confirmation = "Согласие на обработку ПДн сохранено"
+        keyboard = partner_documents_keyboard(
+            offer_accepted=partner.offer_accepted_version == PARTNER_OFFER_VERSION,
+            pdn_consented=partner.pdn_consent_version == PARTNER_PDN_VERSION,
+        )
+    if isinstance(callback.message, Message):
+        await callback.message.edit_reply_markup(reply_markup=keyboard)
+    await callback.answer(confirmation)
 
 
 async def partner_for_callback(callback: CallbackQuery, database: Database) -> Partner | None:
@@ -533,8 +595,16 @@ async def resubmit_application(
     if isinstance(callback.message, Message):
         await callback.message.edit_reply_markup(reply_markup=None)
         if has_valid_consent:
+            offer_url = (
+                f"{settings.mini_app_url.partition('?')[0].rstrip('/')}"
+                "/documents/oferta-client-20260927.pdf"
+            )
             await callback.message.answer(
+                "Перед повторной заявкой ознакомьтесь с "
+                f'<a href="{offer_url}">Публичной офертой для клиента</a>.\n\n'
                 "Отправьте номер кнопкой ниже или введите его сообщением.",
+                parse_mode="HTML",
+                disable_web_page_preview=True,
                 reply_markup=phone_keyboard(),
             )
         else:

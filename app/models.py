@@ -98,6 +98,10 @@ class Partner(Base):
     telegram_username: Mapped[str | None] = mapped_column(String(64))
     activation_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
     activation_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    offer_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    offer_accepted_version: Mapped[str | None] = mapped_column(String(20))
+    pdn_consented_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    pdn_consent_version: Mapped[str | None] = mapped_column(String(20))
     partner_type: Mapped[str] = mapped_column(String(32), nullable=False, default="other")
     commission_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
     telegram_user_id: Mapped[UUID | None] = mapped_column(

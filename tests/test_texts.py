@@ -1,4 +1,11 @@
-from app.bot.texts import CONSENT_TEXT, PARTNER_START_TEXT, START_TEXT, consent_prompt
+from app.bot.keyboards import partner_documents_keyboard
+from app.bot.texts import (
+    CONSENT_TEXT,
+    PARTNER_START_TEXT,
+    START_TEXT,
+    consent_prompt,
+    partner_documents_prompt,
+)
 
 
 def test_start_text_explains_product() -> None:
@@ -40,9 +47,11 @@ def test_consent_names_data_purpose_and_withdrawal() -> None:
     assert "помочь с открытием расчётного счёта" in CONSENT_TEXT
     assert "Отозвать согласие" in CONSENT_TEXT
     assert "@KryGerMan" in CONSENT_TEXT
+    assert "Данелян Артем Каренович" in CONSENT_TEXT
+    assert "Перед публичным запуском" not in CONSENT_TEXT
 
 
-def test_consent_prompt_links_both_public_documents() -> None:
+def test_consent_prompt_links_client_offer_and_privacy_documents() -> None:
     prompt = consent_prompt("https://app.example.test/?v=1")
 
     assert prompt == (
@@ -52,4 +61,26 @@ def test_consent_prompt_links_both_public_documents() -> None:
         "ознакомился(-ась) с "
         '<a href="https://app.example.test/documents/politika-pdn.pdf">'
         "Политикой обработки персональных данных</a>"
+        '\n\n<a href="https://app.example.test/documents/oferta-client-20260927.pdf">'
+        "Публичная оферта для клиента</a>"
     )
+
+
+def test_partner_documents_are_linked_and_confirmed_separately() -> None:
+    prompt = partner_documents_prompt("https://app.example.test/?v=1")
+    keyboard = partner_documents_keyboard(offer_accepted=False, pdn_consented=False)
+
+    assert 'href="https://app.example.test/documents/oferta-partner-20260927.pdf"' in prompt
+    assert 'href="https://app.example.test/documents/politika-pdn.pdf"' in prompt
+    assert 'href="https://app.example.test/documents/soglasie-pdn.pdf"' in prompt
+    assert keyboard is not None
+    assert [row[0].callback_data for row in keyboard.inline_keyboard] == [
+        "partner:accept_offer",
+        "partner:consent_pdn",
+    ]
+    remaining = partner_documents_keyboard(offer_accepted=True, pdn_consented=False)
+    assert remaining is not None
+    assert [row[0].callback_data for row in remaining.inline_keyboard] == [
+        "partner:consent_pdn"
+    ]
+    assert partner_documents_keyboard(offer_accepted=True, pdn_consented=True) is None

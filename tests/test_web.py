@@ -962,9 +962,11 @@ def test_mini_app_is_delivered_without_separate_local_assets() -> None:
 def test_public_consent_documents_are_packaged_as_pdf() -> None:
     consent = DOCUMENTS_DIR / "soglasie-pdn.pdf"
     policy = DOCUMENTS_DIR / "politika-pdn.pdf"
+    client_offer = DOCUMENTS_DIR / "oferta-client-20260927.pdf"
+    partner_offer = DOCUMENTS_DIR / "oferta-partner-20260927.pdf"
 
-    assert consent.read_bytes().startswith(b"%PDF-")
-    assert policy.read_bytes().startswith(b"%PDF-")
+    for document in (consent, policy, client_offer, partner_offer):
+        assert document.read_bytes().startswith(b"%PDF-")
 
 
 def test_public_documents_use_short_cache_lifetime() -> None:
