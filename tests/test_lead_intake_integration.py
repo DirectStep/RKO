@@ -20,6 +20,7 @@ from app.domain.enums import (
     UserRole,
 )
 from app.domain.operations import DomainError
+from app.domain.statuses import external_bank_status
 from app.models import (
     Bank,
     BankActivationCondition,
@@ -1804,8 +1805,60 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
             )
         with pytest.raises(DomainError, match="удалить нельзя"):
             await workflow.delete_lead(actor_role=UserRole.ADMIN, lead_id=lead.id)
+        async with database.session() as session, session.begin():
+            condition = await session.get(BankActivationCondition, ids["bank_condition"])
+            condition.action_text = "Открыть расчётный счёт"
+            condition.source_sheets = ["Открытие"]
+            opening_lead = Lead(
+                short_id=f"OPEN-{suffix}",
+                telegram_id=f"8{suffix}",
+                display_name="Проверка открытия",
+                phone=f"+7222{suffix}",
+                consent_status=True,
+                consent_at=now,
+                questionnaire_answers={"city": "Москва"},
+                proposed_partner_id=ids["partner"],
+                proposed_channel_id=ids["channel"],
+                partner_id=ids["partner"],
+                channel_id=ids["channel"],
+                assignment_status=AssignmentStatus.CONFIRMED,
+                assignment_confirmed_at=now,
+                first_click_at=now,
+                application_at=now,
+            )
+            session.add(opening_lead)
+            await session.flush()
+            ids["opening_lead"] = opening_lead.id
+            opening_bank = LeadBank(
+                lead_id=opening_lead.id,
+                bank_id=ids["bank"],
+                internal_status=BankInternalStatus.PLANNED,
+                external_status=external_bank_status(BankInternalStatus.PLANNED),
+                selected_by_lead=True,
+                offered_to_lead=True,
+                planned_at=now,
+            )
+            session.add(opening_bank)
+            await session.flush()
+            ids["opening_bank"] = opening_bank.id
+        opening_bank = await workflow.update_lead_bank(
+            actor_role=UserRole.ADMIN,
+            actor_user_id=admin.id,
+            lead_bank_id=ids["opening_bank"],
+            status=BankInternalStatus.AWAITING_ACTIVATION,
+        )
+        assert opening_bank.internal_status is BankInternalStatus.ACCOUNT_OPENED
+        assert opening_bank.external_status is external_bank_status(BankInternalStatus.ACCOUNT_OPENED)
+        assert opening_bank.account_opened_at is not None
+        assert opening_bank.opened_at is not None
+        assert opening_bank.bank_income_estimate == Decimal("15000.00")
+        assert opening_bank.activation_condition_snapshot == "Открыть расчётный счёт"
     finally:
         async with database.session() as session, session.begin():
+            if "opening_bank" in ids:
+                await session.execute(delete(LeadBank).where(LeadBank.id == ids["opening_bank"]))
+            if "opening_lead" in ids:
+                await session.execute(delete(Lead).where(Lead.id == ids["opening_lead"]))
             if "payment" in ids:
                 await session.execute(delete(Payment).where(Payment.id == ids["payment"]))
             if "lead_bank" in ids:

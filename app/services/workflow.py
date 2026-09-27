@@ -594,6 +594,8 @@ class WorkflowService:
                         else None,
                     )
                     lead_bank.activation_condition_snapshot = condition.action_text
+                    if condition.source_sheets == ["Открытие"]:
+                        status = BankInternalStatus.ACCOUNT_OPENED
                 if status in closing_statuses:
                     payment = await session.scalar(
                         select(Payment)
@@ -945,7 +947,10 @@ class WorkflowService:
                     "at": now.isoformat(),
                 },
             ]
-        if status is BankInternalStatus.AWAITING_ACTIVATION and lead_bank.account_opened_at is None:
+        if status in {
+            BankInternalStatus.AWAITING_ACTIVATION,
+            BankInternalStatus.ACCOUNT_OPENED,
+        } and lead_bank.account_opened_at is None:
             lead_bank.account_opened_at = now
         date_fields = {
             BankInternalStatus.AWAITING_DATA: "data_requested_at",
