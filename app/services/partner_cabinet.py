@@ -63,6 +63,7 @@ class PartnerLeadData(TypedDict):
     bank_counts: dict[str, int]
     reward_estimate: str
     reward_fact: str
+    ready_payout: str
     application_status: str
     bank_progress: dict[str, object]
 
@@ -92,6 +93,7 @@ class _LeadAccumulator:
     bank_counts: defaultdict[str, int] = field(default_factory=lambda: defaultdict(int))
     reward_estimate: Decimal = Decimal("0")
     reward_fact: Decimal = Decimal("0")
+    ready_payout: Decimal = Decimal("0")
     progress_banks: list[LeadBank] = field(default_factory=list)
     not_eligible: bool = False
 
@@ -202,6 +204,7 @@ async def partner_cabinet_data(
                     "bank_counts": {},
                     "reward_estimate": "0",
                     "reward_fact": "0",
+                    "ready_payout": "0",
                     "application_status": "questionnaire_completed",
                     "bank_progress": {},
                 }
@@ -238,6 +241,15 @@ async def partner_cabinet_data(
             actual if eligible and settled
             else Decimal("0")
         )
+        if (
+            eligible
+            and lead_bank.internal_status is BankInternalStatus.ACCOUNT_OPENED
+            and effective_payment_status is PaymentStatus.AWAITING_CONFIRMATION
+            and lead_bank.bank_income_fact is not None
+            and lead_bank.partner_reward_fact is not None
+            and (lead_bank.lead_reward_paid_at is not None or lead_bank.lead_reward_paid_separately)
+        ):
+            item.ready_payout += actual
         online_text = (
             rates_by_bank[bank.id].online_text if bank.id in rates_by_bank else "Уточняется"
         )
@@ -293,6 +305,7 @@ async def partner_cabinet_data(
         }
         item.lead["reward_estimate"] = str(item.reward_estimate)
         item.lead["reward_fact"] = str(item.reward_fact)
+        item.lead["ready_payout"] = str(item.ready_payout)
         leads.append(item.lead)
     if lead_status is not None:
         leads = [lead for lead in leads if lead["application_status"] == lead_status]
@@ -334,7 +347,7 @@ async def partner_cabinet_data(
         "opened_banks": opened_banks,
         "planned_banks": planned_banks,
         "estimated_payout": str(
-            sum((Decimal(lead_item["reward_estimate"]) for lead_item in leads), Decimal("0"))
+            sum((Decimal(lead_item["ready_payout"]) for lead_item in leads), Decimal("0"))
         ),
         "last_payout": str(last_payout),
         "paid": str(paid),
