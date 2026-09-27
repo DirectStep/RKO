@@ -115,7 +115,7 @@ function partnerQuery(){
     const from=document.querySelector('#partner-date-from').value,to=document.querySelector('#partner-date-to').value
     if(from)params.set('date_from',from);if(to)params.set('date_to',to)
   }
-  for(const [id,key] of [['partner-channel','channel_id'],['partner-lead-status','lead_status'],['partner-payment-status','payment_status']]){const value=document.querySelector(`#${id}`).value;if(value)params.set(key,value)}
+  for(const [id,key] of [['partner-channel','channel_id'],['partner-lead-status','lead_status']]){const value=document.querySelector(`#${id}`).value;if(value)params.set(key,value)}
   return params.toString()
 }
 function renderPartnerSummary(){

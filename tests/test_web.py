@@ -366,11 +366,12 @@ def test_partner_cabinet_has_section_seven_controls() -> None:
         "partner-date-to",
         "partner-channel",
         "partner-lead-status",
-        "partner-payment-status",
         "partner-report",
         "partner-contact",
     ):
         assert f'id="{control_id}"' in markup
+    assert 'id="partner-payment-status"' not in markup
+    assert "['partner-payment-status','payment_status']" not in script
     assert "api(`/api/partner/cabinet?${partnerQuery()}`)" in script
     assert "/api/partner/report.xlsx" in script
     assert "function openPartnerLead" in script
