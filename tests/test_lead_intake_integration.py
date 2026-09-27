@@ -1632,6 +1632,9 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
             assert lead_bank.internal_status is BankInternalStatus.PLANNED
             assert lead_bank.selected_by_lead is True
             assert lead_bank.partner_reward_estimate == Decimal("1800.00")
+        planned_metrics = (await partner_cabinet_data(database, ids["partner"]))["metrics"]
+        assert planned_metrics["planned_banks"] == 1
+        assert planned_metrics["opened_banks"] == 0
         async with database.session() as session, session.begin():
             condition = await session.get(BankActivationCondition, ids["bank_condition"])
             condition.active = False
@@ -1652,6 +1655,9 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
             status=BankInternalStatus.AWAITING_ACTIVATION,
         )
         assert lead_bank.activation_condition_snapshot == "Сделать оборот 3 000 ₽"
+        awaiting_metrics = (await partner_cabinet_data(database, ids["partner"]))["metrics"]
+        assert awaiting_metrics["planned_banks"] == 0
+        assert awaiting_metrics["opened_banks"] == 0
         async with database.session() as session, session.begin():
             condition = await session.get(BankActivationCondition, ids["bank_condition"])
             condition.action_text = "Новое условие для будущих счетов"
@@ -1671,6 +1677,9 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
             lead_bank_id=lead_bank.id,
             status=BankInternalStatus.ACCOUNT_OPENED,
         )
+        activated_metrics = (await partner_cabinet_data(database, ids["partner"]))["metrics"]
+        assert activated_metrics["planned_banks"] == 0
+        assert activated_metrics["opened_banks"] == 1
         with pytest.raises(DomainError, match="причину"):
             await workflow.update_lead_bank(
                 actor_role=UserRole.ADMIN,

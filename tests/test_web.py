@@ -401,8 +401,8 @@ def test_partner_summary_uses_clear_application_and_payment_metrics() -> None:
     for label in (
         "Всего заявок",
         "Заявки в работе",
-        "Счета в процессе открытия",
-        "Активированные счета",
+        "Планируется счетов",
+        "Активированных счетов",
     ):
         assert label in script
     assert "metrics.last_payout" in script
@@ -412,6 +412,12 @@ def test_partner_summary_uses_clear_application_and_payment_metrics() -> None:
     assert "Новые заявки" not in script
     assert "Подтверждено к выплате" not in markup
     assert "Конверсия" not in markup
+
+
+def test_manager_lead_card_hides_source_but_admin_keeps_it() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "${managerRole?'':`<div class=\"value-row\"><span>Источник</span>" in script
 
 
 def test_partner_metrics_include_only_banks_selected_by_leads() -> None:

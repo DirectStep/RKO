@@ -305,10 +305,7 @@ async def partner_cabinet_data(
         for bank in lead_item["banks"]:
             if bank["status"] == BankExternalStatus.OPENED.value:
                 opened_banks += 1
-            if bank["status"] in {
-                BankExternalStatus.PLANNED.value,
-                BankExternalStatus.IN_PROGRESS.value,
-            }:
+            if bank["display_status"] == BankInternalStatus.PLANNED.value:
                 planned_banks += 1
             status = PaymentStatus(bank["payment_status"])
             estimate = Decimal(bank["reward_estimate"])
