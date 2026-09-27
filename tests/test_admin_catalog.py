@@ -1,7 +1,10 @@
 from decimal import Decimal
+from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 
+from app.domain.enums import UserRole
 from app.domain.operations import DomainError
 from app.services.admin_catalog import AdminCatalogService
 
@@ -32,3 +35,31 @@ def test_parse_telegram_username(value: str, expected: str | None) -> None:
 def test_parse_telegram_username_rejects_invalid_values(value: str) -> None:
     with pytest.raises(DomainError):
         AdminCatalogService.parse_telegram_username(value)
+
+
+@pytest.mark.asyncio
+async def test_restore_partner_reenables_existing_partner() -> None:
+    partner = SimpleNamespace(id=uuid4(), active=False)
+
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        def begin(self):
+            return self
+
+        async def scalar(self, _query):
+            return partner
+
+    service = AdminCatalogService(SimpleNamespace(session=Session))
+    restored = await service.restore_partner(actor_role=UserRole.ADMIN, partner_id=partner.id)
+
+    assert restored is partner
+    assert partner.active is True
+    with pytest.raises(DomainError, match="уже активен"):
+        await service.restore_partner(actor_role=UserRole.ADMIN, partner_id=partner.id)
+    with pytest.raises(DomainError, match="администратору"):
+        await service.restore_partner(actor_role=UserRole.PARTNER, partner_id=partner.id)

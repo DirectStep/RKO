@@ -127,6 +127,19 @@ class AdminCatalogService:
             partner.active = not partner.active
             return partner
 
+    async def restore_partner(self, *, actor_role: UserRole, partner_id: UUID) -> Partner:
+        self._require_admin(actor_role)
+        async with self.database.session() as session, session.begin():
+            partner = await session.scalar(
+                select(Partner).where(Partner.id == partner_id).with_for_update()
+            )
+            if partner is None:
+                raise DomainError("Партнёр не найден")
+            if partner.active:
+                raise DomainError("Партнёр уже активен")
+            partner.active = True
+            return partner
+
     async def update_partner_commission(
         self,
         *,

@@ -168,6 +168,14 @@ def test_partner_commission_is_visible_and_editable() -> None:
     assert "document.querySelector('#save-commission').hidden=true" not in script
 
 
+def test_inactive_partner_has_restore_control() -> None:
+    script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert 'id="restore-partner"' in script
+    assert "p.active?'<section class=\"destructive-section\"" in script
+    assert "`/api/partners/${id}/restore`" in script
+
+
 def test_admin_partner_activation_and_lead_filters_are_present() -> None:
     markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")

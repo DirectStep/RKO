@@ -1935,6 +1935,21 @@ def create_web_app(
             ),
         }
 
+    @app.post("/api/partners/{partner_id}/restore")
+    async def restore_partner(
+        partner_id: UUID,
+        user: Annotated[MiniAppUser, Depends(current_user)],
+    ) -> dict[str, object]:
+        require_admin(user)
+        try:
+            partner = await AdminCatalogService(database).restore_partner(
+                actor_role=user.role,
+                partner_id=partner_id,
+            )
+        except DomainError as error:
+            raise domain_error(error) from error
+        return {"id": str(partner.id), "active": partner.active, "message": "Партнёр восстановлен"}
+
     @app.get("/api/staff")
     async def staff(
         user: Annotated[MiniAppUser, Depends(current_user)],
