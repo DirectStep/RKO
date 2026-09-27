@@ -22,6 +22,7 @@ from app.domain.enums import (
 from app.domain.operations import DomainError
 from app.models import (
     Bank,
+    BankActivationCondition,
     BankRate,
     Channel,
     DuplicateLeadReview,
@@ -1531,8 +1532,21 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
                 synced_at=now,
             )
             session.add(rate)
+            condition = BankActivationCondition(
+                bank_name=bank.name,
+                normalized_bank_name=bank.name.casefold(),
+                action_text="Сделать оборот 3 000 ₽",
+                source_sheets=["Оборот"],
+                payout_text="Уточняется",
+                active=True,
+                display_order=1,
+                source_row=2,
+                synced_at=now,
+            )
+            session.add(condition)
             await session.flush()
             ids["bank_rate"] = rate.id
+            ids["bank_condition"] = condition.id
             lead = Lead(
                 short_id=f"FLOW-{suffix}",
                 telegram_id=f"6{suffix}",
@@ -1618,11 +1632,38 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
             assert lead_bank.internal_status is BankInternalStatus.PLANNED
             assert lead_bank.selected_by_lead is True
             assert lead_bank.partner_reward_estimate == Decimal("1800.00")
+        async with database.session() as session, session.begin():
+            condition = await session.get(BankActivationCondition, ids["bank_condition"])
+            condition.active = False
+        with pytest.raises(DomainError, match="условие активации банка"):
+            await workflow.update_lead_bank(
+                actor_role=UserRole.ADMIN,
+                actor_user_id=admin.id,
+                lead_bank_id=lead_bank.id,
+                status=BankInternalStatus.AWAITING_ACTIVATION,
+            )
+        async with database.session() as session, session.begin():
+            condition = await session.get(BankActivationCondition, ids["bank_condition"])
+            condition.active = True
         lead_bank = await workflow.update_lead_bank(
             actor_role=UserRole.ADMIN,
             actor_user_id=admin.id,
             lead_bank_id=lead_bank.id,
             status=BankInternalStatus.AWAITING_ACTIVATION,
+        )
+        assert lead_bank.activation_condition_snapshot == "Сделать оборот 3 000 ₽"
+        async with database.session() as session, session.begin():
+            condition = await session.get(BankActivationCondition, ids["bank_condition"])
+            condition.action_text = "Новое условие для будущих счетов"
+            rate = await session.get(BankRate, ids["bank_rate"])
+            rate.base_payout = Decimal("15000.00")
+        async with database.session() as session:
+            frozen = await session.get(LeadBank, lead_bank.id)
+            assert frozen.bank_income_estimate == Decimal("12000.00")
+            assert frozen.activation_condition_snapshot == "Сделать оборот 3 000 ₽"
+        frozen_partner_data = await partner_cabinet_data(database, ids["partner"])
+        assert frozen_partner_data["leads"][0]["banks"][0]["action_text"] == (
+            "Сделать оборот 3 000 ₽"
         )
         lead_bank = await workflow.update_lead_bank(
             actor_role=UserRole.ADMIN,
@@ -1637,11 +1678,17 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
                 lead_bank_id=lead_bank.id,
                 status=BankInternalStatus.CUT,
             )
+        with pytest.raises(DomainError, match="Google Sheets"):
+            await workflow.update_lead_bank(
+                actor_role=UserRole.ADMIN,
+                actor_user_id=manager.id,
+                lead_bank_id=lead_bank.id,
+                income_estimate=Decimal("12000.00"),
+            )
         lead_bank = await workflow.update_lead_bank(
             actor_role=UserRole.ADMIN,
             actor_user_id=manager.id,
             lead_bank_id=lead_bank.id,
-            income_estimate=Decimal("12000.00"),
             income_fact=Decimal("10000.00"),
         )
         assert lead_bank.partner_reward_estimate == Decimal("1800.00")
@@ -1758,6 +1805,12 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
                 await session.execute(delete(Partner).where(Partner.id == ids["partner"]))
             if "bank_rate" in ids:
                 await session.execute(delete(BankRate).where(BankRate.id == ids["bank_rate"]))
+            if "bank_condition" in ids:
+                await session.execute(
+                    delete(BankActivationCondition).where(
+                        BankActivationCondition.id == ids["bank_condition"]
+                    )
+                )
             if "bank" in ids:
                 await session.execute(delete(Bank).where(Bank.id == ids["bank"]))
             user_ids = [ids[key] for key in ("admin", "manager", "partner_user") if ids.get(key)]

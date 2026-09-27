@@ -1,4 +1,5 @@
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -6,6 +7,7 @@ import pytest
 from app.domain.enums import UserRole
 from app.domain.operations import DomainError
 from app.integrations.bank_rates import BankRateRow, BankRatesGateway, parse_bank_rate_rows
+from app.services.bank_rates import apply_pending_rate
 from app.services.workflow import WorkflowService
 
 
@@ -125,6 +127,37 @@ async def test_manager_cannot_change_bank_financial_fields() -> None:
             lead_bank_id=uuid4(),
             income_estimate=Decimal("1000"),
         )
+
+
+@pytest.mark.asyncio
+async def test_admin_cannot_change_sheet_forecast() -> None:
+    service = object.__new__(WorkflowService)
+    with pytest.raises(DomainError, match="Google Sheets"):
+        await service.update_lead_bank(
+            actor_role=UserRole.ADMIN,
+            actor_user_id=uuid4(),
+            lead_bank_id=uuid4(),
+            income_estimate=Decimal("1000"),
+        )
+
+
+def test_pending_rate_updates_all_estimates_without_touching_actuals() -> None:
+    lead_bank = SimpleNamespace(bank_income_fact=Decimal("9000"), lead_reward_fact=None)
+    rate = SimpleNamespace(
+        id=uuid4(),
+        base_payout=Decimal("10000"),
+        lead_payout=Decimal("5000"),
+        lead_payout_paid_separately=True,
+    )
+
+    apply_pending_rate(lead_bank, rate, Decimal("20"))
+
+    assert lead_bank.bank_rate_id == rate.id
+    assert lead_bank.bank_income_estimate == Decimal("10000")
+    assert lead_bank.lead_reward_estimate == Decimal("5000")
+    assert lead_bank.partner_reward_estimate == Decimal("2000.00")
+    assert lead_bank.team_profit_estimate == Decimal("8000.00")
+    assert lead_bank.bank_income_fact == Decimal("9000")
 
 
 class FakeWorksheet:

@@ -20,7 +20,19 @@ from app.domain.enums import (
 from app.domain.operations import DomainError, confirm_payment, validate_payment_transition
 from app.domain.partner_economics import partner_reward
 from app.domain.statuses import external_bank_status, external_lead_status
-from app.models import Bank, BankRate, DuplicateLeadReview, Lead, LeadBank, Partner, Payment, User
+from app.models import (
+    Bank,
+    BankActivationCondition,
+    BankRate,
+    DuplicateLeadReview,
+    Lead,
+    LeadBank,
+    Partner,
+    Payment,
+    User,
+)
+from app.services.bank_conditions import normalize_bank_name
+from app.services.bank_rates import apply_pending_rate
 
 
 class WorkflowService:
@@ -461,6 +473,8 @@ class WorkflowService:
             income_estimate is not None or income_fact is not None
         ):
             raise DomainError("Менеджер не может изменять финансовые данные")
+        if income_estimate is not None:
+            raise DomainError("Прогнозная ставка берётся из Google Sheets и не редактируется")
         bank_decisions = {
             BankInternalStatus.AWAITING_ACTIVATION,
             BankInternalStatus.ACCOUNT_OPENED,
@@ -543,6 +557,43 @@ class WorkflowService:
             if actor_role is UserRole.MANAGER and lead.manager_id != actor_user_id:
                 raise DomainError("Эта заявка закреплена за другим менеджером")
             if status is not None:
+                if status is BankInternalStatus.AWAITING_ACTIVATION:
+                    rate = await session.scalar(
+                        select(BankRate).where(
+                            BankRate.bank_id == lead_bank.bank_id,
+                            BankRate.active.is_(True),
+                        )
+                    )
+                    bank = await session.get(Bank, lead_bank.bank_id)
+                    condition = (
+                        await session.scalar(
+                            select(BankActivationCondition).where(
+                                BankActivationCondition.normalized_bank_name
+                                == normalize_bank_name(bank.name),
+                                BankActivationCondition.active.is_(True),
+                            )
+                        )
+                        if bank is not None
+                        else None
+                    )
+                    if rate is None:
+                        raise DomainError(
+                            "Счёт не отмечен открытым: актуальная ставка банка "
+                            "не загружена из Google Sheets"
+                        )
+                    if condition is None or not condition.action_text.strip():
+                        raise DomainError(
+                            "Счёт не отмечен открытым: условие активации банка "
+                            "не загружено из Google Sheets"
+                        )
+                    apply_pending_rate(
+                        lead_bank,
+                        rate,
+                        (lead_bank.partner_percent_snapshot or lead.partner_percent_snapshot)
+                        if lead.partner_id is not None
+                        else None,
+                    )
+                    lead_bank.activation_condition_snapshot = condition.action_text
                 if status in closing_statuses:
                     payment = await session.scalar(
                         select(Payment)
@@ -570,24 +621,6 @@ class WorkflowService:
                         payment.internal_comment = close_reason.strip() if close_reason else None
             if reoffer_to_lead is not None:
                 lead_bank.selected_by_lead = not reoffer_to_lead
-            if income_estimate is not None:
-                lead_bank.bank_income_estimate = income_estimate
-                lead_bank.partner_reward_estimate = (
-                    self._reward(
-                        income_estimate,
-                        lead_bank.lead_reward_estimate,
-                        lead_bank.partner_percent_snapshot,
-                        lead_reward_paid_separately=lead_bank.lead_reward_paid_separately,
-                    )
-                    if lead_bank.partner_percent_snapshot is not None
-                    else None
-                )
-                lead_bank.team_profit_estimate = self._team_profit(
-                    income=income_estimate,
-                    partner_reward=lead_bank.partner_reward_estimate,
-                    lead_reward=lead_bank.lead_reward_estimate,
-                    lead_reward_paid_separately=lead_bank.lead_reward_paid_separately,
-                )
             if income_fact is not None:
                 lead_bank.bank_income_fact = income_fact
                 lead_bank.partner_reward_fact = (

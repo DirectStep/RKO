@@ -785,7 +785,8 @@ def test_archived_admin_keeps_financial_read_access_without_edit_actions() -> No
     )[0]
     assert "bankCard(x,editable,admin,canUseBankQuickActions)" in script
     assert "const economics=admin?" in card
-    assert "const financialEditable=admin&&employee" in card
+    assert "const factEditable=admin&&employee" in card
+    assert 'data-estimate' not in card
     assert "const confirm=admin&&employee" in card
 
 

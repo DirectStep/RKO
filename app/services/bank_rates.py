@@ -4,10 +4,34 @@ from decimal import Decimal
 from sqlalchemy import select
 
 from app.database import Database
+from app.domain.enums import BankInternalStatus
 from app.domain.partner_economics import partner_reward as calculate_partner_reward
 from app.integrations.bank_rates import BankRateRow
 from app.models import Bank, BankRate, Lead, LeadBank
 from app.services.bank_conditions import normalize_bank_name
+
+
+def apply_pending_rate(lead_bank: LeadBank, rate: BankRate, percent: Decimal | None) -> None:
+    partner_reward = (
+        calculate_partner_reward(
+            rate.base_payout,
+            rate.lead_payout,
+            percent,
+            lead_reward_paid_separately=rate.lead_payout_paid_separately,
+        )
+        if percent is not None
+        else None
+    )
+    profit = rate.base_payout - (partner_reward or Decimal("0"))
+    if not rate.lead_payout_paid_separately:
+        profit -= rate.lead_payout
+    lead_bank.bank_rate_id = rate.id
+    lead_bank.bank_income_estimate = rate.base_payout
+    lead_bank.partner_percent_snapshot = percent
+    lead_bank.partner_reward_estimate = partner_reward
+    lead_bank.lead_reward_estimate = rate.lead_payout
+    lead_bank.team_profit_estimate = profit.quantize(Decimal("0.01"))
+    lead_bank.lead_reward_paid_separately = rate.lead_payout_paid_separately
 
 
 class BankRatesService:
@@ -72,7 +96,8 @@ class BankRatesService:
                 rate.synced_at = synced_at
                 await session.flush()
                 seen_rate_ids.add(rate.id)
-                current_rates_by_bank[bank.id] = rate
+                if row.active:
+                    current_rates_by_bank[bank.id] = rate
 
             for rate in rates:
                 if rate.id not in seen_rate_ids:
@@ -81,37 +106,31 @@ class BankRatesService:
                     if bank is not None:
                         bank.active = False
 
-            unsnapshotted = list(
-                await session.scalars(select(LeadBank).where(LeadBank.bank_rate_id.is_(None)))
+            pending = list(
+                await session.scalars(
+                    select(LeadBank)
+                    .where(
+                        LeadBank.internal_status == BankInternalStatus.PLANNED,
+                        LeadBank.account_opened_at.is_(None),
+                    )
+                    .with_for_update()
+                )
             )
-            for lead_bank in unsnapshotted:
+            for lead_bank in pending:
                 rate = current_rates_by_bank.get(lead_bank.bank_id)
                 if rate is None:
+                    lead_bank.bank_rate_id = None
+                    lead_bank.bank_income_estimate = None
+                    lead_bank.lead_reward_estimate = None
+                    lead_bank.partner_reward_estimate = None
+                    lead_bank.team_profit_estimate = None
+                    lead_bank.lead_reward_paid_separately = False
                     continue
                 lead = await session.get(Lead, lead_bank.lead_id)
                 percent = (
-                    lead.partner_percent_snapshot
+                    lead_bank.partner_percent_snapshot or lead.partner_percent_snapshot
                     if lead is not None and lead.partner_id is not None
                     else None
                 )
-                partner_reward = (
-                    calculate_partner_reward(
-                        rate.base_payout,
-                        rate.lead_payout,
-                        percent,
-                        lead_reward_paid_separately=rate.lead_payout_paid_separately,
-                    )
-                    if percent is not None
-                    else None
-                )
-                profit = rate.base_payout - (partner_reward or Decimal("0"))
-                if not rate.lead_payout_paid_separately:
-                    profit -= rate.lead_payout
-                lead_bank.bank_rate_id = rate.id
-                lead_bank.bank_income_estimate = rate.base_payout
-                lead_bank.partner_percent_snapshot = percent
-                lead_bank.partner_reward_estimate = partner_reward
-                lead_bank.lead_reward_estimate = rate.lead_payout
-                lead_bank.team_profit_estimate = profit.quantize(Decimal("0.01"))
-                lead_bank.lead_reward_paid_separately = rate.lead_payout_paid_separately
+                apply_pending_rate(lead_bank, rate, percent)
         return len(rows)

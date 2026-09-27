@@ -925,7 +925,11 @@ def create_web_app(
                         "paid" if lead_bank.lead_reward_paid_at is not None else "pending"
                     ),
                     "action_text": (
-                        condition.action_text if condition is not None and condition.active else ""
+                        lead_bank.activation_condition_snapshot
+                        if lead_bank.activation_condition_snapshot is not None
+                        else condition.action_text
+                        if condition is not None and condition.active
+                        else ""
                     ),
                     "source_sheets": (
                         condition.source_sheets
@@ -1459,7 +1463,13 @@ def create_web_app(
                 lead_bank, bank, payment, user.role, rates_by_bank.get(bank.id)
             )
             condition = conditions_by_name.get(normalize_bank_name(bank.name))
-            serialized["action_text"] = condition.action_text if condition else ""
+            serialized["action_text"] = (
+                lead_bank.activation_condition_snapshot
+                if lead_bank.activation_condition_snapshot is not None
+                else condition.action_text
+                if condition is not None and condition.active
+                else ""
+            )
             serialized["payout_text"] = condition.payout_text if condition else "Уточняется"
             banks.append(serialized)
         if user.role is UserRole.PARTNER:

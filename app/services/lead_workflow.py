@@ -1,5 +1,4 @@
 from datetime import UTC, datetime
-from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import or_, select
@@ -12,9 +11,9 @@ from app.domain.enums import (
     UserRole,
 )
 from app.domain.operations import DomainError
-from app.domain.partner_economics import partner_reward
 from app.domain.statuses import external_bank_status, external_lead_status
-from app.models import Lead, LeadBank
+from app.models import BankRate, Lead, LeadBank
+from app.services.bank_rates import apply_pending_rate
 
 
 class LeadWorkflowService:
@@ -119,26 +118,28 @@ class LeadWorkflowService:
                         )
                         lead_bank.closed_without_open_at = None
                         lead_bank.account_opened_at = None
+                        lead_bank.activation_condition_snapshot = None
                         lead_bank.close_reason = None
-                        if (
-                            lead_bank.bank_income_estimate is not None
-                            and lead_bank.partner_percent_snapshot is not None
-                        ):
-                            lead_bank.partner_reward_estimate = partner_reward(
-                                lead_bank.bank_income_estimate,
-                                lead_bank.lead_reward_estimate,
-                                lead_bank.partner_percent_snapshot,
-                                lead_reward_paid_separately=lead_bank.lead_reward_paid_separately,
+                        current_rate = await session.scalar(
+                            select(BankRate).where(
+                                BankRate.bank_id == lead_bank.bank_id,
+                                BankRate.active.is_(True),
                             )
-                            lead_bank.team_profit_estimate = (
-                                lead_bank.bank_income_estimate
-                                - (lead_bank.partner_reward_estimate or Decimal("0"))
-                                - (
-                                    Decimal("0")
-                                    if lead_bank.lead_reward_paid_separately
-                                    else lead_bank.lead_reward_estimate or Decimal("0")
-                                )
-                            ).quantize(Decimal("0.01"))
+                        )
+                        if current_rate is not None:
+                            apply_pending_rate(
+                                lead_bank,
+                                current_rate,
+                                lead_bank.partner_percent_snapshot
+                                or lead.partner_percent_snapshot,
+                            )
+                        else:
+                            lead_bank.bank_rate_id = None
+                            lead_bank.bank_income_estimate = None
+                            lead_bank.lead_reward_estimate = None
+                            lead_bank.partner_reward_estimate = None
+                            lead_bank.team_profit_estimate = None
+                            lead_bank.lead_reward_paid_separately = False
                         lead_bank.partner_reward_fact = None
                         lead_bank.team_profit_fact = None
                         lead_bank.last_updated_at = now

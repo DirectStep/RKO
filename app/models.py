@@ -390,6 +390,7 @@ class LeadBank(Base):
     review_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revision_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     account_opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    activation_condition_snapshot: Mapped[str | None] = mapped_column(Text)
     opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_without_open_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     close_reason: Mapped[str | None] = mapped_column(Text)

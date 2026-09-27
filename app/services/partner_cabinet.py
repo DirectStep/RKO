@@ -164,8 +164,12 @@ async def partner_cabinet_data(
                 .order_by(Lead.application_at.desc(), Bank.name)
             )
         )
-        rates = list(await session.scalars(select(BankRate)))
-        conditions = list(await session.scalars(select(BankActivationCondition)))
+        rates = list(await session.scalars(select(BankRate).where(BankRate.active.is_(True))))
+        conditions = list(
+            await session.scalars(
+                select(BankActivationCondition).where(BankActivationCondition.active.is_(True))
+            )
+        )
     rates_by_bank = {rate.bank_id: rate for rate in rates}
     conditions_by_name = {condition.normalized_bank_name: condition for condition in conditions}
 
@@ -264,7 +268,9 @@ async def partner_cabinet_data(
                 "online_available": online_available,
                 "online_help": online_help,
                 "action_text": (
-                    conditions_by_name[normalize_bank_name(bank.name)].action_text
+                    lead_bank.activation_condition_snapshot
+                    if lead_bank.activation_condition_snapshot is not None
+                    else conditions_by_name[normalize_bank_name(bank.name)].action_text
                     if normalize_bank_name(bank.name) in conditions_by_name
                     else ""
                 ),
