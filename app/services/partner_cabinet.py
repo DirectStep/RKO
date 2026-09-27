@@ -77,7 +77,7 @@ class PartnerMetrics(TypedDict):
     opened_banks: int
     planned_banks: int
     estimated_payout: str
-    last_payout: str
+    expected_payout: str
     paid: str
 
 
@@ -177,7 +177,28 @@ async def partner_cabinet_data(
 
     grouped: dict[UUID, _LeadAccumulator] = {}
     normalized_search = search.strip().lower()
+    expected_total = Decimal("0")
     for lead, channel, lead_bank, bank, payment in rows:
+        if lead_bank is not None:
+            effective_payment_status = payment.status if payment else PaymentStatus.NOT_CALCULATED
+            estimate = _money(lead_bank.partner_reward_estimate)
+            lead_estimate = _money(lead_bank.lead_reward_estimate)
+            actual = _money(
+                payment.partner_reward_fact
+                if payment and payment.partner_reward_fact is not None
+                else lead_bank.partner_reward_fact
+            )
+            projected = actual if lead_bank.partner_reward_fact is not None else estimate
+            eligible = (
+                lead_bank.selected_by_lead is True
+                and lead_bank.internal_status not in NO_PAYOUT_STATUSES
+            )
+            settled = (
+                effective_payment_status is PaymentStatus.PAID
+                and (payment.partner_notification_sent_at is not None if payment else False)
+            )
+            if eligible and not settled:
+                expected_total += projected
         if not _in_period(lead.application_at, date_from, date_to):
             continue
         if channel_id is not None and channel.id != channel_id:
@@ -214,25 +235,8 @@ async def partner_cabinet_data(
             continue
         if lead_bank.selected_by_lead is True:
             item.progress_banks.append(lead_bank)
-        effective_payment_status = payment.status if payment else PaymentStatus.NOT_CALCULATED
         if payment_status is not None and effective_payment_status is not payment_status:
             continue
-        estimate = _money(lead_bank.partner_reward_estimate)
-        lead_estimate = _money(lead_bank.lead_reward_estimate)
-        actual = _money(
-            payment.partner_reward_fact
-            if payment and payment.partner_reward_fact is not None
-            else lead_bank.partner_reward_fact
-        )
-        projected = actual if lead_bank.partner_reward_fact is not None else estimate
-        eligible = (
-            lead_bank.selected_by_lead is True
-            and lead_bank.internal_status not in NO_PAYOUT_STATUSES
-        )
-        settled = (
-            effective_payment_status is PaymentStatus.PAID
-            and (payment.partner_notification_sent_at is not None if payment else False)
-        )
         pending = (
             projected if eligible and not settled
             else Decimal("0")
@@ -313,7 +317,6 @@ async def partner_cabinet_data(
     opened_banks = 0
     planned_banks = 0
     paid = Decimal("0")
-    paid_by_date: defaultdict[date, Decimal] = defaultdict(lambda: Decimal("0"))
     for lead_item in leads:
         for bank in lead_item["banks"]:
             if bank["status"] == BankExternalStatus.OPENED.value:
@@ -325,9 +328,6 @@ async def partner_cabinet_data(
             actual = Decimal(bank["reward_fact"])
             if status is PaymentStatus.PAID:
                 paid += actual
-                if bank["paid_at"]:
-                    paid_by_date[date.fromisoformat(bank["paid_at"])] += actual
-    last_payout = paid_by_date[max(paid_by_date)] if paid_by_date else Decimal("0")
     metrics: PartnerMetrics = {
         "total": len(leads),
         "new": sum(
@@ -349,7 +349,7 @@ async def partner_cabinet_data(
         "estimated_payout": str(
             sum((Decimal(lead_item["ready_payout"]) for lead_item in leads), Decimal("0"))
         ),
-        "last_payout": str(last_payout),
+        "expected_payout": str(expected_total),
         "paid": str(paid),
     }
     return {

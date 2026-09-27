@@ -391,8 +391,8 @@ def test_partner_summary_uses_clear_application_and_payment_metrics() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 
     for label in (
+        "Ожидаемая выплата",
         "К выплате",
-        "Последняя выплата",
         "Выплачено всего",
         "Завершённые заявки",
         "Отменённые заявки",
@@ -405,7 +405,9 @@ def test_partner_summary_uses_clear_application_and_payment_metrics() -> None:
         "Активированных счетов",
     ):
         assert label in script
-    assert "metrics.last_payout" in script
+    assert "metrics.expected_payout" in script
+    assert "metrics.last_payout" not in script
+    assert "Последняя выплата" not in markup
     assert "metrics.cancelled" in script
     assert "partnerRole&&index===0" in script
     assert "partner-stat-grid" in script
@@ -557,9 +559,9 @@ def test_partner_paid_total_is_the_first_full_width_metric() -> None:
     markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
 
     paid = markup.index('class="metric-wide"><span>Выплачено всего')
-    expected = markup.index("К выплате")
-    last = markup.index("Последняя выплата")
-    assert paid < expected < last
+    expected = markup.index("Ожидаемая выплата")
+    ready = markup.index("К выплате")
+    assert paid < expected < ready
 
 
 def test_financial_fields_are_split_by_role_in_mini_app() -> None:

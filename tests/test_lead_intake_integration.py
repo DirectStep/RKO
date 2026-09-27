@@ -1728,6 +1728,7 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
         assert lead_bank.opened_at is not None
         before_lead_payment = await partner_cabinet_data(database, ids["partner"])
         assert before_lead_payment["metrics"]["estimated_payout"] == "0"
+        assert before_lead_payment["metrics"]["expected_payout"] == "1800.00"
 
         lead_bank = await workflow.confirm_lead_reward_payment(
             actor_role=UserRole.ADMIN,
@@ -1749,6 +1750,7 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
 
         partner_data = await partner_cabinet_data(database, ids["partner"])
         assert partner_data["metrics"]["estimated_payout"] == "1440.00"
+        assert partner_data["metrics"]["expected_payout"] == "1440.00"
         assert partner_data["leads"][0]["application_status"] == "completed"
         assert partner_data["leads"][0]["bank_progress"] == {
             "opened": 1,
@@ -1763,6 +1765,9 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
         assert not (
             await partner_cabinet_data(database, ids["partner"], lead_status="opening_accounts")
         )["leads"]
+        assert (
+            await partner_cabinet_data(database, ids["partner"], lead_status="opening_accounts")
+        )["metrics"]["expected_payout"] == "1440.00"
 
         payment = await workflow.confirm_lead_bank_payment(
             actor_role=UserRole.ADMIN,
@@ -1775,6 +1780,7 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
         assert payment.status is PaymentStatus.CONFIRMED
         after_confirmation = await partner_cabinet_data(database, ids["partner"])
         assert after_confirmation["metrics"]["estimated_payout"] == "0"
+        assert after_confirmation["metrics"]["expected_payout"] == "1440.00"
         payment = await workflow.change_payment_status(
             actor_role=UserRole.ADMIN,
             payment_id=payment.id,
@@ -1800,7 +1806,7 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
         metrics = partner_data["metrics"]
         assert all("username" not in item for item in partner_data["leads"])
         assert metrics["estimated_payout"] == "0"
-        assert metrics["last_payout"] == "1440.00"
+        assert metrics["expected_payout"] == "0"
         assert metrics["paid"] == "1440.00"
         from io import BytesIO
 

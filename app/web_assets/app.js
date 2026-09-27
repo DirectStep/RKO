@@ -122,8 +122,8 @@ function renderPartnerSummary(){
   const metrics=state.partnerData.metrics
   document.querySelector('#partner-summary').hidden=false
   document.querySelector('#partner-filters').hidden=false
-  document.querySelector('#partner-estimated').textContent=money(metrics.estimated_payout)
-  document.querySelector('#partner-last-paid').textContent=money(metrics.last_payout)
+  document.querySelector('#partner-expected').textContent=money(metrics.expected_payout)
+  document.querySelector('#partner-ready').textContent=money(metrics.estimated_payout)
   document.querySelector('#partner-paid').textContent=money(metrics.paid)
   document.querySelector('#partner-completed').textContent=metrics.completed
   document.querySelector('#partner-cancelled').textContent=metrics.cancelled

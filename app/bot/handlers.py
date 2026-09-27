@@ -427,8 +427,8 @@ async def partner_summary(callback: CallbackQuery, database: Database, settings:
         f"Заявки в работе: {metrics['active']}\n"
         f"Счета в процессе открытия: {metrics['planned_banks']}\n"
         f"Активированные счета: {metrics['opened_banks']}\n"
-        f"Ожидаемая выплата: {metrics['estimated_payout']} ₽\n"
-        f"Последняя выплата: {metrics['last_payout']} ₽\n"
+        f"Ожидаемая выплата: {metrics['expected_payout']} ₽\n"
+        f"К выплате: {metrics['estimated_payout']} ₽\n"
         f"Выплачено всего: {metrics['paid']} ₽\n"
         f"Завершённые заявки: {metrics['completed']}\n"
         f"Отменённые заявки: {metrics['cancelled']}",
@@ -501,8 +501,8 @@ async def partner_finances(callback: CallbackQuery, database: Database, settings
         metrics = data["metrics"]
         text = (
             "Выплаты\n\n"
-            f"Ожидается: {metrics['estimated_payout']} ₽\n"
-            f"Последняя выплата: {metrics['last_payout']} ₽\n"
+            f"Ожидается: {metrics['expected_payout']} ₽\n"
+            f"К выплате: {metrics['estimated_payout']} ₽\n"
             f"Выплачено всего: {metrics['paid']} ₽"
         )
     await callback.message.answer(text, reply_markup=partner_menu_keyboard(settings.mini_app_url))
