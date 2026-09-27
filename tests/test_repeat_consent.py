@@ -50,13 +50,17 @@ def repeat_callback() -> SimpleNamespace:
     )
 
 
-def previous_application(*, consent_status: bool) -> SimpleNamespace:
+def previous_application(*, consent_status: bool, offer_accepted: bool = True) -> SimpleNamespace:
     return SimpleNamespace(
         id=uuid4(),
         first_referral_code="channel-code",
         first_click_at=datetime(2026, 8, 20, 10, tzinfo=UTC),
         consent_status=consent_status,
         consent_at=datetime(2026, 8, 20, 10, 5, tzinfo=UTC),
+        offer_accepted_at=(
+            datetime(2026, 9, 27, 10, tzinfo=UTC) if offer_accepted else None
+        ),
+        offer_accepted_version="27.09.2026" if offer_accepted else None,
     )
 
 
@@ -108,7 +112,7 @@ async def test_declined_consent_keeps_old_accept_button_active() -> None:
 
     state.clear.assert_not_awaited()
     message = callback.message.answer.await_args.args[0]
-    assert "нажмите «Продолжить»" in message
+    assert "нажмите «Даю согласие на ПДн»" in message
     assert "/start" in message
 
 
@@ -120,6 +124,7 @@ async def test_registered_lead_reaccepts_consent_and_opens_cabinet() -> None:
     lead.application_at = datetime(2026, 8, 20, 10, tzinfo=UTC)
     lead.workflow_stage = LeadWorkflowStage.ADMIN_PROCESSING
     state = AsyncMock()
+    state.get_data.return_value = {"consent_at": "2026-09-27T10:00:00+00:00"}
     message = SimpleNamespace(edit_reply_markup=AsyncMock(), answer=AsyncMock())
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=123),
@@ -143,8 +148,12 @@ async def test_registered_lead_reaccepts_consent_and_opens_cabinet() -> None:
 
 
 @pytest.mark.asyncio
-async def test_new_lead_acceptance_continues_to_phone_collection() -> None:
+async def test_second_document_acceptance_continues_to_phone_collection() -> None:
     state = AsyncMock()
+    state.get_data.return_value = {
+        "consent_at": "2026-09-27T10:00:00+00:00",
+        "offer_accepted_at": "2026-09-27T10:00:01+00:00",
+    }
     message = SimpleNamespace(edit_reply_markup=AsyncMock(), answer=AsyncMock())
     callback = SimpleNamespace(
         from_user=SimpleNamespace(id=456),

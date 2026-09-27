@@ -186,16 +186,21 @@ def test_rejected_lead_can_start_repeat_application() -> None:
     assert keyboard.inline_keyboard[0][0].callback_data == "application:resubmit"
 
 
-def test_lead_welcome_and_consent_each_have_one_continue_button() -> None:
+def test_lead_welcome_and_consent_have_separate_document_buttons() -> None:
     welcome = continue_keyboard()
     consent = consent_keyboard()
 
     assert len(welcome.inline_keyboard) == 1
     assert welcome.inline_keyboard[0][0].text == "Продолжить"
     assert welcome.inline_keyboard[0][0].callback_data == "application:begin"
-    assert len(consent.inline_keyboard) == 1
-    assert consent.inline_keyboard[0][0].text == "Продолжить"
-    assert consent.inline_keyboard[0][0].callback_data == "consent:accept"
+    assert [row[0].callback_data for row in consent.inline_keyboard] == [
+        "client:accept_offer",
+        "consent:accept",
+    ]
+    assert [row[0].text for row in consent.inline_keyboard] == [
+        "Принимаю оферту",
+        "Даю согласие на ПДн",
+    ]
 
 
 def test_legacy_consent_document_keeps_back_navigation() -> None:

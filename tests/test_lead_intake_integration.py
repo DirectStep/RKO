@@ -136,6 +136,8 @@ async def test_direct_lead_is_assigned_to_xirass_and_anutka() -> None:
             referral_code=None,
             first_click_at=now,
             consent_at=now,
+            offer_accepted_at=now,
+            offer_accepted_version="27.09.2026",
             answers={
                 "adult": "yes",
                 "has_bankruptcy_or_arrests": "no",
@@ -340,6 +342,8 @@ async def test_concurrent_same_phone_creates_lead_and_duplicate_review() -> None
                 referral_code=None,
                 first_click_at=now,
                 consent_at=now,
+                offer_accepted_at=now,
+                offer_accepted_version="27.09.2026",
                 answers={"city": "Москва"},
             ),
             service.submit(
@@ -350,6 +354,8 @@ async def test_concurrent_same_phone_creates_lead_and_duplicate_review() -> None
                 referral_code=None,
                 first_click_at=now,
                 consent_at=now,
+                offer_accepted_at=now,
+                offer_accepted_version="27.09.2026",
                 answers={"city": "Казань"},
             ),
         )
@@ -524,6 +530,8 @@ async def test_partner_cannot_submit_lead_application() -> None:
                 referral_code=None,
                 first_click_at=now,
                 consent_at=now,
+                offer_accepted_at=now,
+                offer_accepted_version="27.09.2026",
                 answers={"adult": "yes"},
             )
 
@@ -593,6 +601,8 @@ async def test_rejected_lead_can_create_linked_repeat_application() -> None:
             referral_code=referral_code,
             first_click_at=now,
             consent_at=now,
+            offer_accepted_at=now,
+            offer_accepted_version="27.09.2026",
             answers={"adult": "no", "full_name": "Иванов Иван Иванович"},
         )
         assert rejected.eligible is False
@@ -607,6 +617,8 @@ async def test_rejected_lead_can_create_linked_repeat_application() -> None:
             referral_code=None,
             first_click_at=now,
             consent_at=now,
+            offer_accepted_at=now,
+            offer_accepted_version="27.09.2026",
             answers={
                 "adult": "yes",
                 "has_bankruptcy_or_arrests": "no",
@@ -686,6 +698,8 @@ async def test_two_stage_lead_claim_and_bank_selection() -> None:
             referral_code=None,
             first_click_at=now,
             consent_at=now,
+            offer_accepted_at=now,
+            offer_accepted_version="27.09.2026",
             answers={
                 "adult": "yes",
                 "has_bankruptcy_or_arrests": "no",
@@ -1026,6 +1040,8 @@ async def test_admin_creates_referral_channel_and_confirms_source() -> None:
             referral_code=channel.referral_code,
             first_click_at=now,
             consent_at=now,
+            offer_accepted_at=now,
+            offer_accepted_version="27.09.2026",
             answers={"city": "Москва"},
         )
         assert result.status is SubmissionStatus.CREATED
@@ -1208,6 +1224,8 @@ async def test_partner_commission_is_frozen_when_lead_is_created() -> None:
                 referral_code=channel.referral_code,
                 first_click_at=now,
                 consent_at=now,
+                offer_accepted_at=now,
+                offer_accepted_version="27.09.2026",
                 answers={"city": "Москва"},
             )
             assert result.status is SubmissionStatus.CREATED
@@ -1848,7 +1866,9 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
             status=BankInternalStatus.AWAITING_ACTIVATION,
         )
         assert opening_bank.internal_status is BankInternalStatus.ACCOUNT_OPENED
-        assert opening_bank.external_status is external_bank_status(BankInternalStatus.ACCOUNT_OPENED)
+        assert opening_bank.external_status is external_bank_status(
+            BankInternalStatus.ACCOUNT_OPENED
+        )
         assert opening_bank.account_opened_at is not None
         assert opening_bank.opened_at is not None
         assert opening_bank.bank_income_estimate == Decimal("15000.00")

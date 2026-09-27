@@ -62,25 +62,28 @@ def consent_prompt(mini_app_url: str) -> str:
     policy_url = f"{public_root}/documents/politika-pdn.pdf"
     offer_url = f"{public_root}/documents/oferta-client-20260927.pdf"
     return (
-        "Нажимая кнопку «Продолжить», я даю "
+        "Нажимая «Принимаю оферту», я принимаю "
+        f'<a href="{offer_url}">Публичную оферту для клиента</a>.\n\n'
+        "Нажимая «Даю согласие на ПДн», я даю "
         f'<a href="{consent_url}">Согласие на обработку персональных данных</a> '
         "и подтверждаю, что ознакомился(-ась) с "
-        f'<a href="{policy_url}">Политикой обработки персональных данных</a>'
-        f'\n\n<a href="{offer_url}">Публичная оферта для клиента</a>'
+        f'<a href="{policy_url}">Политикой обработки персональных данных</a>.'
     )
 
 
 def partner_documents_prompt(mini_app_url: str) -> str:
     public_root = mini_app_url.partition("?")[0].rstrip("/")
     return (
-        "Партнёрский кабинет подключён. Ознакомьтесь с документами:\n\n"
+        "Партнёрский кабинет подключён.\n\n"
+        "Нажимая «Принимаю оферту», я принимаю "
         f'<a href="{public_root}/documents/oferta-partner-20260927.pdf">'
-        "Публичная оферта для партнёра</a>\n"
-        f'<a href="{public_root}/documents/politika-pdn.pdf">'
-        "Политика обработки персональных данных</a>\n"
+        "Публичную оферту для партнёра</a>.\n\n"
+        "Нажимая «Даю согласие на ПДн», я даю "
         f'<a href="{public_root}/documents/soglasie-pdn.pdf">'
-        "Согласие на обработку персональных данных</a>\n\n"
-        "Оферту и согласие на обработку данных подтвердите отдельными кнопками. "
+        "Согласие на обработку персональных данных</a> и подтверждаю, что "
+        "ознакомился(-ась) с "
+        f'<a href="{public_root}/documents/politika-pdn.pdf">'
+        "Политикой обработки персональных данных</a>.\n\n"
         "Кабинет уже доступен."
     )
 

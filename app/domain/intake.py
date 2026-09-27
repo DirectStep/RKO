@@ -2,6 +2,8 @@ import re
 from dataclasses import dataclass
 from enum import StrEnum
 
+CLIENT_OFFER_VERSION = "27.09.2026"
+
 
 class QuestionKind(StrEnum):
     YES_NO = "yes_no"

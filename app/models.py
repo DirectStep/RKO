@@ -186,6 +186,8 @@ class Lead(Base):
     inn_draft: Mapped[str | None] = mapped_column(String(120))
     consent_status: Mapped[bool] = mapped_column(Boolean, nullable=False)
     consent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    offer_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    offer_accepted_version: Mapped[str | None] = mapped_column(String(20))
     first_referral_code: Mapped[str | None] = mapped_column(String(64))
     proposed_partner_id: Mapped[UUID | None] = mapped_column(ForeignKey("partners.id"))
     proposed_channel_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
@@ -266,6 +268,8 @@ class DuplicateLeadReview(Base):
     referral_code: Mapped[str | None] = mapped_column(String(64))
     questionnaire_answers: Mapped[dict[str, str]] = mapped_column(JSONB, nullable=False)
     consent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    offer_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    offer_accepted_version: Mapped[str | None] = mapped_column(String(20))
     first_click_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     review_status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="pending", server_default="pending"

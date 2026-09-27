@@ -55,14 +55,15 @@ def test_consent_prompt_links_client_offer_and_privacy_documents() -> None:
     prompt = consent_prompt("https://app.example.test/?v=1")
 
     assert prompt == (
-        "Нажимая кнопку «Продолжить», я даю "
+        "Нажимая «Принимаю оферту», я принимаю "
+        '<a href="https://app.example.test/documents/oferta-client-20260927.pdf">'
+        "Публичную оферту для клиента</a>.\n\n"
+        "Нажимая «Даю согласие на ПДн», я даю "
         '<a href="https://app.example.test/documents/soglasie-pdn.pdf">'
         "Согласие на обработку персональных данных</a> и подтверждаю, что "
         "ознакомился(-ась) с "
         '<a href="https://app.example.test/documents/politika-pdn.pdf">'
-        "Политикой обработки персональных данных</a>"
-        '\n\n<a href="https://app.example.test/documents/oferta-client-20260927.pdf">'
-        "Публичная оферта для клиента</a>"
+        "Политикой обработки персональных данных</a>."
     )
 
 
@@ -73,6 +74,8 @@ def test_partner_documents_are_linked_and_confirmed_separately() -> None:
     assert 'href="https://app.example.test/documents/oferta-partner-20260927.pdf"' in prompt
     assert 'href="https://app.example.test/documents/politika-pdn.pdf"' in prompt
     assert 'href="https://app.example.test/documents/soglasie-pdn.pdf"' in prompt
+    assert "Нажимая «Принимаю оферту», я принимаю" in prompt
+    assert "Нажимая «Даю согласие на ПДн», я даю" in prompt
     assert keyboard is not None
     assert [row[0].callback_data for row in keyboard.inline_keyboard] == [
         "partner:accept_offer",

@@ -41,6 +41,7 @@ from app.config import Settings
 from app.database import Database
 from app.domain.enums import AccessStatus, LeadWorkflowStage, UserRole
 from app.domain.intake import (
+    CLIENT_OFFER_VERSION,
     QUESTIONS,
     QuestionKind,
     normalize_email,
@@ -179,6 +180,38 @@ async def start(
             "Ваша заявка уже создана. Откройте кабинет, чтобы посмотреть её статус.",
             reply_markup=cabinet_keyboard(settings.mini_app_url),
         )
+        if (
+            current_lead.offer_accepted_at is None
+            or current_lead.offer_accepted_version != CLIENT_OFFER_VERSION
+            or not current_lead.consent_status
+        ):
+            await state.update_data(
+                consent_at=(
+                    current_lead.consent_at.isoformat()
+                    if current_lead.consent_status and current_lead.consent_at
+                    else None
+                ),
+                offer_accepted_at=(
+                    current_lead.offer_accepted_at.isoformat()
+                    if current_lead.offer_accepted_version == CLIENT_OFFER_VERSION
+                    and current_lead.offer_accepted_at
+                    else None
+                ),
+                offer_accepted_version=current_lead.offer_accepted_version,
+            )
+            await state.set_state(LeadApplication.consent)
+            await message.answer(
+                consent_prompt(settings.mini_app_url),
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+                reply_markup=consent_keyboard(
+                    offer_accepted=(
+                        current_lead.offer_accepted_at is not None
+                        and current_lead.offer_accepted_version == CLIENT_OFFER_VERSION
+                    ),
+                    pdn_consented=current_lead.consent_status,
+                ),
+            )
         return
     try:
         first_click = await LeadIntakeService(database).record_first_click(
@@ -589,12 +622,23 @@ async def resubmit_application(
     }
     if previous.consent_status:
         repeat_data["consent_at"] = previous.consent_at.isoformat()
+    has_valid_offer = (
+        previous.offer_accepted_version == CLIENT_OFFER_VERSION
+        and previous.offer_accepted_at is not None
+    )
+    if has_valid_offer:
+        repeat_data["offer_accepted_at"] = previous.offer_accepted_at.isoformat()
+        repeat_data["offer_accepted_version"] = CLIENT_OFFER_VERSION
     await state.update_data(repeat_data)
     has_valid_consent = previous.consent_status
-    await state.set_state(LeadApplication.phone if has_valid_consent else LeadApplication.consent)
+    await state.set_state(
+        LeadApplication.phone
+        if has_valid_consent and has_valid_offer
+        else LeadApplication.consent
+    )
     if isinstance(callback.message, Message):
         await callback.message.edit_reply_markup(reply_markup=None)
-        if has_valid_consent:
+        if has_valid_consent and has_valid_offer:
             offer_url = (
                 f"{settings.mini_app_url.partition('?')[0].rstrip('/')}"
                 "/documents/oferta-client-20260927.pdf"
@@ -612,7 +656,10 @@ async def resubmit_application(
                 consent_prompt(settings.mini_app_url),
                 parse_mode="HTML",
                 disable_web_page_preview=True,
-                reply_markup=consent_keyboard(),
+                reply_markup=consent_keyboard(
+                    offer_accepted=has_valid_offer,
+                    pdn_consented=has_valid_consent,
+                ),
             )
     await callback.answer()
 
@@ -649,13 +696,19 @@ async def show_privacy_during_application(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(LeadApplication.consent, F.data == "consent:back")
-async def return_to_consent(callback: CallbackQuery, settings: Settings) -> None:
+async def return_to_consent(
+    callback: CallbackQuery, state: FSMContext, settings: Settings
+) -> None:
     if isinstance(callback.message, Message):
+        data = await state.get_data()
         await callback.message.edit_text(
             consent_prompt(settings.mini_app_url),
             parse_mode="HTML",
             disable_web_page_preview=True,
-            reply_markup=consent_keyboard(),
+            reply_markup=consent_keyboard(
+                offer_accepted=bool(data.get("offer_accepted_at")),
+                pdn_consented=bool(data.get("consent_at")),
+            ),
         )
     await callback.answer()
 
@@ -665,29 +718,62 @@ async def decline_consent(callback: CallbackQuery, state: FSMContext) -> None:
     if callback.message:
         await callback.message.answer(
             "Без согласия создать заявку не получится. Если передумаете, "
-            "нажмите «Продолжить» в сообщении выше или отправьте /start."
+            "нажмите «Даю согласие на ПДн» в сообщении выше или отправьте /start."
         )
     await callback.answer()
 
 
-@router.callback_query(LeadApplication.consent, F.data == "consent:accept")
+@router.callback_query(
+    LeadApplication.consent, F.data.in_({"consent:accept", "client:accept_offer"})
+)
 async def accept_consent(
     callback: CallbackQuery,
     state: FSMContext,
     database: Database,
     settings: Settings,
 ) -> None:
-    consent_at = datetime.now(UTC)
+    accepted_at = datetime.now(UTC)
     telegram_id = str(callback.from_user.id)
-    await state.update_data(consent_at=consent_at.isoformat())
+    accepting_offer = getattr(callback, "data", None) == "client:accept_offer"
+    if accepting_offer:
+        await state.update_data(
+            offer_accepted_at=accepted_at.isoformat(),
+            offer_accepted_version=CLIENT_OFFER_VERSION,
+        )
+    else:
+        await state.update_data(consent_at=accepted_at.isoformat())
+    data = await state.get_data()
     current_lead = await get_current_lead(database, telegram_id)
-    if current_lead is not None:
+    if current_lead is not None and not data.get("repeat_of_id"):
         async with database.session() as session:
             stored_lead = await session.get(Lead, current_lead.id)
             if stored_lead is not None:
-                stored_lead.consent_status = True
-                stored_lead.consent_at = consent_at
+                if accepting_offer:
+                    stored_lead.offer_accepted_at = accepted_at
+                    stored_lead.offer_accepted_version = CLIENT_OFFER_VERSION
+                else:
+                    stored_lead.consent_status = True
+                    stored_lead.consent_at = accepted_at
                 await session.commit()
+            stored_offer_accepted = (
+                stored_lead is not None
+                and stored_lead.offer_accepted_at is not None
+                and stored_lead.offer_accepted_version == CLIENT_OFFER_VERSION
+            )
+            stored_pdn_consented = stored_lead is not None and stored_lead.consent_status
+        if not stored_offer_accepted or not stored_pdn_consented:
+            if isinstance(callback.message, Message):
+                await callback.message.edit_text(
+                    consent_prompt(settings.mini_app_url),
+                    parse_mode="HTML",
+                    disable_web_page_preview=True,
+                    reply_markup=consent_keyboard(
+                        offer_accepted=stored_offer_accepted,
+                        pdn_consented=stored_pdn_consented,
+                    ),
+                )
+            await callback.answer("Подтверждение сохранено")
+            return
         await state.clear()
         if callback.message:
             await callback.message.edit_reply_markup(reply_markup=None)
@@ -704,6 +790,27 @@ async def accept_consent(
                     "и условия их активации.",
                     reply_markup=cabinet_keyboard(settings.mini_app_url),
                 )
+        await callback.answer()
+        return
+    keyboard = consent_keyboard(
+        offer_accepted=bool(data.get("offer_accepted_at")),
+        pdn_consented=bool(data.get("consent_at")),
+    )
+    if keyboard is not None:
+        if isinstance(callback.message, Message):
+            await callback.message.edit_text(
+                consent_prompt(settings.mini_app_url),
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+                reply_markup=keyboard,
+            )
+        await callback.answer("Подтверждение сохранено")
+        return
+    if data.get("resume_submission"):
+        await state.update_data(resume_submission=False)
+        if isinstance(callback.message, Message):
+            await callback.message.edit_reply_markup(reply_markup=None)
+            await show_application_review(callback.message, state)
         await callback.answer()
         return
     await state.set_state(LeadApplication.phone)
@@ -912,6 +1019,24 @@ async def finish_application(
     if not data.get("telegram_id"):
         await message.answer("Не удалось определить Telegram-пользователя. Запусти /start ещё раз.")
         return
+    has_offer = (
+        bool(data.get("offer_accepted_at"))
+        and data.get("offer_accepted_version") == CLIENT_OFFER_VERSION
+    )
+    has_pdn_consent = bool(data.get("consent_at"))
+    if not has_offer or not has_pdn_consent:
+        await state.update_data(resume_submission=True)
+        await state.set_state(LeadApplication.consent)
+        await message.answer(
+            consent_prompt(settings.mini_app_url),
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+            reply_markup=consent_keyboard(
+                offer_accepted=has_offer,
+                pdn_consented=has_pdn_consent,
+            ),
+        )
+        return
     try:
         result = await LeadIntakeService(database).submit(
             telegram_id=data["telegram_id"],
@@ -921,6 +1046,8 @@ async def finish_application(
             referral_code=data.get("referral_code"),
             first_click_at=datetime.fromisoformat(data["first_click_at"]),
             consent_at=datetime.fromisoformat(data["consent_at"]),
+            offer_accepted_at=datetime.fromisoformat(data["offer_accepted_at"]),
+            offer_accepted_version=CLIENT_OFFER_VERSION,
             answers=data["answers"],
             repeat_of_id=(UUID(data["repeat_of_id"]) if data.get("repeat_of_id") else None),
         )

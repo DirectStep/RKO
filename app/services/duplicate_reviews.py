@@ -72,6 +72,9 @@ class DuplicateReviewService:
                 original.email = review.questionnaire_answers.get("email")
                 original.questionnaire_answers = review.questionnaire_answers
                 original.consent_at = review.consent_at
+                if review.offer_accepted_at is not None:
+                    original.offer_accepted_at = review.offer_accepted_at
+                    original.offer_accepted_version = review.offer_accepted_version
                 original.first_click_at = review.first_click_at
             elif resolution is DuplicateResolution.SEPARATE_LEAD:
                 if await session.scalar(
@@ -119,6 +122,8 @@ class DuplicateReviewService:
                     email=review.questionnaire_answers.get("email"),
                     consent_status=True,
                     consent_at=review.consent_at,
+                    offer_accepted_at=review.offer_accepted_at,
+                    offer_accepted_version=review.offer_accepted_version,
                     first_referral_code=review.referral_code,
                     proposed_partner_id=channel.partner_id if channel else None,
                     proposed_channel_id=channel.id if channel else None,

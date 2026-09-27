@@ -16,7 +16,7 @@ from app.domain.enums import (
     LeadWorkflowStage,
     UserRole,
 )
-from app.domain.intake import is_eligible
+from app.domain.intake import CLIENT_OFFER_VERSION, is_eligible
 from app.domain.operations import DomainError
 from app.models import Channel, DuplicateLeadReview, Lead, LeadDraft, Partner, User
 
@@ -143,8 +143,12 @@ class LeadIntakeService:
         first_click_at: datetime,
         consent_at: datetime,
         answers: dict[str, str],
+        offer_accepted_at: datetime | None = None,
+        offer_accepted_version: str | None = None,
         repeat_of_id: UUID | None = None,
     ) -> SubmissionResult:
+        if offer_accepted_at is None or offer_accepted_version != CLIENT_OFFER_VERSION:
+            raise DomainError("Перед отправкой заявки примите публичную оферту для клиента")
         async with self.database.session() as session, session.begin():
             await session.execute(
                 text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
@@ -202,6 +206,8 @@ class LeadIntakeService:
                             referral_code=referral_code,
                             questionnaire_answers=answers,
                             consent_at=consent_at,
+                            offer_accepted_at=offer_accepted_at,
+                            offer_accepted_version=offer_accepted_version,
                             first_click_at=first_click_at,
                         )
                     )
@@ -213,6 +219,8 @@ class LeadIntakeService:
                     existing_review.referral_code = referral_code
                     existing_review.questionnaire_answers = answers
                     existing_review.consent_at = consent_at
+                    existing_review.offer_accepted_at = offer_accepted_at
+                    existing_review.offer_accepted_version = offer_accepted_version
                     existing_review.first_click_at = first_click_at
                     existing_review.review_status = "pending"
                     existing_review.resolution = None
@@ -265,6 +273,8 @@ class LeadIntakeService:
                 email=answers.get("email"),
                 consent_status=True,
                 consent_at=consent_at,
+                offer_accepted_at=offer_accepted_at,
+                offer_accepted_version=offer_accepted_version,
                 first_referral_code=(
                     previous_lead.first_referral_code
                     if previous_lead

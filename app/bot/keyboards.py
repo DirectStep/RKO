@@ -15,12 +15,19 @@ def continue_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def consent_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Продолжить", callback_data="consent:accept")],
-        ]
-    )
+def consent_keyboard(
+    *, offer_accepted: bool = False, pdn_consented: bool = False
+) -> InlineKeyboardMarkup | None:
+    rows = []
+    if not offer_accepted:
+        rows.append(
+            [InlineKeyboardButton(text="Принимаю оферту", callback_data="client:accept_offer")]
+        )
+    if not pdn_consented:
+        rows.append(
+            [InlineKeyboardButton(text="Даю согласие на ПДн", callback_data="consent:accept")]
+        )
+    return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
 
 
 def partner_documents_keyboard(
