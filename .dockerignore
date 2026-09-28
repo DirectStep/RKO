@@ -1,4 +1,8 @@
 .env
+secrets
+backups
+.improvement
+.playwright-mcp
 .git
 .github
 .venv
