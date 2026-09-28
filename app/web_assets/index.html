@@ -3,12 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230868b5'/%3E%3Ctext x='32' y='42' text-anchor='middle' font-size='30' font-family='Arial' font-weight='700' fill='white'%3EР%3C/text%3E%3C/svg%3E" />
-    <meta name="theme-color" content="#f1f2f3" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%232D719D'/%3E%3Ctext x='32' y='42' text-anchor='middle' font-size='30' font-family='Arial' font-weight='700' fill='white'%3EР%3C/text%3E%3C/svg%3E" />
+    <meta name="theme-color" content="#f7f5f0" />
     <meta name="description" content="Кабинет РКО для клиентов, партнёров и команды" />
     <title>РКО</title>
-    <link rel="stylesheet" href="/assets/styles.css?v=20260829-01" data-inline="styles" />
-    <script src="https://telegram.org/js/telegram-web-app.js?59" async></script>
+    <link rel="stylesheet" href="/assets/styles.css?v=20260928-02" data-inline="styles" />
+    <script id="telegram-sdk" src="https://telegram.org/js/telegram-web-app.js?59" async></script>
   </head>
   <body>
     <div class="app-shell">
@@ -22,9 +22,9 @@
 
       <main>
         <section class="loading-state" id="loading-state" aria-live="polite">
-          <span class="loading-spinner" aria-hidden="true"></span>
+          <div class="loading-preview" aria-hidden="true"><span></span><span></span><span></span></div>
           <h2>Загружаем кабинет</h2>
-          <p>Загружаем актуальные данные…</p>
+          <p>Получаем актуальные данные…</p>
         </section>
 
         <section class="screen" id="summary-screen" aria-labelledby="summary-title">
@@ -36,6 +36,27 @@
             <span class="live-badge"><i></i> Сейчас</span>
           </div>
 
+          <button class="review-banner" type="button" id="open-duplicate-reviews" hidden>
+            <span><small>Требует внимания</small><strong>Возможные дубли</strong></span>
+            <b id="duplicate-count">0</b>
+          </button>
+
+          <section class="partner-summary" id="partner-summary" hidden>
+            <p class="list-caption">Выплаты по заявкам</p>
+            <div class="metric-grid">
+              <div><span>Ожидаемая выплата</span><strong id="partner-expected">—</strong></div>
+              <div><span>К выплате</span><strong id="partner-ready">—</strong></div>
+              <div class="metric-wide"><span>Выплачено всего</span><strong id="partner-paid">—</strong></div>
+              <div><span>Завершённые заявки</span><strong id="partner-completed">—</strong></div>
+              <div><span>Отменённые заявки</span><strong id="partner-cancelled">—</strong></div>
+            </div>
+            <div class="quick-actions">
+              <button type="button" id="partner-report">Получить Excel в чат</button>
+              <button type="button" id="partner-contact">Написать администратору</button>
+            </div>
+          </section>
+
+          <p class="list-caption" id="partner-count-caption" hidden>Заявки и счета</p>
           <div class="summary-card">
             <div class="primary-stat">
               <span>Всего заявок</span>
@@ -49,34 +70,17 @@
             </div>
           </div>
 
-          <section class="partner-summary" id="partner-summary" hidden>
-            <div class="metric-grid">
-              <div class="metric-wide"><span>Выплачено всего</span><strong id="partner-paid">—</strong></div>
-              <div><span>Ожидаемая выплата</span><strong id="partner-expected">—</strong></div>
-              <div><span>К выплате</span><strong id="partner-ready">—</strong></div>
-              <div><span>Завершённые заявки</span><strong id="partner-completed">—</strong></div>
-              <div><span>Отменённые заявки</span><strong id="partner-cancelled">—</strong></div>
-            </div>
-            <div class="quick-actions">
-              <button type="button" id="partner-report">Получить Excel в чат</button>
-              <button type="button" id="partner-contact">Написать администратору</button>
-            </div>
-          </section>
-
-          <button class="review-banner" type="button" id="open-duplicate-reviews" hidden>
-            <span><small>Проверка данных</small><strong>Возможные дубли</strong></span>
-            <b id="duplicate-count">0</b>
-          </button>
-
           <div class="list-heading">
             <h3>Последние заявки</h3>
             <div class="heading-actions">
-              <button type="button" id="open-google-sheet" hidden>Google Sheets</button>
-              <button type="button" id="download-report">Отчёт</button>
               <button type="button" data-go="leads">Все</button>
             </div>
           </div>
           <div class="telegram-list" id="recent-leads"></div>
+          <div class="summary-tools">
+            <button type="button" id="open-google-sheet" hidden>Google Sheets</button>
+            <button type="button" id="download-report">Скачать отчёт</button>
+          </div>
         </section>
 
         <section class="screen" id="leads-screen" aria-labelledby="leads-title">
@@ -91,6 +95,11 @@
             <span>Показывать</span>
             <select id="lead-scope"><option value="queue">Новые</option><option value="mine">В работе</option></select>
           </label>
+          <div class="filters-toolbar" id="filters-toolbar" hidden>
+            <button class="filter-toggle" type="button" id="filter-toggle" aria-expanded="false" aria-controls="admin-filters partner-filters">Фильтры <span id="filter-count" hidden>0</span></button>
+            <button class="filter-reset" type="button" id="filter-reset" hidden>Сбросить</button>
+          </div>
+          <div class="active-filters" id="active-filters" hidden></div>
           <div class="filter-panel" id="partner-filters" hidden>
             <label class="filter-field"><span>Период</span><select id="partner-period"><option value="month">Текущий месяц</option><option value="all">За всё время</option><option value="custom">Выбрать даты</option></select></label>
             <div class="date-range" id="partner-date-range" hidden>
@@ -131,6 +140,7 @@
             <button type="button" data-sheet-link="bank_conditions_sheet_url">Условия активации</button>
             <button type="button" data-sheet-link="bank_rates_sheet_url">Ставки и калькулятор</button>
           </div>
+          <p class="list-caption">Банки в справочнике</p>
           <div class="telegram-list" id="banks-list"></div>
         </section>
 
@@ -241,6 +251,6 @@
         document.querySelector("#error-state").hidden = false;
       }, 25000);
     </script>
-    <script src="/assets/app.js?v=20260925-02" data-inline="app"></script>
+    <script src="/assets/app.js?v=20260928-02" data-inline="app"></script>
   </body>
 </html>

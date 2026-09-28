@@ -4,16 +4,33 @@ function telegramInitData(){
   const queryData=new URLSearchParams(window.location.search).get('tgWebAppData')
   return telegramWebApp()?.initData||hashData||queryData||''
 }
-telegramWebApp()?.ready(); telegramWebApp()?.expand()
+function syncTelegramTheme(){
+  const theme=telegramWebApp()?.colorScheme
+  if(theme==='dark'||theme==='light')document.documentElement.dataset.theme=theme
+}
+let telegramThemeBound=false
+function bindTelegramTheme(){
+  const app=telegramWebApp()
+  if(!app)return
+  syncTelegramTheme()
+  app.ready?.();app.expand?.()
+  if(!telegramThemeBound&&typeof app.onEvent==='function'){
+    app.onEvent('themeChanged',syncTelegramTheme)
+    telegramThemeBound=true
+  }
+}
+bindTelegramTheme()
+document.querySelector('#telegram-sdk')?.addEventListener('load',bindTelegramTheme)
 
 let telegramContextWaited=false
 async function waitForTelegramContext(){
-  if(telegramInitData()||telegramContextWaited)return
+  if(telegramInitData()||telegramContextWaited){bindTelegramTheme();return}
   telegramContextWaited=true
   for(let attempt=0;attempt<60&&!telegramInitData();attempt+=1){
     await new Promise(resolve=>setTimeout(resolve,100))
   }
   telegramWebApp()?.ready();telegramWebApp()?.expand()
+  bindTelegramTheme()
 }
 
 const state = { session: null, dashboard: {}, leads: [], partners: [], channels: [], banks: [], banksLoading: false, banksError: false, staff: [], duplicates: [], leadApplication: null, leadBanks: [], leadAddingBanks: false, leadScope: 'queue', leadScopeExplicit: false, partnerData: null, currentScreen: 'summary' }
@@ -102,7 +119,7 @@ function leadRow(lead){
   const managerStatus=state.session.role==='manager'?(lead.manager_started?'В работе':'Новая'):null
   const status=applicationLabels[lead.application_status]||lead.application_status||managerStatus||leadLabels[lead.status]||lead.status
   const alert=state.session.role!=='partner'&&lead.workflow_stage==='not_eligible'
-  return `<button class="list-row${alert?' is-not-eligible':''}" type="button" data-lead="${lead.id}"><span class="row-icon">${initials(lead.name)||'Р'}</span><span class="row-content"><span class="row-title"><strong>${esc(lead.name)}</strong><time>${date(lead.date).slice(0,5)}</time></span><span class="row-subtitle">${esc(lead.short_id)} · ${lead.is_repeat?'Повторная · ':''}${esc(status)}${detail?` · ${esc(detail)}`:''}</span></span></button>`
+  return `<button class="list-row${alert?' is-not-eligible':''}" type="button" data-lead="${lead.id}"><span class="row-icon">${initials(lead.name)||'Р'}</span><span class="row-content"><span class="row-title"><strong>${esc(lead.name)}</strong><time>${date(lead.date).slice(0,5)}</time></span><span class="row-subtitle">${esc(lead.short_id)}${lead.is_repeat?' · Повторная':''}${detail?` · ${esc(detail)}`:''}</span><span class="row-meta">${esc(status)}</span></span></button>`
 }
 function renderLeads(items,target){ target.innerHTML=items.length?items.map(leadRow).join(''):'<p class="empty">Заявок пока нет</p>' }
 function updateLeadCount(count){ document.querySelector('#lead-count').textContent=`Показано: ${count}` }
@@ -137,6 +154,62 @@ function renderPartnerSummary(){
   const labels=document.querySelectorAll('.stat-grid span')
   ;['Заявки в работе','Планируется счетов','Активированных счетов'].forEach((label,index)=>labels[index+1].textContent=label)
 }
+function activeFilters(){
+  const partner=state.session?.role==='partner'
+  const admin=state.session?.role==='admin'
+  if(!partner&&!admin)return []
+  const prefix=partner?'partner':'admin'
+  const fields=partner?['period','channel','lead-status']:['partner','channel','period','lead-status']
+  const filters=fields.map(field=>{
+    const input=document.querySelector(`#${prefix}-${field}`)
+    if(!input?.value||field==='period'&&(
+      input.value==='all'||input.value==='custom'&&
+      !document.querySelector(`#${prefix}-date-from`).value&&
+      !document.querySelector(`#${prefix}-date-to`).value
+    ))return null
+    const title=field==='lead-status'?'Статус':field==='period'?'Период':field==='partner'?'Партнёр':'Канал'
+    return {id:input.id,label:`${title}: ${input.selectedOptions[0].textContent}`}
+  }).filter(Boolean)
+  if(document.querySelector(`#${prefix}-period`).value==='custom'){
+    for(const [field,title] of [['date-from','С'],['date-to','По']]){
+      const input=document.querySelector(`#${prefix}-${field}`)
+      if(input.value)filters.push({id:input.id,label:`${title}: ${input.value.split('-').reverse().join('.')}`})
+    }
+  }
+  return filters
+}
+function refreshFilterUI(){
+  const toolbar=document.querySelector('#filters-toolbar')
+  toolbar.hidden=!['admin','partner'].includes(state.session?.role)
+  if(toolbar.hidden)return
+  const filters=activeFilters()
+  document.querySelector('#filter-count').textContent=filters.length
+  document.querySelector('#filter-count').hidden=!filters.length
+  document.querySelector('#filter-reset').hidden=!filters.length
+  const chips=document.querySelector('#active-filters')
+  chips.hidden=!filters.length
+  chips.innerHTML=filters.map(item=>`<button type="button" data-clear-filter="${item.id}" aria-label="Убрать фильтр ${esc(item.label)}">${esc(item.label)} ×</button>`).join('')
+}
+function clearFilter(id){
+  const input=document.getElementById(id)
+  if(!input)return
+  input.value=id.endsWith('-period')?'all':''
+  if(id==='admin-partner')document.querySelector('#admin-channel').value=''
+  if(id.endsWith('-period')){
+    const prefix=id.split('-')[0]
+    document.querySelector(`#${prefix}-date-from`).value=''
+    document.querySelector(`#${prefix}-date-to`).value=''
+  }
+  if(id.endsWith('-date-from')||id.endsWith('-date-to')){
+    const prefix=id.split('-')[0]
+    if(!document.querySelector(`#${prefix}-date-from`).value&&
+       !document.querySelector(`#${prefix}-date-to`).value){
+      document.querySelector(`#${prefix}-period`).value='all'
+    }
+  }
+  if(state.session.role==='partner')load()
+  else {renderAdminFilters();renderVisibleLeads()}
+}
 function renderAdminFilters(){
   const panel=document.querySelector('#admin-filters'),partnerSelect=document.querySelector('#admin-partner'),channelSelect=document.querySelector('#admin-channel')
   panel.hidden=false
@@ -165,10 +238,11 @@ function filteredLeads(){
   if(to)items=items.filter(lead=>String(lead.date).slice(0,10)<=to)
   return items
 }
-function renderVisibleLeads(){const items=filteredLeads();renderLeads(items,document.querySelector('#all-leads'));updateLeadCount(items.length)}
+function renderVisibleLeads(){const items=filteredLeads();renderLeads(items,document.querySelector('#all-leads'));updateLeadCount(items.length);refreshFilterUI()}
 function render(){
   const admin=state.session.role==='admin', partnerRole=state.session.role==='partner', employee=admin||state.session.role==='manager'
   document.querySelector('#loading-state').hidden=true
+  document.body.dataset.role=state.session.role
   document.querySelector('.tabbar').hidden=false
   document.querySelectorAll('#client-application-tab, #client-banks-tab, #client-faq-tab').forEach(item=>item.hidden=true)
   document.querySelector('#greeting').textContent=state.session.name
@@ -176,7 +250,8 @@ function render(){
   document.querySelector('#avatar').textContent=initials(state.session.name)||'Р'
   for(const key of ['total','new','active','unresolved','repeats']) document.querySelector(`#${key}-count`).textContent=state.dashboard[key]
   document.querySelector('#duplicate-count').textContent=state.dashboard.duplicates||0
-  document.querySelector('#open-duplicate-reviews').hidden=!admin
+  document.querySelector('#open-duplicate-reviews').hidden=!admin||!(state.dashboard.duplicates>0)
+  document.querySelector('#partner-count-caption').hidden=!partnerRole
   document.querySelectorAll('.stat-grid > div').forEach((item,index)=>{item.hidden=(state.session.role==='manager'&&index>1)||(partnerRole&&index===0)})
   document.querySelector('.stat-grid').classList.toggle('partner-stat-grid',partnerRole)
   renderLeads(state.leads.slice(0,5),document.querySelector('#recent-leads'))
@@ -186,12 +261,13 @@ function render(){
   document.querySelector('#add-bank-button').hidden=!admin; document.querySelector('#add-partner-button').hidden=!admin; document.querySelector('#add-staff-button').hidden=!admin; document.querySelector('#add-channel-button').hidden=!partnerRole
   document.querySelector('#bank-sheet-links').hidden=!admin
   document.querySelector('#open-google-sheet').hidden=!admin||!state.session.google_sheet_url
+  document.querySelector('#download-report').hidden=partnerRole
   document.querySelector('.tabbar').style.setProperty('--tab-count',admin?5:3)
   document.querySelector('#partners-tab-label').textContent=partnerRole?'Каналы':'Партнёры'; document.querySelector('#partners-title').textContent=partnerRole?'Каналы':'Партнёры'; document.querySelector('#partners-eyebrow').textContent=partnerRole?'Источники вашего трафика':'Источники заявок'
   document.querySelector('#partner-commission-row').hidden=!partnerRole
   if(partnerRole)document.querySelector('#partner-commission-value').textContent=`${state.partnerData?.commission_percent??''}%`
-  document.querySelector('#partners-list').innerHTML=partnerRole?(state.channels.length?state.channels.map(channel=>`<button class="list-row" type="button" data-channel="${channel.id}"><span class="row-icon partner">${initials(channel.name)||'К'}</span><span class="row-content"><span class="row-title"><strong>${esc(channel.name)}</strong></span><span class="row-subtitle">${channel.active?'Работает':'Отключён'} · ${esc(channel.link)}</span></span><b>Открыть</b></button>`).join(''):'<p class="empty">Добавьте первый канал и получите ссылку для новых заявок</p>'):(state.partners.length?state.partners.map(p=>`<button class="list-row" type="button" data-partner="${p.id}"><span class="row-icon partner">${initials(p.name)||'П'}</span><span class="row-content"><span class="row-title"><strong>${esc(p.name)}</strong></span><span class="row-subtitle">${esc(p.commission)}% · каналов: ${p.channels}</span></span><i class="status-dot ${p.active?'':'off'}"></i></button>`).join(''):'<p class="empty">Партнёров пока нет</p>')
-  document.querySelector('#banks-list').innerHTML=state.banksLoading?'<p class="empty">Загружаем справочник банков…</p>':state.banksError?'<p class="empty">Не удалось загрузить справочник. Откройте кабинет заново.</p>':state.banks.length?state.banks.map(b=>`<button class="list-row" type="button" ${admin?`data-catalog-bank="${b.id}"`:''}><span class="row-icon">Б</span><span class="row-content"><span class="row-title"><strong>${esc(b.name)}</strong></span><span class="row-subtitle">${b.online_available?'Можно онлайн':'Только очно'} · ${b.active?'доступен':'отключён'}${admin&&b.lead_payout!==null?` · клиенту ${money(b.lead_payout)}`:''}</span></span><i class="status-dot ${b.active?'':'off'}"></i></button>`).join(''):'<p class="empty">В справочнике пока нет банков</p>'
+  document.querySelector('#partners-list').innerHTML=partnerRole?(state.channels.length?state.channels.map(channel=>`<button class="list-row" type="button" data-channel="${channel.id}"><span class="row-icon partner">${initials(channel.name)||'К'}</span><span class="row-content"><span class="row-title"><strong>${esc(channel.name)}</strong></span><span class="row-subtitle">${esc(channel.link)}</span></span><span class="row-status ${channel.active?'is-on':''}">${channel.active?'Работает':'Отключён'}</span></button>`).join(''):'<p class="empty">Добавьте первый канал, чтобы получить ссылку для новых заявок</p>'):(state.partners.length?state.partners.map(p=>`<button class="list-row" type="button" data-partner="${p.id}"><span class="row-icon partner">${initials(p.name)||'П'}</span><span class="row-content"><span class="row-title"><strong>${esc(p.name)}</strong></span><span class="row-subtitle">${esc(p.commission)}% · ${p.channels} каналов</span></span><span class="row-status ${p.active?'is-on':''}">${p.active?'Работает':'Отключён'}</span></button>`).join(''):'<p class="empty">Партнёров пока нет. Добавьте первого, чтобы выдать ему ссылку для заявок.</p>')
+  document.querySelector('#banks-list').innerHTML=state.banksLoading?'<p class="empty">Загружаем справочник банков…</p>':state.banksError?'<p class="empty">Не удалось загрузить справочник. Откройте кабинет заново.</p>':state.banks.length?state.banks.map(b=>`<button class="list-row" type="button" ${admin?`data-catalog-bank="${b.id}"`:''}><span class="row-icon">Б</span><span class="row-content"><span class="row-title"><strong>${esc(b.name)}</strong></span><span class="row-subtitle">${b.online_available?'Можно онлайн':'Только очно'}${admin&&b.lead_payout!==null?` · клиенту ${money(b.lead_payout)}`:''}</span></span><span class="row-status ${b.active?'is-on':''}">${b.active?'Доступен':'Отключён'}</span></button>`).join(''):'<p class="empty">В справочнике пока нет банков. Добавьте банк, чтобы настроить предложение.</p>'
   document.querySelector('#staff-list').innerHTML=state.staff.length?state.staff.map(p=>{const username=String(p.username||'').replace(/^@/,'');const chat=/^[A-Za-z0-9_]{5,32}$/.test(username)?`<button class="staff-chat" type="button" data-telegram-chat="https://t.me/${esc(username)}">Написать</button>`:'';const toggle=admin?`<button class="staff-toggle" type="button" data-staff="${p.id}" aria-label="Изменить доступ"><i class="status-dot ${p.status==='active'?'':'off'}"></i></button>`:`<i class="status-dot ${p.status==='active'?'':'off'}"></i>`;return `<div class="list-row staff-row"><span class="row-icon partner">${p.role==='admin'?'А':'М'}</span><span class="row-content"><span class="row-title"><strong>${esc(p.username||p.telegram_id)}</strong></span><span class="row-subtitle">${p.role==='admin'?'Администратор':'Менеджер'} · ${p.status==='pending'?'ожидает первого входа':p.status==='active'?'доступ включён':'доступ отключён'}</span></span><span class="staff-actions">${chat}${toggle}</span></div>`}).join(''):'<p class="empty">Сотрудников пока нет</p>'
   document.querySelector('#admin-filters').hidden=!admin
   if(partnerRole)renderPartnerSummary();else{document.querySelector('#partner-summary').hidden=true;document.querySelector('#partner-filters').hidden=true}
@@ -205,6 +281,7 @@ function renderLeadCabinet(){
   const addable=state.leadBanks.some(item=>item.selected===false)
   const canSelect=initialSelection||state.leadAddingBanks
   document.querySelector('#loading-state').hidden=true
+  document.body.dataset.role='lead'
   document.querySelector('.tabbar').hidden=false
   document.querySelector('#cabinet-label').textContent='Кабинет клиента'
   document.querySelector('#avatar').textContent=initials(state.session.name)||'К'
@@ -232,7 +309,7 @@ function renderLeadCabinet(){
     const statusTone=reoffered?'is-positive':['account_opened','account_activated','lead_reward_paid'].includes(displayStatus)?'is-positive':['not_opened','bank_rejected','client_refused','cut','duplicate'].includes(displayStatus)?'is-negative':''
     const bonus=item.lead_payout_paid_separately?`<span class="online-badge">Бонусы за задания <button type="button" data-bonus-help="${esc(item.bank)}" aria-label="О бонусах банка">${infoIcon}</button></span>`:''
     const online=item.online_available?`<span class="online-badge">Можно онлайн <button type="button" data-online-help="${esc(item.online_help)}" aria-label="Условия открытия онлайн">${infoIcon}</button></span>`:''
-    return `<label class="client-bank-card ${selectable?'is-selectable':''} ${dimmed?'is-unselected':''}">${selectable?`<input class="bank-choice" type="checkbox" value="${esc(item.bank_id)}">`:''}${bonus}${online}<header><span class="client-bank-icon">${esc(initials(item.bank).slice(0,1)||'Б')}</span><div class="client-bank-copy"><h3>${esc(item.bank)}</h3>${status?`<p class="${statusTone}">${esc(status)}</p>`:''}</div>${selectable?'<span class="choice-mark">✓</span>':''}<strong class="bank-payout">${leadPayout(item)}</strong></header><section class="activation-action"><span>Условие активации</span><p>${esc(item.action_text||'Условие уточняется')}</p></section><small>Обновлено ${dateTime(item.updated)}</small></label>`
+    return `<label class="client-bank-card ${selectable?'is-selectable':''} ${dimmed?'is-unselected':''}">${selectable?`<input class="bank-choice" type="checkbox" value="${esc(item.bank_id)}">`:''}<header><span class="client-bank-icon">${esc(initials(item.bank).slice(0,1)||'Б')}</span><div class="client-bank-copy"><h3>${esc(item.bank)}</h3>${status?`<p class="${statusTone}">${esc(status)}</p>`:''}</div>${selectable?'<span class="choice-mark">✓</span>':''}<strong class="bank-payout">${leadPayout(item)}</strong></header><section class="bank-badges">${online}${bonus}</section><section class="activation-action"><span>Условие активации</span><p>${esc(item.action_text||'Условие уточняется')}</p></section><small>Обновлено ${dateTime(item.updated)}</small></label>`
   }).join('')
   const emptyText=application.workflow_stage==='not_eligible'?'По текущим условиям подбор банков недоступен.':'Когда специалист сформирует доступные варианты, они появятся здесь.'
   const selectionActions=canSelect?`<button class="primary-button selection-submit" id="submit-bank-selection">${state.leadAddingBanks?'Добавить выбранные':'Продолжить'}</button>${state.leadAddingBanks?'<button class="secondary-button selection-submit" id="cancel-bank-selection">Отмена</button>':''}`:''
@@ -314,7 +391,7 @@ function bankCard(item,employee,admin,quickActions){
   const economics=admin?`<div class="value-row"><span>Общая ставка</span><strong>${money(item.income_fact??item.income_estimate)}</strong></div><div class="value-row"><span>Выплата клиенту</span><strong>${money(item.lead_reward_fact??item.lead_reward_estimate)}</strong></div><div class="value-row"><span>Выплата партнёру${partnerPaid?'':partnerActual?' · факт':' · прогноз'}</span><strong>${partnerPaid?`Сделана · ${money(item.reward_fact)}`:money(partnerActual?item.reward_fact:item.reward_estimate)}</strong></div><div class="value-row"><span>Командная прибыль${teamActual?' · факт':' · прогноз'}</span><strong class="money">${money(teamActual?item.team_profit_fact:item.team_profit_estimate)}</strong></div>`:''
   const leadPayment=admin&&item.status==='account_opened'?(item.lead_reward_paid_separately?'<div class="value-row"><span>Выплата лиду</span><strong>Банк платит отдельно</strong></div>':item.lead_reward_paid_at?`<div class="value-row"><span>Выплата лиду</span><strong>Сделана · ${money(item.lead_reward_fact)}</strong></div>`:employee?`<section class="lead-payment-form"><label class="field"><span>Фактическая выплата лиду</span><input type="number" min="0" step="0.01" inputmode="decimal" data-lead-payment-amount value="${esc(item.lead_reward_estimate??'')}"></label><button class="primary-button" data-confirm-lead-payment="${item.id}">Подтвердить выплату лиду</button></section>`:''):''
   const online=item.online_available?`<span class="online-badge compact">Можно онлайн <button type="button" data-online-help="${esc(item.online_help)}" aria-label="Условия открытия онлайн">${infoIcon}</button></span>`:''
-  return `<article class="bank-card" data-bank-card="${item.id}">${online}<header><h4>${esc(item.bank)}</h4><span>${admin?money(item.team_profit_fact??item.team_profit_estimate):esc(payLabels[item.payment_status]||item.payment_status)}</span></header>${clientView}${quick}${edit}${economics}${leadPayment}<div class="button-stack">${confirm}</div></article>`
+  return `<article class="bank-card" data-bank-card="${item.id}"><header><h4>${esc(item.bank)}</h4><span>${admin?money(item.team_profit_fact??item.team_profit_estimate):esc(payLabels[item.payment_status]||item.payment_status)}</span></header>${online}${clientView}${edit}${quick}${economics}${leadPayment}<div class="button-stack">${confirm}</div></article>`
 }
 async function openLead(id){
   if(state.session.role==='partner')return openPartnerLead(id)
@@ -349,7 +426,7 @@ async function openLead(id){
     const application=`<section class="detail-section"><h3>${lead.archived?'Архивная заявка':'Заявка'}</h3><div class="value-row"><span>Создана</span><strong>${dateTime(lead.date)}</strong></div><div class="value-row"><span>Обновлена</span><strong>${dateTime(lead.updated)}</strong></div>${managerRole?'':`<div class="value-row"><span>Источник</span><strong>${esc(lead.channel)}</strong></div>`}<div class="value-row"><span>Менеджер</span><strong>${esc(lead.manager)}</strong></div>${partner?'':`<div class="value-row"><span>Согласие на данные</span><strong>${lead.consent?'Получено':'Нет'}${lead.consent_at?` · ${date(lead.consent_at)}`:''}</strong></div>`}</section>`
     const questionnaire=partner||!answers?'':`<section class="detail-section"><h3>Анкета</h3>${answers}</section>`
     const history=partner||!lead.previous_applications?.length?'':`<section class="detail-section"><h3>Предыдущие заявки</h3>${lead.previous_applications.map(previous=>`<button class="list-row" type="button" data-lead="${previous.id}"><span class="row-icon">${previous.is_repeat?'П':'А'}</span><span class="row-content"><span class="row-title"><strong>${esc(previous.short_id)}</strong><time>${date(previous.date).slice(0,5)}</time></span><span class="row-subtitle">${previous.is_repeat?'Повторная · ':''}${esc(applicationLabels[previous.application_status]||previous.application_status)}</span></span></button>`).join('')}</section>`
-    openSheet(lead.name,`${lead.short_id} · ${lead.is_repeat?'Повторная · ':''}${lead.archived?'Архив · ':''}${applicationLabels[lead.application_status]||lead.application_status}`,`${contacts}${workflow}${application}${questionnaire}${history}${edit}<div class="list-heading"><h3>Банки</h3>${canManageBanks?'<button id="add-lead-bank">Добавить</button>':''}</div>${banks||'<p class="empty">Банки не добавлены</p>'}${deleteApplication}`)
+    openSheet(lead.name,`${lead.short_id} · ${lead.is_repeat?'Повторная · ':''}${lead.archived?'Архив · ':''}${applicationLabels[lead.application_status]||lead.application_status}`,`${workflow}${contacts}<div class="list-heading"><h3>Банки</h3>${canManageBanks?'<button id="add-lead-bank">Добавить</button>':''}</div>${banks||'<p class="empty">Банки не добавлены</p>'}${application}${questionnaire}${history}${edit}${deleteApplication}`)
     bindLeadActions(lead,admin)
   }catch(error){ toast(error.message) }
 }
@@ -495,6 +572,22 @@ document.querySelectorAll('[data-screen]').forEach(x=>x.addEventListener('click'
 document.querySelectorAll('[data-go]').forEach(x=>x.addEventListener('click',()=>showScreen(x.dataset.go)))
 document.querySelector('#close-sheet').addEventListener('click',closeSheet);document.querySelector('#sheet-backdrop').addEventListener('click',closeSheet);document.querySelector('#retry-button').addEventListener('click',load)
 document.querySelector('#lead-search').addEventListener('input',renderVisibleLeads)
+document.querySelector('#filter-toggle').addEventListener('click',()=>{
+  const panel=document.querySelector(state.session.role==='partner'?'#partner-filters':'#admin-filters')
+  const open=panel.classList.toggle('is-open')
+  document.querySelector('#filter-toggle').setAttribute('aria-expanded',String(open))
+})
+document.querySelector('#filter-reset').addEventListener('click',()=>{
+  const prefix=state.session.role==='partner'?'partner':'admin'
+  const ids=prefix==='partner'?['period','channel','lead-status','date-from','date-to']:['partner','channel','period','lead-status','date-from','date-to']
+  ids.forEach(field=>{document.querySelector(`#${prefix}-${field}`).value=field==='period'?'all':''})
+  if(prefix==='partner')load()
+  else {renderAdminFilters();renderVisibleLeads()}
+})
+document.querySelector('#active-filters').addEventListener('click',event=>{
+  const chip=event.target.closest('[data-clear-filter]')
+  if(chip)clearFilter(chip.dataset.clearFilter)
+})
 document.querySelector('#lead-scope').addEventListener('change',async event=>{state.leadScope=event.target.value;state.leadScopeExplicit=true;await load()})
 let partnerReportSending=false
 async function downloadReport(){

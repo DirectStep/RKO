@@ -603,13 +603,13 @@ def test_lead_sees_admin_before_manager_and_manager_only_after_bank_selection() 
     )
 
 
-def test_partner_paid_total_is_the_first_full_width_metric() -> None:
+def test_partner_payout_metrics_put_expected_and_ready_before_paid_total() -> None:
     markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
 
     paid = markup.index('class="metric-wide"><span>Выплачено всего')
     expected = markup.index("Ожидаемая выплата")
     ready = markup.index("К выплате")
-    assert paid < expected < ready
+    assert expected < ready < paid
 
 
 def test_financial_fields_are_split_by_role_in_mini_app() -> None:
@@ -896,7 +896,8 @@ def test_mini_app_has_visible_loading_state() -> None:
     styles = (ASSETS_DIR / "styles.css").read_text(encoding="utf-8")
 
     assert 'id="loading-state"' in markup
-    assert ".loading-spinner" in styles
+    assert 'class="loading-preview"' in markup
+    assert ".loading-preview span" in styles
     assert ".loading-state[hidden], .tabbar[hidden] { display: none; }" in styles
 
 
@@ -1006,7 +1007,7 @@ def test_telegram_sdk_does_not_block_application_startup() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 
     assert 'telegram-web-app.js?59" async' in markup
-    assert 'app.js?v=20260925-02" data-inline="app"></script>' in markup
+    assert 'app.js?v=20260928-02" data-inline="app"></script>' in markup
     assert markup.index('window.addEventListener("error"') < markup.index('data-inline="app"')
     assert "await waitForTelegramContext()" in script
     assert "Загружаем справочник банков" in script

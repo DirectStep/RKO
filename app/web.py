@@ -240,9 +240,9 @@ def build_mini_app_html() -> str:
     styles = (ASSETS_DIR / "styles.css").read_text(encoding="utf-8")
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
     style_marker = (
-        '<link rel="stylesheet" href="/assets/styles.css?v=20260829-01" data-inline="styles" />'
+        '<link rel="stylesheet" href="/assets/styles.css?v=20260928-02" data-inline="styles" />'
     )
-    script_marker = '<script src="/assets/app.js?v=20260925-02" data-inline="app"></script>'
+    script_marker = '<script src="/assets/app.js?v=20260928-02" data-inline="app"></script>'
     if style_marker not in markup or script_marker not in markup:
         raise RuntimeError("Не найдены точки встраивания файлов мини-приложения")
     return markup.replace(style_marker, f"<style>{styles}</style>", 1).replace(
