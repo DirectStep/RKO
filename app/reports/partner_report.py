@@ -90,6 +90,10 @@ async def build_partner_report(
                     PAYMENT_STATUS_LABELS[bank["payment_status"]] if bank else "",
                 ]
             )
+    for row in sheet.iter_rows(min_row=2):
+        for cell in row:
+            cell.font = Font(color="FF171717")
+            cell.fill = PatternFill("solid", fgColor="FFFFFFFF")
     sheet.freeze_panes = "A2"
     sheet.auto_filter.ref = sheet.dimensions
     for column, width in enumerate((15, 26, 13, 22, 24, 20, 20, 20, 24, 22), start=1):
