@@ -6,11 +6,14 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from urllib.parse import urlencode
 from uuid import uuid4
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 
+from app.config import Settings
 from app.domain.enums import (
     BankExternalStatus,
     BankInternalStatus,
@@ -22,7 +25,9 @@ from app.domain.operations import DomainError
 from app.services.workflow import WorkflowService
 from app.web import (
     CLIENT_STATUS_LABELS,
+    MiniAppUser,
     build_mini_app_html,
+    create_web_app,
     format_lead_reward_message,
     format_partner_reward_message,
     lead_bank_sort_key,
@@ -381,9 +386,52 @@ def test_partner_cabinet_has_section_seven_controls() -> None:
     assert 'id="partner-payment-status"' not in markup
     assert "['partner-payment-status','payment_status']" not in script
     assert "api(`/api/partner/cabinet?${partnerQuery()}`)" in script
-    assert "/api/partner/report.xlsx" in script
+    assert "api('/api/partner/report/send',{method:'POST',timeout:120000})" in script
+    assert "Получить Excel в чат" in markup
+    assert "/api/partner/report.xlsx?${partnerQuery()}" not in script
     assert "function openPartnerLead" in script
     assert ".scope-filter[hidden] { display: none; }" in styles
+
+
+@pytest.mark.asyncio
+async def test_partner_mini_app_sends_all_time_report_through_origin_bot(monkeypatch) -> None:
+    first_bot = SimpleNamespace(token="123456:first-token", send_document=AsyncMock())
+    second_bot = SimpleNamespace(token="987654:second-token", send_document=AsyncMock())
+    partner_id = uuid4()
+    report_builder = AsyncMock(return_value=b"xlsx-report")
+    monkeypatch.setattr("app.web.build_partner_report", report_builder)
+    app = create_web_app(
+        database=None,
+        settings=Settings(bot_token=first_bot.token, secondary_bot_token=second_bot.token),
+        bot=first_bot,
+        additional_bots=(second_bot,),
+    )
+    route = next(
+        route for route in app.routes
+        if getattr(route, "path", "") == "/api/partner/report/send"
+    )
+    app.dependency_overrides[route.dependant.dependencies[0].call] = lambda: MiniAppUser(
+        id="1781530480", database_id=None, name="Партнёр", role=UserRole.PARTNER,
+        partner_id=partner_id,
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        init_data = signed_init_data(second_bot.token, 1781530480, int(time.time()))
+        response = await client.post(
+            "/api/partner/report/send?date_from=2020-01-01",
+            headers={"X-Telegram-Init-Data": init_data},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"sent": True}
+    report_builder.assert_awaited_once_with(None, partner_id)
+    first_bot.send_document.assert_not_awaited()
+    second_bot.send_document.assert_awaited_once()
+    assert second_bot.send_document.await_args.kwargs["chat_id"] == 1781530480
+    assert (
+        second_bot.send_document.await_args.kwargs["document"].filename
+        == "rko-partner-report.xlsx"
+    )
 
 
 def test_partner_summary_uses_clear_application_and_payment_metrics() -> None:
@@ -865,7 +913,7 @@ def test_repeat_applications_are_visible_in_summary_and_history() -> None:
 def test_mini_app_retries_and_loads_optional_sections_in_parallel() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 
-    assert "request.timeout=10000" in script
+    assert "request.timeout=options.timeout||10000" in script
     assert "new XMLHttpRequest()" in script
     assert "const attempts=(options.method||'GET').toUpperCase()==='GET'?2:1" in script
     assert "Сервер отвечает слишком долго" in script

@@ -30,7 +30,7 @@ function jsonRequest(path, options={}){
   return new Promise((resolve,reject)=>{
     const request=new XMLHttpRequest()
     request.open((options.method||'GET').toUpperCase(),path,true)
-    request.timeout=10000
+    request.timeout=options.timeout||10000
     request.setRequestHeader('Content-Type','application/json')
     request.setRequestHeader('X-Telegram-Init-Data',telegramInitData())
     Object.entries(options.headers||{}).forEach(([name,value])=>request.setRequestHeader(name,value))
@@ -496,7 +496,31 @@ document.querySelectorAll('[data-go]').forEach(x=>x.addEventListener('click',()=
 document.querySelector('#close-sheet').addEventListener('click',closeSheet);document.querySelector('#sheet-backdrop').addEventListener('click',closeSheet);document.querySelector('#retry-button').addEventListener('click',load)
 document.querySelector('#lead-search').addEventListener('input',renderVisibleLeads)
 document.querySelector('#lead-scope').addEventListener('change',async event=>{state.leadScope=event.target.value;state.leadScopeExplicit=true;await load()})
-async function downloadReport(){try{const partner=state.session?.role==='partner',path=partner?`/api/partner/report.xlsx?${partnerQuery()}`:'/api/reports/leads.csv',response=await fetch(path,{headers:{'X-Telegram-Init-Data':telegramInitData()}});if(!response.ok)throw new Error('Не удалось сформировать отчёт');const link=document.createElement('a');link.href=URL.createObjectURL(await response.blob());link.download=partner?'rko-partner-report.xlsx':'rko-leads.csv';link.click();setTimeout(()=>URL.revokeObjectURL(link.href),1000);toast('Отчёт сформирован')}catch(error){toast(error.message)}}
+let partnerReportSending=false
+async function downloadReport(){
+  if(state.session?.role==='partner'){
+    if(partnerReportSending)return
+    partnerReportSending=true
+    try{
+      await api('/api/partner/report/send',{method:'POST',timeout:120000})
+      const tg=telegramWebApp()
+      if(tg?.close)tg.close()
+      else toast('Отчёт отправлен в чат с ботом')
+    }catch(error){toast(error.message)}
+    finally{partnerReportSending=false}
+    return
+  }
+  try{
+    const response=await fetch('/api/reports/leads.csv',{headers:{'X-Telegram-Init-Data':telegramInitData()}})
+    if(!response.ok)throw new Error('Не удалось сформировать отчёт')
+    const link=document.createElement('a')
+    link.href=URL.createObjectURL(await response.blob())
+    link.download='rko-leads.csv'
+    link.click()
+    setTimeout(()=>URL.revokeObjectURL(link.href),1000)
+    toast('Отчёт сформирован')
+  }catch(error){toast(error.message)}
+}
 document.querySelector('#download-report').addEventListener('click',downloadReport)
 document.querySelector('#partner-report').addEventListener('click',downloadReport)
 document.querySelector('#partner-contact').addEventListener('click',()=>{const url=state.partnerData?.contact?.url;if(!url)return toast('Администратор ещё не назначен');const tg=telegramWebApp();tg?.openTelegramLink?tg.openTelegramLink(url):window.open(url,'_blank','noopener')})

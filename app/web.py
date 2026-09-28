@@ -16,6 +16,7 @@ from urllib.parse import parse_qsl
 from uuid import UUID
 
 from aiogram import Bot
+from aiogram.types import BufferedInputFile
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -1034,6 +1035,37 @@ def create_web_app(
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers=headers,
         )
+
+    @app.post("/api/partner/report/send")
+    async def send_partner_report(
+        user: Annotated[MiniAppUser, Depends(current_user)],
+        request: Request,
+    ) -> dict[str, bool]:
+        partner_id = require_partner(user)
+        init_data = request.headers.get("X-Telegram-Init-Data", "")
+        source_bot = None
+        for current_bot in notification_bots:
+            try:
+                validate_telegram_init_data(init_data, current_bot.token)
+            except ValueError:
+                continue
+            source_bot = current_bot
+            break
+        if source_bot is None:
+            raise HTTPException(status_code=503, detail="Бот для отправки отчёта недоступен")
+        report = await build_partner_report(database, partner_id)
+        try:
+            await source_bot.send_document(
+                chat_id=int(user.id),
+                document=BufferedInputFile(report, filename="rko-partner-report.xlsx"),
+            )
+        except Exception as error:
+            logger.exception("Failed to send partner report to %s", partner_id)
+            raise HTTPException(
+                status_code=502,
+                detail="Не удалось отправить отчёт в чат. Попробуйте ещё раз позже.",
+            ) from error
+        return {"sent": True}
 
     @app.get("/api/dashboard")
     async def dashboard(

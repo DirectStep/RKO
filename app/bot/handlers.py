@@ -552,7 +552,7 @@ async def partner_report_handler(callback: CallbackQuery, database: Database) ->
     report = await build_partner_report(database, partner.id)
     await callback.message.answer_document(
         BufferedInputFile(report, filename="rko-partner-report.xlsx"),
-        caption="Отчёт за всё время. Произвольный период можно выбрать в мини-приложении.",
+        caption="Отчёт за всё время.",
     )
     await callback.answer()
 
