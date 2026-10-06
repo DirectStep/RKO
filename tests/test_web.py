@@ -941,7 +941,7 @@ def test_every_internal_status_has_a_client_notification_label() -> None:
     assert CLIENT_STATUS_LABELS[LeadInternalStatus.COMPLETED] == "Заявка завершена"
 
     source = (ASSETS_DIR.parent / "web.py").read_text(encoding="utf-8")
-    assert "Статус вашей заявки изменён" in source
+    assert "client_status_changed_message(CLIENT_STATUS_LABELS[status])" in source
     assert "previous_internal_status != current_internal_status" in source
     assert "await notify_client_status(lead_id, current_internal_status)" in source
 

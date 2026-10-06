@@ -28,6 +28,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.bot.keyboards import manager_new_lead_keyboard
+from app.bot.texts import bank_selection_confirmation, client_status_changed_message
 from app.config import Settings
 from app.database import Database
 from app.domain.enums import (
@@ -686,9 +687,8 @@ def create_web_app(
     async def notify_client_status(lead_id: UUID, status: LeadInternalStatus) -> None:
         await notify_client(
             lead_id,
-            "Статус вашей заявки изменён: "
-            f"{CLIENT_STATUS_LABELS[status]}. "
-            "Актуальная информация доступна в кабинете.",
+            client_status_changed_message(CLIENT_STATUS_LABELS[status]),
+            parse_mode="HTML",
         )
 
     async def notify_manager_new_lead(
@@ -982,10 +982,8 @@ def create_web_app(
             await notify_manager_new_lead(lead, manager, names)
         await notify_client(
             lead.id,
-            f"Спасибо, выбор отправлен. Менеджер сопровождения: {format_user_name(manager)}. "
-            "Скоро с вами свяжутся. "
-            "Для сопровождения создадим отдельную группу: там будут все инструкции, "
-            "и там можно будет задать любые вопросы.",
+            bank_selection_confirmation(format_user_name(manager)),
+            parse_mode="HTML",
         )
         return {"id": str(lead.id), "workflow_stage": lead.workflow_stage.value}
 

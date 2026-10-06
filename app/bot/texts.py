@@ -1,3 +1,40 @@
+from html import escape
+
+
+def bank_selection_confirmation(manager_name: str) -> str:
+    return (
+        '<tg-emoji emoji-id="5357146861880760304">🎉</tg-emoji> '
+        "Спасибо, выбор отправлен!\n\n"
+        '<tg-emoji emoji-id="5226831738734400762">👤</tg-emoji> '
+        "Ваш персональный менеджер:\n"
+        f"<blockquote>{escape(manager_name)}</blockquote>\n\n"
+        '<blockquote><tg-emoji emoji-id="5440621591387980068">🔜</tg-emoji>'
+        "</blockquote>\n"
+        "<blockquote>Скоро с вами свяжутся и создадут отдельную группу: "
+        "там будут все инструкции и можно будет задать любые вопросы!</blockquote>"
+    )
+
+
+def application_registered_message(application_number: str) -> str:
+    return (
+        '<tg-emoji emoji-id="5357146861880760304">🎉</tg-emoji> '
+        f"Заявка {escape(application_number)} успешно зарегистрирована\n\n"
+        '<blockquote><tg-emoji emoji-id="5440621591387980068">🔜</tg-emoji> '
+        "Скоро с вами свяжется специалист!</blockquote>"
+    )
+
+
+def client_status_changed_message(status_label: str) -> str:
+    return (
+        '<tg-emoji emoji-id="5188234920639632382">🟢</tg-emoji> '
+        "Статус вашей заявки изменён:\n"
+        f"<blockquote><b>{escape(status_label)}</b></blockquote>\n\n"
+        '<blockquote><tg-emoji emoji-id="5334544901428229844">ℹ️</tg-emoji>'
+        "</blockquote>\n\n"
+        "<blockquote><i>Актуальная информация доступна в кабинете!</i></blockquote>"
+    )
+
+
 START_TEXT = (
     '<tg-emoji emoji-id="5199885118214255386">📬</tg-emoji> '
     "<b>ДОБРО ПОЖАЛОВАТЬ!</b>\n\n"

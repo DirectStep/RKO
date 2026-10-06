@@ -34,6 +34,7 @@ from app.bot.texts import (
     PARTNER_PDN_VERSION,
     PARTNER_START_TEXT,
     START_TEXT,
+    application_registered_message,
     consent_prompt,
     partner_documents_prompt,
 )
@@ -1070,8 +1071,8 @@ async def finish_application(
     else:
         if result.eligible:
             await message.answer(
-                f"Отлично, заявка {result.short_id} зарегистрирована. "
-                "Скоро с вами свяжется специалист."
+                application_registered_message(result.short_id or ""),
+                parse_mode="HTML",
             )
         else:
             await message.answer(

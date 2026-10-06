@@ -1,0 +1,13 @@
+services:
+  db:
+    restart: unless-stopped
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    network_mode: service:bot
+    command: ["tunnel", "--no-autoupdate", "run", "--token-file", "/run/secrets/cloudflare-tunnel.token"]
+    volumes:
+      - ./secrets:/run/secrets:ro
+    depends_on:
+      - bot
+    restart: unless-stopped
+    profiles: ["cloudflare"]
