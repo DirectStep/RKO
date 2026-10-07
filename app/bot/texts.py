@@ -39,7 +39,9 @@ def client_status_changed_message(status_label: str) -> str:
         "Статус вашей заявки изменён:\n"
         f"<blockquote><b>{escape(status_label)}</b></blockquote>\n\n"
         '<blockquote><tg-emoji emoji-id="5334544901428229844">ℹ️</tg-emoji>'
-        "</blockquote>\n\n"
+        "</blockquote>\n"
+        # Telegram needs a character to preserve a visually empty quote.
+        "<blockquote>\u2800</blockquote>\n"
         "<blockquote><i>Актуальная информация доступна в кабинете!</i></blockquote>"
     )
 

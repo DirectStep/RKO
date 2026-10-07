@@ -47,7 +47,7 @@ class MessageMarkup(HTMLParser):
         (
             client_status_changed_message("Выберите банки"),
             ["5188234920639632382", "5334544901428229844"],
-            3,
+            4,
         ),
     ],
 )
@@ -82,6 +82,7 @@ def test_status_message_highlights_actual_status_and_cabinet_hint() -> None:
     message = client_status_changed_message("Заявка завершена")
     assert "Статус вашей заявки изменён:\n" in message
     assert "<blockquote><b>Заявка завершена</b></blockquote>" in message
+    assert "</tg-emoji></blockquote>\n<blockquote>\u2800</blockquote>\n" in message
     assert "<blockquote><i>Актуальная информация доступна в кабинете!</i></blockquote>" in message
 
 
