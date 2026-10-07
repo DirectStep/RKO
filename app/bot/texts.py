@@ -8,10 +8,8 @@ def bank_selection_confirmation(manager_name: str) -> str:
         '<tg-emoji emoji-id="5226831738734400762">👤</tg-emoji> '
         "Ваш персональный менеджер:\n"
         f"<blockquote>{escape(manager_name)}</blockquote>\n\n"
-        '<blockquote><tg-emoji emoji-id="5440621591387980068">🔜</tg-emoji>'
-        "</blockquote>\n"
-        "<blockquote>\u2800</blockquote>\n"
-        "<blockquote>Скоро с вами свяжутся и создадут отдельную группу: "
+        '<blockquote><tg-emoji emoji-id="5440621591387980068">🔜</tg-emoji> '
+        "Скоро с вами свяжутся и создадут отдельную группу: "
         "там будут все инструкции и можно будет задать любые вопросы!</blockquote>"
     )
 
@@ -39,11 +37,8 @@ def client_status_changed_message(status_label: str) -> str:
         '<tg-emoji emoji-id="5188234920639632382">🟢</tg-emoji> '
         "Статус вашей заявки изменён:\n"
         f"<blockquote><b>{escape(status_label)}</b></blockquote>\n\n"
-        '<blockquote><tg-emoji emoji-id="5334544901428229844">ℹ️</tg-emoji>'
-        "</blockquote>\n"
-        # Telegram needs a character to preserve a visually empty quote.
-        "<blockquote>\u2800</blockquote>\n"
-        "<blockquote><i>Актуальная информация доступна в кабинете!</i></blockquote>"
+        '<blockquote><tg-emoji emoji-id="5334544901428229844">ℹ️</tg-emoji> '
+        "<i>Актуальная информация доступна в кабинете!</i></blockquote>"
     )
 
 
