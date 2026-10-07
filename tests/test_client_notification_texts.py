@@ -37,7 +37,7 @@ class MessageMarkup(HTMLParser):
         (
             bank_selection_confirmation("@manager"),
             ["5357146861880760304", "5226831738734400762", "5440621591387980068"],
-            2,
+            4,
         ),
         (
             application_registered_message("RKO-0059"),
@@ -67,8 +67,9 @@ def test_selection_message_matches_requested_copy() -> None:
     assert "Спасибо, выбор отправлен!" in message
     assert "Ваш персональный менеджер:\n<blockquote>@manager</blockquote>" in message
     assert (
-        '<blockquote><tg-emoji emoji-id="5440621591387980068">🔜</tg-emoji> '
-        "Скоро с вами свяжутся и создадут отдельную группу: "
+        '<blockquote><tg-emoji emoji-id="5440621591387980068">🔜</tg-emoji>'
+        "</blockquote>\n<blockquote>\u2800</blockquote>\n"
+        "<blockquote>Скоро с вами свяжутся и создадут отдельную группу: "
         "там будут все инструкции и можно будет задать любые вопросы!</blockquote>"
     ) in message
 
