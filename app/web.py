@@ -27,8 +27,13 @@ from starlette.middleware.base import RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
 
+from app.bot.admin_handlers import format_lead
 from app.bot.keyboards import manager_new_lead_keyboard
-from app.bot.texts import bank_selection_confirmation, client_status_changed_message
+from app.bot.texts import (
+    bank_selection_confirmation,
+    client_status_changed_message,
+    manager_changed_message,
+)
 from app.config import Settings
 from app.database import Database
 from app.domain.enums import (
@@ -692,7 +697,8 @@ def create_web_app(
         )
 
     async def notify_manager_new_lead(
-        lead: Lead, manager: User | None, additional_banks: list[str] | None = None
+        lead: Lead, manager: User | None, additional_banks: list[str] | None = None,
+        *, reassigned: bool = False,
     ) -> None:
         if (
             not notification_bots
@@ -701,7 +707,26 @@ def create_web_app(
             or manager.access_status is not AccessStatus.ACTIVE
         ):
             return
-        if additional_banks:
+        if reassigned:
+            async with database.session() as db_session:
+                bank_names = list(await db_session.scalars(
+                    select(Bank.name)
+                    .join(LeadBank, LeadBank.bank_id == Bank.id)
+                    .where(LeadBank.lead_id == lead.id, LeadBank.selected_by_lead.is_(True))
+                    .order_by(Bank.name)
+                ))
+            text = (
+                "Вам передана заявка\n\n"
+                + f"Клиент: {lead.display_name}\n\n"
+                + format_lead(lead)
+                + f"\nE-mail: {lead.email or 'не указан'}"
+                + f"\nАдрес: {lead.street_address or 'не указан'}"
+                + f"\nИНН: {lead.inn_draft or 'не указан'}"
+                + "\n\nВыбранные банки:\n"
+                + "\n".join(f"• {name}" for name in bank_names)
+                + "\n\nОткройте заявку, чтобы взять её в работу."
+            )
+        elif additional_banks:
             text = (
                 f"Заявка {lead.short_id}: клиент выбрал ещё банки.\n\n"
                 + "\n".join(f"• {name}" for name in additional_banks)
@@ -716,13 +741,19 @@ def create_web_app(
                 "(улица и номер дома и ИНН)‼️\n\n"
                 "Откройте заявку, чтобы взять её в работу и статус заявки перейдёт «в работе»."
             )
+        chunks = [text[offset:offset + 2000] for offset in range(0, len(text), 2000)]
+        if not reassigned:
+            chunks = [text]
         for current_bot in notification_bots:
             try:
-                await current_bot.send_message(
-                    chat_id=int(manager.telegram_id),
-                    text=text,
-                    reply_markup=manager_new_lead_keyboard(str(lead.id)),
-                )
+                for index, chunk in enumerate(chunks):
+                    await current_bot.send_message(
+                        chat_id=int(manager.telegram_id), text=chunk, parse_mode=None,
+                        reply_markup=(
+                            manager_new_lead_keyboard(str(lead.id))
+                            if index == len(chunks) - 1 else None
+                        ),
+                    )
             except Exception:
                 logger.exception(
                     "Failed to notify manager %s about lead %s via bot %s",
@@ -1600,7 +1631,7 @@ def create_web_app(
     ) -> dict[str, str]:
         actor_id = require_employee(user)
         try:
-            lead = await WorkflowService(database).update_lead(
+            lead, manager_changed = await WorkflowService(database).update_lead(
                 actor_role=user.role,
                 actor_user_id=actor_id,
                 lead_id=lead_id,
@@ -1614,6 +1645,20 @@ def create_web_app(
             )
         except DomainError as error:
             raise domain_error(error) from error
+        if (
+            manager_changed
+            and lead.manager_id is not None
+            and lead.bank_selection_submitted_at is not None
+            and lead.archived_at is None
+        ):
+            async with database.session() as db_session:
+                manager = await db_session.get(User, lead.manager_id)
+            await notify_manager_new_lead(lead, manager, reassigned=True)
+            await notify_client(
+                lead.id,
+                manager_changed_message(format_user_name(manager)),
+                parse_mode="HTML",
+            )
         return {
             "id": str(lead.id),
             "status": lead.internal_status.value,

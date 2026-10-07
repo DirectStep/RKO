@@ -15,6 +15,15 @@ def bank_selection_confirmation(manager_name: str) -> str:
     )
 
 
+def manager_changed_message(manager_name: str) -> str:
+    return (
+        '<tg-emoji emoji-id="5226831738734400762">👤</tg-emoji> '
+        "Ваш персональный менеджер изменён:\n"
+        f"<blockquote>{escape(manager_name)}</blockquote>\n\n"
+        "Новый менеджер свяжется с вами и поможет с открытием счетов."
+    )
+
+
 def application_registered_message(application_number: str) -> str:
     return (
         '<tg-emoji emoji-id="5357146861880760304">🎉</tg-emoji> '

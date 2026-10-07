@@ -251,10 +251,11 @@ class WorkflowService:
         street_address: str | None = None,
         inn_draft: str | None = None,
         update_contacts: bool = False,
-    ) -> Lead:
+    ) -> tuple[Lead, bool]:
         if actor_role not in {UserRole.ADMIN, UserRole.MANAGER}:
             raise DomainError("Изменять заявку может только сотрудник")
         async with self.database.session() as session, session.begin():
+            manager_changed = False
             lead = await session.scalar(select(Lead).where(Lead.id == lead_id).with_for_update())
             if lead is None:
                 raise DomainError("Заявка не найдена")
@@ -292,7 +293,7 @@ class WorkflowService:
                 lead.street_address = address or None
                 lead.inn_draft = inn or None
             lead.last_updated_at = datetime.now(UTC)
-            return lead
+            return lead, manager_changed
 
     async def list_banks(self, *, include_inactive: bool = True) -> list[Bank]:
         async with self.database.session() as session:

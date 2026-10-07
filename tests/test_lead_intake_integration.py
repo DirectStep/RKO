@@ -804,7 +804,7 @@ async def test_two_stage_lead_claim_and_bank_selection() -> None:
         assert lead.internal_status is LeadInternalStatus.PREPARING_APPLICATIONS
         assert lead.manager_started_at is not None
 
-        lead = await WorkflowService(database).update_lead(
+        lead, manager_changed = await WorkflowService(database).update_lead(
             actor_role=UserRole.ADMIN,
             actor_user_id=admin_id,
             lead_id=lead_id,
@@ -812,6 +812,7 @@ async def test_two_stage_lead_claim_and_bank_selection() -> None:
             update_manager=True,
         )
         assert lead.manager_id == second_manager_id
+        assert manager_changed
         assert lead.manager_started_at is None
         assert lead.workflow_stage is LeadWorkflowStage.MANAGER_PROCESSING
         assert lead.internal_status is LeadInternalStatus.PREPARING_APPLICATIONS
@@ -1587,7 +1588,7 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
             await session.flush()
             ids["lead"] = lead.id
 
-        lead = await workflow.update_lead(
+        lead, manager_changed = await workflow.update_lead(
             actor_role=UserRole.ADMIN,
             lead_id=ids["lead"],
             manager_id=manager.id,
@@ -1596,6 +1597,7 @@ async def test_full_local_workflow_from_manager_to_paid_partner() -> None:
             update_comment=True,
         )
         assert lead.manager_id == manager.id
+        assert manager_changed
         assert lead.internal_status is LeadInternalStatus.MANAGER_ASSIGNED
 
         lead_bank = await workflow.add_bank_to_lead(
