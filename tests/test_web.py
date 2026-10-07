@@ -1140,7 +1140,10 @@ def test_bank_confirmation_and_activation_help_copy_are_scoped() -> None:
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
     styles = (ASSETS_DIR / "styles.css").read_text(encoding="utf-8")
 
-    assert '<div class="value-row selected-bank-row"><strong>${esc(name)}</strong></div>' in script
+    assert (
+        '<div class="value-row selected-bank-row"><strong>${bankName(name)}</strong></div>'
+        in script
+    )
     assert "целевые действия, нужны" in script
     assert ".selected-bank-row strong { text-align: left; }" in styles
     assert ".activation-info-copy .info-copy { text-align: center; }" in styles

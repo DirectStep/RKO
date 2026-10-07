@@ -771,6 +771,7 @@ def create_web_app(
         user: Annotated[MiniAppUser, Depends(current_user)],
         request: Request,
     ) -> dict[str, object]:
+        photo_url = ""
         if request.headers.get("X-Telegram-Init-Data"):
             username = None
             observed_at = datetime.fromtimestamp(
@@ -780,6 +781,9 @@ def create_web_app(
             telegram_user = validate_telegram_init_data_with_tokens(
                 request.headers["X-Telegram-Init-Data"], settings.bot_tokens
             )
+            signed_photo = telegram_user.get("photo_url")
+            if isinstance(signed_photo, str) and signed_photo.startswith("https://"):
+                photo_url = signed_photo
             username = str(telegram_user.get("username") or "") or None
             live_profile = False
             for current_bot in notification_bots:
@@ -817,6 +821,7 @@ def create_web_app(
             "name": user.name,
             "role": user.role.value,
             "telegram_id": user.id,
+            "photo_url": photo_url,
             "google_sheet_url": google_sheet_url,
             "bank_conditions_sheet_url": bank_conditions_sheet_url,
             "bank_rates_sheet_url": bank_rates_sheet_url,
