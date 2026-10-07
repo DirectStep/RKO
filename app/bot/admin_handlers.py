@@ -14,6 +14,11 @@ from app.bot.keyboards import (
     admin_stats_keyboard,
 )
 from app.config import Settings
+from app.bot.texts import (
+    application_registered_message,
+    bank_selection_confirmation,
+    client_status_changed_message,
+)
 from app.database import Database
 from app.domain.enums import UserRole
 from app.models import Lead
@@ -81,6 +86,26 @@ async def show_custom_emoji_ids(
         "Нашёл премиум-эмодзи:\n"
         + "\n".join(f"{index}. {emoji_id}" for index, emoji_id in enumerate(emoji_ids, 1))
     )
+
+
+@router.message(Command("test_messages"))
+async def preview_client_messages(
+    message: Message, database: Database, settings: Settings
+) -> None:
+    user = message.from_user
+    if user is None or not await is_admin(user, database, settings):
+        await message.answer("Команда доступна только администратору.")
+        return
+    if message.chat.type != "private":
+        await message.answer("Отправьте /test_messages в личные сообщения боту.")
+        return
+    await message.answer("Тестовые примеры уведомлений — заявка не создаётся.")
+    for text in (
+        application_registered_message("RKO-TEST"),
+        bank_selection_confirmation(f"@{user.username}" if user.username else user.full_name),
+        client_status_changed_message("Выберите банки"),
+    ):
+        await message.answer(text, parse_mode="HTML")
 
 
 async def is_admin(user: TelegramUser, database: Database, settings: Settings) -> bool:
