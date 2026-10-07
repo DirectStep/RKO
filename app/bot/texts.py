@@ -8,9 +8,8 @@ def bank_selection_confirmation(manager_name: str) -> str:
         '<tg-emoji emoji-id="5226831738734400762">👤</tg-emoji> '
         "Ваш персональный менеджер:\n"
         f"<blockquote>{escape(manager_name)}</blockquote>\n\n"
-        '<blockquote><tg-emoji emoji-id="5440621591387980068">🔜</tg-emoji>'
-        "</blockquote>\n"
-        "<blockquote>Скоро с вами свяжутся и создадут отдельную группу: "
+        '<blockquote><tg-emoji emoji-id="5440621591387980068">🔜</tg-emoji> '
+        "Скоро с вами свяжутся и создадут отдельную группу: "
         "там будут все инструкции и можно будет задать любые вопросы!</blockquote>"
     )
 
