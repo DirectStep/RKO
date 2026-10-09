@@ -123,12 +123,13 @@ PARTNER_START_TEXT = (
 
 PARTNER_OFFER_VERSION = "27.09.2026"
 PARTNER_PDN_VERSION = "20.09.2026"
+PRIVACY_DOCUMENT_VERSION = "20261009-2"
 
 
 def consent_prompt(mini_app_url: str) -> str:
     public_root = mini_app_url.partition("?")[0].rstrip("/")
-    consent_url = f"{public_root}/documents/soglasie-pdn.pdf"
-    policy_url = f"{public_root}/documents/politika-pdn.pdf"
+    consent_url = f"{public_root}/documents/soglasie-pdn.pdf?v={PRIVACY_DOCUMENT_VERSION}"
+    policy_url = f"{public_root}/documents/politika-pdn.pdf?v={PRIVACY_DOCUMENT_VERSION}"
     offer_url = f"{public_root}/documents/oferta-client-20260927.pdf"
     return (
         "Нажимая «Принимаю оферту», я принимаю "
@@ -148,10 +149,10 @@ def partner_documents_prompt(mini_app_url: str) -> str:
         f'<a href="{public_root}/documents/oferta-partner-20260927.pdf">'
         "Публичную оферту для партнёра</a>.\n\n"
         "Нажимая «Даю согласие на ПДн», я даю "
-        f'<a href="{public_root}/documents/soglasie-pdn.pdf">'
+        f'<a href="{public_root}/documents/soglasie-pdn.pdf?v={PRIVACY_DOCUMENT_VERSION}">'
         "Согласие на обработку персональных данных</a> и подтверждаю, что "
         "ознакомился(-ась) с "
-        f'<a href="{public_root}/documents/politika-pdn.pdf">'
+        f'<a href="{public_root}/documents/politika-pdn.pdf?v={PRIVACY_DOCUMENT_VERSION}">'
         "Политикой обработки персональных данных</a>.\n\n"
         "Кабинет уже доступен."
     )

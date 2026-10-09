@@ -59,10 +59,10 @@ def test_consent_prompt_links_client_offer_and_privacy_documents() -> None:
         '<a href="https://app.example.test/documents/oferta-client-20260927.pdf">'
         "Публичную оферту для клиента</a>.\n\n"
         "Нажимая «Даю согласие на ПДн», я даю "
-        '<a href="https://app.example.test/documents/soglasie-pdn.pdf">'
+        '<a href="https://app.example.test/documents/soglasie-pdn.pdf?v=20261009-2">'
         "Согласие на обработку персональных данных</a> и подтверждаю, что "
         "ознакомился(-ась) с "
-        '<a href="https://app.example.test/documents/politika-pdn.pdf">'
+        '<a href="https://app.example.test/documents/politika-pdn.pdf?v=20261009-2">'
         "Политикой обработки персональных данных</a>."
     )
 
@@ -72,8 +72,8 @@ def test_partner_documents_are_linked_and_confirmed_separately() -> None:
     keyboard = partner_documents_keyboard(offer_accepted=False, pdn_consented=False)
 
     assert 'href="https://app.example.test/documents/oferta-partner-20260927.pdf"' in prompt
-    assert 'href="https://app.example.test/documents/politika-pdn.pdf"' in prompt
-    assert 'href="https://app.example.test/documents/soglasie-pdn.pdf"' in prompt
+    assert 'href="https://app.example.test/documents/politika-pdn.pdf?v=20261009-2"' in prompt
+    assert 'href="https://app.example.test/documents/soglasie-pdn.pdf?v=20261009-2"' in prompt
     assert "Нажимая «Принимаю оферту», я принимаю" in prompt
     assert "Нажимая «Даю согласие на ПДн», я даю" in prompt
     assert keyboard is not None
