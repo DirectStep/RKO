@@ -1,6 +1,31 @@
 from html import escape
 
 
+def manager_new_lead_message(
+    application_number: str, client_name: str, telegram_username: str | None,
+    phone: str, primary_admin: str,
+) -> str:
+    telegram = f"@{telegram_username.lstrip('@')}" if telegram_username else "Не указан"
+    return (
+        '<tg-emoji emoji-id="5244927342190541585">🆕</tg-emoji>'
+        '<tg-emoji emoji-id="5244634919342192985">🆕</tg-emoji>\n'
+        f"Новая заявка <code>{escape(application_number)}</code>\n\n"
+        f"Клиент:\n<blockquote>{escape(client_name)}</blockquote>\n"
+        f"Telegram:\n<blockquote>{escape(telegram)}</blockquote>\n"
+        f"Телефон:\n<blockquote>{escape(phone)}</blockquote>\n\n"
+        '<tg-emoji emoji-id="5226831738734400762">👤</tg-emoji> '
+        "Первичный ответственный (ркошник):\n"
+        f"<blockquote>{escape(primary_admin)}</blockquote>\n\n"
+        '<tg-emoji emoji-id="5188234920639632382">🟢</tg-emoji> Статус:\n'
+        "<blockquote>Клиент выбрал банки</blockquote>\n\n"
+        '<tg-emoji emoji-id="5206357006864113601">👨‍💼</tg-emoji> '
+        "Откройте заявку, чтобы взять её в работу и статус заявки перейдёт «в работе»\n\n\n"
+        '<tg-emoji emoji-id="5188463524568926712">⚠️</tg-emoji> '
+        "<i>Не забудьте сначала создать группу с лидом и ркошником и запросить "
+        "недостающие данные <b>(улица и номер дома и ИНН)</b></i>"
+    )
+
+
 def bank_selection_confirmation(manager_name: str) -> str:
     return (
         '<tg-emoji emoji-id="5357146861880760304">🎉</tg-emoji> '

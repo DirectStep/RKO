@@ -33,6 +33,7 @@ from app.bot.texts import (
     bank_selection_confirmation,
     client_status_changed_message,
     manager_changed_message,
+    manager_new_lead_message,
 )
 from app.config import Settings
 from app.database import Database
@@ -707,6 +708,7 @@ def create_web_app(
             or manager.access_status is not AccessStatus.ACTIVE
         ):
             return
+        parse_mode = None
         if reassigned:
             async with database.session() as db_session:
                 bank_names = list(await db_session.scalars(
@@ -733,14 +735,16 @@ def create_web_app(
                 + "\n\nОткройте заявку, чтобы посмотреть обновлённый список."
             )
         else:
-            text = (
-                f"Новая заявка {lead.short_id}\n\n"
-                f"Клиент: {lead.display_name}\n"
-                "Клиент выбрал банки.\n\n"
-                "Не забудьте сначала создать группу с лидом и запросить недостающие данные "
-                "(улица и номер дома и ИНН)‼️\n\n"
-                "Откройте заявку, чтобы взять её в работу и статус заявки перейдёт «в работе»."
+            async with database.session() as db_session:
+                admin = (
+                    await db_session.get(User, lead.primary_admin_id)
+                    if lead.primary_admin_id else None
+                )
+            text = manager_new_lead_message(
+                lead.short_id, lead.display_name, lead.telegram_username,
+                lead.phone, format_user_name(admin),
             )
+            parse_mode = "HTML"
         chunks = [text[offset:offset + 2000] for offset in range(0, len(text), 2000)]
         if not reassigned:
             chunks = [text]
@@ -748,7 +752,7 @@ def create_web_app(
             try:
                 for index, chunk in enumerate(chunks):
                     await current_bot.send_message(
-                        chat_id=int(manager.telegram_id), text=chunk, parse_mode=None,
+                        chat_id=int(manager.telegram_id), text=chunk, parse_mode=parse_mode,
                         reply_markup=(
                             manager_new_lead_keyboard(str(lead.id))
                             if index == len(chunks) - 1 else None
