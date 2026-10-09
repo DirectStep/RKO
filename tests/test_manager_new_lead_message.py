@@ -18,8 +18,9 @@ def test_manager_message_escapes_client_data_and_uses_requested_emoji() -> None:
     assert '<blockquote>@client</blockquote>' in text
     assert '<blockquote>@admin</blockquote>' in text
     assert text.count('<blockquote>') == text.count('</blockquote>') == 5
-    assert text.count('<tg-emoji ') == text.count('</tg-emoji>') == 6
-    for emoji_id in ('5244927342190541585', '5244634919342192985', '5226831738734400762',
+    assert text.count('<tg-emoji ') == text.count('</tg-emoji>') == 5
+    assert text.count('>🆕</tg-emoji>') == 1
+    for emoji_id in ('5244927342190541585', '5226831738734400762',
                      '5188234920639632382', '5206357006864113601', '5188463524568926712'):
         assert f'emoji-id="{emoji_id}"' in text
     assert 'группу с лидом и ркошником' in text

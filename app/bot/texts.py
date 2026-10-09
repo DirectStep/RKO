@@ -7,8 +7,7 @@ def manager_new_lead_message(
 ) -> str:
     telegram = f"@{telegram_username.lstrip('@')}" if telegram_username else "Не указан"
     return (
-        '<tg-emoji emoji-id="5244927342190541585">🆕</tg-emoji>'
-        '<tg-emoji emoji-id="5244634919342192985">🆕</tg-emoji>\n'
+        '<tg-emoji emoji-id="5244927342190541585">🆕</tg-emoji>\n'
         f"Новая заявка <code>{escape(application_number)}</code>\n\n"
         f"Клиент:\n<blockquote>{escape(client_name)}</blockquote>\n"
         f"Telegram:\n<blockquote>{escape(telegram)}</blockquote>\n"
