@@ -40,6 +40,7 @@
   --font-ui: "Manrope", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-display: "Lora", Georgia, "Times New Roman", serif;
   --separator: color-mix(in srgb, var(--muted) 18%, transparent);
+  --glass-rim: rgba(255, 255, 255, 0.72);
   --positive: color-mix(in srgb, var(--text) 35%, #477654);
   --positive-action: #35664b;
   --warning: color-mix(in srgb, var(--text) 35%, #a87428);
@@ -63,6 +64,7 @@
     --bg: color-mix(in srgb, var(--tg-theme-secondary-bg-color, #1f1e1b) 92%, #312f2a);
     --surface: color-mix(in srgb, var(--tg-theme-bg-color, #292824) 94%, #3a3731);
     --surface-subtle: #302f2c;
+    --glass-rim: rgba(255, 255, 255, 0.16);
     --text: var(--tg-theme-text-color, #f2f0e8);
     --muted: var(--tg-theme-hint-color, #aaa69c);
     --link-accent: var(--tg-theme-link-color, #8abbd5);
@@ -78,6 +80,7 @@
   --bg: color-mix(in srgb, var(--tg-theme-secondary-bg-color, #1f1e1b) 92%, #312f2a);
   --surface: color-mix(in srgb, var(--tg-theme-bg-color, #292824) 94%, #3a3731);
   --surface-subtle: #302f2c;
+  --glass-rim: rgba(255, 255, 255, 0.16);
   --text: var(--tg-theme-text-color, #f2f0e8);
   --muted: var(--tg-theme-hint-color, #aaa69c);
   --link-accent: var(--tg-theme-link-color, #8abbd5);
@@ -112,7 +115,7 @@ button { color: inherit; }
   width: min(100%, 40rem);
   min-height: 100dvh;
   margin: 0 auto;
-  padding-bottom: calc(5.6rem + env(safe-area-inset-bottom));
+  padding-bottom: calc(6.5rem + env(safe-area-inset-bottom));
 }
 
 .topbar {
@@ -125,8 +128,8 @@ button { color: inherit; }
   min-height: 4.4rem;
   padding: max(0.65rem, env(safe-area-inset-top)) 1.1rem 0.65rem;
   border-bottom: 1px solid var(--separator);
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  backdrop-filter: blur(1.2rem) saturate(160%);
+  background: var(--surface);
+  box-shadow: inset 0 -1px var(--glass-rim), 0 0.25rem 1rem rgba(18, 31, 43, 0.04);
 }
 
 .topbar h1, .section-heading h2, .list-heading h3 { margin: 0; }
@@ -434,24 +437,47 @@ button.list-row.is-not-eligible:active {
   position: fixed;
   z-index: 20;
   right: 0;
-  bottom: 0;
+  bottom: calc(0.75rem + env(safe-area-inset-bottom));
   left: 0;
   display: grid;
   grid-template-columns: repeat(var(--tab-count, 5), minmax(0, 1fr));
-  width: min(100%, 40rem);
-  min-height: calc(4.15rem + env(safe-area-inset-bottom));
+  width: min(calc(100% - 1.5rem), 38.5rem);
+  min-height: 4.3rem;
   margin: 0 auto;
-  padding: 0.3rem 0.5rem env(safe-area-inset-bottom);
-  border-top: 1px solid var(--separator);
-  background: color-mix(in srgb, var(--surface) 94%, transparent);
-  backdrop-filter: blur(1.2rem) saturate(160%);
+  padding: 0.35rem 0.4rem;
+  border: 1px solid var(--glass-rim);
+  border-radius: 1.65rem;
+  background: var(--surface);
+  box-shadow: inset 0 1px 0 var(--glass-rim), inset 0 -1px 0 var(--separator), 0 0.65rem 2rem rgba(18, 31, 43, 0.16), 0 0.15rem 0.4rem rgba(18, 31, 43, 0.06);
 }
 
-.tabbar button { display: grid; min-height: 3.45rem; place-content: center; gap: 0.18rem; border: 0; color: var(--muted); background: transparent; font-size: 0.64rem; font-weight: 650; }
+.tabbar button { display: grid; min-width: 0; min-height: 3.45rem; place-content: center; gap: 0.18rem; border: 1px solid transparent; border-radius: 1.25rem; color: color-mix(in srgb, var(--text) 76%, var(--surface)); background: transparent; font-size: 0.64rem; font-weight: 650; }
 .tabbar button[hidden] { display: none; }
-.tabbar button.is-active { color: var(--link-accent); font-weight: 800; }
+.tabbar button.is-active { border-color: var(--glass-rim); color: var(--link-accent); background: var(--accent-soft); box-shadow: inset 0 1px 0 var(--glass-rim), 0 0.15rem 0.5rem rgba(18, 31, 43, 0.08); font-weight: 800; }
+.tabbar button:active { background: var(--accent-soft); }
+.tabbar button:focus-visible { outline-offset: -3px; }
 .tabbar svg { width: 1.42rem; height: 1.42rem; margin: auto; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
 .tabbar button:first-child svg { fill: currentColor; stroke: none; }
+
+@supports ((backdrop-filter: blur(1rem)) or (-webkit-backdrop-filter: blur(1rem))) {
+  .topbar, .tabbar {
+    background: linear-gradient(155deg, color-mix(in srgb, var(--surface) 82%, transparent), color-mix(in srgb, var(--surface) 60%, transparent));
+    -webkit-backdrop-filter: blur(1.25rem) saturate(155%);
+    backdrop-filter: blur(1.25rem) saturate(155%);
+  }
+  .tabbar button.is-active { background: color-mix(in srgb, var(--accent-soft) 78%, transparent); }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .topbar, .tabbar { background: var(--surface); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .tabbar button.is-active { background: var(--accent-soft); }
+}
+
+@media (forced-colors: active) {
+  .topbar, .tabbar { background: Canvas; border-color: CanvasText; -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; }
+  .tabbar button { color: ButtonText; }
+  .tabbar button.is-active { border-color: Highlight; color: Highlight; background: Canvas; box-shadow: none; }
+}
 
 .error-state { max-width: 24rem; margin: 4rem auto; padding: 1rem; text-align: center; }
 .error-icon { display: grid; width: 3.5rem; height: 3.5rem; margin: 0 auto 1rem; place-items: center; border-radius: 50%; color: #fff; background: var(--danger-action); font-size: 1.5rem; font-weight: 700; }
@@ -589,7 +615,7 @@ button.contact-row { width: 100%; border-right: 0; border-bottom: 0; border-left
   position: fixed;
   z-index: 60;
   right: 1rem;
-  bottom: calc(5rem + env(safe-area-inset-bottom));
+  bottom: calc(6rem + env(safe-area-inset-bottom));
   left: 1rem;
   width: fit-content;
   max-width: calc(100% - 2rem);
@@ -611,5 +637,5 @@ button.contact-row { width: 100%; border-right: 0; border-bottom: 0; border-left
 @media (min-width: 48rem) {
   body { padding: 1.5rem 0; }
   .app-shell { overflow: hidden; min-height: calc(100dvh - 3rem); border-radius: 1rem; box-shadow: 0 1rem 4rem rgba(23, 38, 55, 0.16); }
-  .tabbar { bottom: 1.5rem; border-radius: 0 0 1rem 1rem; }
+  .tabbar { bottom: calc(1.5rem + env(safe-area-inset-bottom)); }
 }
