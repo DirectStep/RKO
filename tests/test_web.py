@@ -1006,7 +1006,8 @@ def test_telegram_sdk_does_not_block_application_startup() -> None:
     markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
 
-    assert 'telegram-web-app.js?59" async' in markup
+    assert 'src="/assets/vendor/telegram-web-app.js?v=124bdff7" data-inline="telegram"' in markup
+    assert markup.index('data-inline="telegram"') < markup.index('data-inline="app"')
     assert 'app.js?v=20260928-02" data-inline="app"></script>' in markup
     assert markup.index('window.addEventListener("error"') < markup.index('data-inline="app"')
     assert "await waitForTelegramContext()" in script
@@ -1021,6 +1022,11 @@ def test_mini_app_is_delivered_without_separate_local_assets() -> None:
 
     assert '<script src="/assets/app.js' not in markup
     assert '<link rel="stylesheet" href="/assets/styles.css' not in markup
+    assert '<script id="telegram-sdk" src=' not in markup
+    assert "WebView.postEvent('web_app_ready')" in markup
+    assert markup.index("WebView.postEvent('web_app_ready')") < markup.index(
+        "function telegramWebApp()"
+    )
     assert "new XMLHttpRequest()" in markup
     assert ".app-shell" in markup
 

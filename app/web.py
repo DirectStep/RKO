@@ -246,14 +246,21 @@ def build_mini_app_html() -> str:
     markup = (ASSETS_DIR / "index.html").read_text(encoding="utf-8")
     styles = (ASSETS_DIR / "styles.css").read_text(encoding="utf-8")
     script = (ASSETS_DIR / "app.js").read_text(encoding="utf-8")
+    telegram_sdk = (ASSETS_DIR / "vendor" / "telegram-web-app.js").read_text(encoding="utf-8")
     style_marker = (
         '<link rel="stylesheet" href="/assets/styles.css?v=20260928-02" data-inline="styles" />'
     )
     script_marker = '<script src="/assets/app.js?v=20260928-02" data-inline="app"></script>'
-    if style_marker not in markup or script_marker not in markup:
+    telegram_marker = (
+        '<script id="telegram-sdk" src="/assets/vendor/telegram-web-app.js?v=124bdff7" '
+        'data-inline="telegram"></script>'
+    )
+    if any(marker not in markup for marker in (style_marker, script_marker, telegram_marker)):
         raise RuntimeError("Не найдены точки встраивания файлов мини-приложения")
-    return markup.replace(style_marker, f"<style>{styles}</style>", 1).replace(
-        script_marker, f"<script>{script}</script>", 1
+    return (
+        markup.replace(style_marker, f"<style>{styles}</style>", 1)
+        .replace(script_marker, f"<script>{script}</script>", 1)
+        .replace(telegram_marker, f'<script id="telegram-sdk">{telegram_sdk}</script>', 1)
     )
 
 
