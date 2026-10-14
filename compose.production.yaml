@@ -10,6 +10,10 @@ services:
         max-file: "3"
 
   bot:
+    # The DNS-selected Telegram endpoint is unreachable from this VPS.
+    # Keep the API hostname and normal TLS verification, using a reachable IPv4.
+    extra_hosts:
+      - "api.telegram.org=${TELEGRAM_API_IPV4:-149.154.167.220}"
     environment:
       APP_ENV: production
       MINI_APP_DEV_TELEGRAM_ID: ""
