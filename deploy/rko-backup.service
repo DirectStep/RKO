@@ -1,0 +1,9 @@
+[Unit]
+Description=RKO PostgreSQL backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /opt/rko/deploy/backup.sh
+UMask=0077

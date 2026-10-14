@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily RKO database backup
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 Europe/Moscow
+Persistent=true
+RandomizedDelaySec=5m
+
+[Install]
+WantedBy=timers.target

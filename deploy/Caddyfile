@@ -1,0 +1,9 @@
+app.xn--j1aalbgc.xn--p1ai {
+    encode zstd gzip
+    reverse_proxy bot:8090
+}
+
+http://89.111.173.217 {
+    respond /healthz "ok" 200
+    respond "Not found" 404
+}
