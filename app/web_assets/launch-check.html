@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Проверка запуска РКО</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 32px 20px; padding-bottom: max(32px, env(safe-area-inset-bottom)); background: #f7f5f0; color: #242424; font: 17px/1.5 system-ui, sans-serif; }
+      main { max-width: 520px; margin: auto; }
+      h1 { font-size: 28px; line-height: 1.2; }
+      li { margin: 12px 0; overflow-wrap: anywhere; }
+      a { display: inline-flex; align-items: center; min-height: 48px; padding: 12px 20px; background: #2d719d; color: white; border-radius: 12px; text-decoration: none; }
+      small { display: block; margin-top: 24px; color: #666; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Проверка запуска</h1>
+      <ul>
+        <li>Страница загружена</li>
+        <li id="script">Ожидаем запуск кода…</li>
+        <li id="bridge">Проверяем связь с Telegram…</li>
+        <li id="context">Проверяем данные запуска…</li>
+      </ul>
+      <a id="open-cabinet" href="/">Открыть кабинет</a>
+      <small>Покажите этот экран Стёпе. Пароли и данные авторизации не передаются в диагностические отметки.</small>
+    </main>
+    <script>
+      (function () {
+        var images = [];
+        var sent = false;
+        function parameter(name) {
+          var match = (location.search + '&' + location.hash.slice(1)).match(new RegExp('(?:[?&]|^)' + name + '=([^&]*)'));
+          if (!match) return '';
+          try { return decodeURIComponent(match[1]); } catch (error) { return ''; }
+        }
+        function safe(value) { return value.replace(/[^a-zA-Z0-9._-]/g, '').slice(0, 32); }
+        var run = safe(parameter('run'));
+        var platform = safe(parameter('tgWebAppPlatform')) || 'unknown';
+        var version = safe(parameter('tgWebAppVersion')) || 'unknown';
+        var hasData = Boolean(parameter('tgWebAppData'));
+        function transport() {
+          if (window.TelegramWebviewProxy && typeof window.TelegramWebviewProxy.postEvent === 'function') return 'native';
+          if (window.external && typeof window.external.notify === 'function') return 'external';
+          if (window.parent !== window) return 'iframe';
+          return 'none';
+        }
+        function mark(stage) {
+          var image = new Image();
+          images.push(image);
+          image.src = location.pathname + '?probe=1&run=' + run + '&stage=' + stage + '&bridge=' + transport() + '&platform=' + platform + '&version=' + version + '&has_data=' + Number(hasData) + '&ready_sent=' + Number(sent) + '&t=' + Date.now();
+        }
+        function ready(stage) {
+          var bridge = transport();
+          try {
+            if (bridge === 'native') {
+              window.TelegramWebviewProxy.postEvent('web_app_ready', JSON.stringify(''));
+              sent = true;
+            } else if (bridge === 'external') {
+              window.external.notify(JSON.stringify({ eventType: 'web_app_ready', eventData: '' }));
+              sent = true;
+            } else if (bridge === 'iframe') {
+              window.parent.postMessage(JSON.stringify({ eventType: 'web_app_ready', eventData: '' }), '*');
+              sent = true;
+            }
+          } catch (error) {
+            document.getElementById('bridge').textContent = 'Ошибка отправки сигнала Telegram';
+            mark('bridge-error');
+            return;
+          }
+          document.getElementById('bridge').textContent = sent ? 'Сигнал готовности отправлен: ' + bridge : 'Связь с Telegram пока не обнаружена';
+          mark(stage);
+        }
+        document.getElementById('script').textContent = 'Код страницы запущен';
+        document.getElementById('context').textContent = 'Данные Telegram: ' + (hasData ? 'есть' : 'нет') + '; платформа: ' + platform + '; версия: ' + version;
+        var returnHash = location.hash || (hasData ? '#tgWebAppData=' + encodeURIComponent(parameter('tgWebAppData')) + '&tgWebAppPlatform=' + platform + '&tgWebAppVersion=' + version : '');
+        document.getElementById('open-cabinet').href = '/?v=20261014-launch-check' + returnHash;
+        ready('start');
+        window.addEventListener('load', function () { ready('load'); });
+        window.setTimeout(function () { ready('retry-1s'); }, 1000);
+        window.setTimeout(function () { ready('retry-5s'); }, 5000);
+      })();
+    </script>
+  </body>
+</html>
